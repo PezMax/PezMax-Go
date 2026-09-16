@@ -1,0 +1,120 @@
+name: kadmin-go-admin
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kadmin-go-admin-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${KADMIN_DB_NAME:-kadmin}
+      POSTGRES_USER: ${KADMIN_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${KADMIN_DB_PASSWORD:-kadmin_dev_pwd}
+      TZ: Asia/Shanghai
+      PGTZ: Asia/Shanghai
+    ports:
+      - "${KADMIN_DB_PORT:-15432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./tests/data/admin_pg.sql:/docker-entrypoint-initdb.d/10-admin_pg.sql:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    container_name: kadmin-go-admin-redis
+    restart: unless-stopped
+    environment:
+      KADMIN_REDIS_PASSWORD: ${KADMIN_REDIS_PASSWORD:-kadmin_redis_pwd}
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${KADMIN_REDIS_PASSWORD:-kadmin_redis_pwd}
+    ports:
+      - "${KADMIN_REDIS_PORT:-16379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${KADMIN_REDIS_PASSWORD}\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  minio:
+    image: minio/minio:latest
+    container_name: kadmin-go-admin-minio
+    restart: unless-stopped
+    profiles:
+      - storage
+    environment:
+      MINIO_ROOT_USER: ${KADMIN_MINIO_ACCESS_KEY:-kadmin_minio}
+      MINIO_ROOT_PASSWORD: ${KADMIN_MINIO_SECRET_KEY:-kadmin_minio_pwd}
+      TZ: Asia/Shanghai
+    command:
+      - server
+      - /data
+      - --console-address
+      - ":9001"
+    ports:
+      - "${KADMIN_MINIO_API_PORT:-19000}:9000"
+      - "${KADMIN_MINIO_CONSOLE_PORT:-19001}:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - backend
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: kadmin-go-admin-minio-init
+    profiles:
+      - storage
+    environment:
+      MINIO_ROOT_USER: ${KADMIN_MINIO_ACCESS_KEY:-kadmin_minio}
+      MINIO_ROOT_PASSWORD: ${KADMIN_MINIO_SECRET_KEY:-kadmin_minio_pwd}
+      MINIO_BUCKET: ${KADMIN_MINIO_BUCKET:-kadmin}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do sleep 2; done
+        mc mb --ignore-existing "local/$$MINIO_BUCKET"
+    networks:
+      - backend
+    depends_on:
+      - minio
+
+  adminer:
+    image: adminer:4.8.1
+    container_name: kadmin-go-admin-adminer
+    restart: unless-stopped
+    profiles:
+      - tools
+    ports:
+      - "${KADMIN_ADMINER_PORT:-18080}:8080"
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+  backend:
+    name: kadmin-go-admin-backend
+
+volumes:
+  postgres_data:
+    name: kadmin-go-admin-postgres-data
+  redis_data:
+    name: kadmin-go-admin-redis-data
+  minio_data:
+    name: kadmin-go-admin-minio-data

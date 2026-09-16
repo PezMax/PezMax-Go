@@ -1,6 +1,0 @@
-[submodule "PezMax-Desktop"]
-	path = PezMax-Desktop
-	url = https://github.com/PezMax/PezMax-Desktop.git
-[submodule "k_admin"]
-	path = k_admin
-	url = https://github.com/wlklssd/k_admin.git

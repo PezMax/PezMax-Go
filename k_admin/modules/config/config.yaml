@@ -1,0 +1,30 @@
+---
+database:
+  default:
+    host: 127.0.0.1
+    port: '1433'
+    user: sa
+    pwd: Aa123456
+    name: goadmin
+    max_idle_con: 50
+    max_open_con: 150
+    driver: mssql
+domain: localhost
+prefix: admin
+store:
+  path: "./uploads"
+  prefix: uploads
+extra:
+  minio:
+    enabled: false
+    endpoint: 127.0.0.1:19000
+    internal_endpoint: minio:9000
+    access_key: kadmin_minio
+    secret_key: kadmin_minio_pwd
+    bucket: kadmin
+    use_ssl: false
+language: en
+index: "/"
+debug: true
+open_admin_api: true
+color_scheme: skin-black
