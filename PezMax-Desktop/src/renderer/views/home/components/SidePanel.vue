@@ -973,7 +973,7 @@ const submitBookmark = async () => {
       } else {
         isUploadingCover.value = true
         const token = getToken()
-        const baseUrl = import.meta.env.VITE_APP_TARGET_URL || 'http://localhost:8080'
+        const baseUrl = import.meta.env.VITE_APP_TARGET_URL || 'http://127.0.0.1:9033'
         const customApiUrl = baseUrl + '/datum/bookmark/uploadCover'
 
         const metadata = {

@@ -787,7 +787,7 @@ const formatTreeData = (nodes) => {
 
     // 如果 URL 是相对路径，拼上后端基础地址
     if (url && !url.startsWith('http')) {
-      const baseUrl = import.meta.env.VITE_APP_TARGET_URL || 'http://localhost:8080'
+      const baseUrl = import.meta.env.VITE_APP_TARGET_URL || 'http://127.0.0.1:9033'
       url = url.startsWith('/') ? baseUrl + url : baseUrl + '/' + url
     }
 

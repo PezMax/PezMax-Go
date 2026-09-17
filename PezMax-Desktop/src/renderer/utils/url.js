@@ -15,7 +15,7 @@
 export function normalizeFileUrl(url) {
   if (!url || typeof url !== 'string') return ''
   
-  const targetUrl = import.meta.env.VITE_APP_TARGET_URL || 'http://localhost:8080'
+  const targetUrl = import.meta.env.VITE_APP_TARGET_URL || 'http://127.0.0.1:9033'
   const isProd = import.meta.env.VITE_APP_ENV === 'production'
   
   // 1. 处理相对路径 (如 /profile/upload/...)

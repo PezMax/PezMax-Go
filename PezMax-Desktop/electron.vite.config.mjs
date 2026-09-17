@@ -13,7 +13,7 @@ export default defineConfig(({ mode, command }) => {
   const { VITE_APP_ENV, VITE_APP_TARGET_URL } = env
   
   // 优先从环境变量获取后端地址，开发环境默认为 localhost
-  const baseUrl = VITE_APP_TARGET_URL || 'http://localhost:8080'
+  const baseUrl = VITE_APP_TARGET_URL || 'http://127.0.0.1:9033'
 
   return {
     main: {

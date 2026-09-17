@@ -787,7 +787,7 @@ app.whenReady().then(() => {
         }
       }
 
-      let apiUrl = customApiUrl || (baseUrl ? `${baseUrl}/datum/file` : 'http://localhost:8080/datum/file')
+      let apiUrl = customApiUrl || (baseUrl ? `${baseUrl}/datum/file` : 'http://127.0.0.1:9033/datum/file')
 
       console.log('upload-file 请求准备:', {
         apiUrl,
