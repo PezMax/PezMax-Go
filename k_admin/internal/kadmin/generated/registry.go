@@ -4,7 +4,7 @@
 package generated
 
 import (
-	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/product"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/bookmark"
 	"github.com/GoAdminGroup/go-admin/modules/db"
 	"github.com/gin-gonic/gin"
 )
@@ -20,7 +20,7 @@ type Dependencies struct {
 
 // RegisterAll installs every generated module on the KAdmin API group.
 func RegisterAll(api *gin.RouterGroup, deps Dependencies) error {
-	if err := product.Register(api, product.Dependencies{
+	if err := bookmark.Register(api, bookmark.Dependencies{
 		Connection:              deps.Connection,
 		RequireAuth:             deps.RequireAuth,
 		RequirePermission:       deps.RequirePermission,
