@@ -5,6 +5,14 @@ package generated
 
 import (
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/bookmark"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/bookmark_favorite"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/bookmark_report"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/file"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/file_download"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/notification"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/platform_user"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/report"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/user_security"
 	"github.com/GoAdminGroup/go-admin/modules/db"
 	"github.com/gin-gonic/gin"
 )
@@ -21,6 +29,78 @@ type Dependencies struct {
 // RegisterAll installs every generated module on the KAdmin API group.
 func RegisterAll(api *gin.RouterGroup, deps Dependencies) error {
 	if err := bookmark.Register(api, bookmark.Dependencies{
+		Connection:              deps.Connection,
+		RequireAuth:             deps.RequireAuth,
+		RequirePermission:       deps.RequirePermission,
+		RegisterAuditResource:   deps.RegisterAuditResource,
+		RegisterIdempotentRoute: deps.RegisterIdempotentRoute,
+	}); err != nil {
+		return err
+	}
+	if err := bookmark_favorite.Register(api, bookmark_favorite.Dependencies{
+		Connection:              deps.Connection,
+		RequireAuth:             deps.RequireAuth,
+		RequirePermission:       deps.RequirePermission,
+		RegisterAuditResource:   deps.RegisterAuditResource,
+		RegisterIdempotentRoute: deps.RegisterIdempotentRoute,
+	}); err != nil {
+		return err
+	}
+	if err := bookmark_report.Register(api, bookmark_report.Dependencies{
+		Connection:              deps.Connection,
+		RequireAuth:             deps.RequireAuth,
+		RequirePermission:       deps.RequirePermission,
+		RegisterAuditResource:   deps.RegisterAuditResource,
+		RegisterIdempotentRoute: deps.RegisterIdempotentRoute,
+	}); err != nil {
+		return err
+	}
+	if err := file.Register(api, file.Dependencies{
+		Connection:              deps.Connection,
+		RequireAuth:             deps.RequireAuth,
+		RequirePermission:       deps.RequirePermission,
+		RegisterAuditResource:   deps.RegisterAuditResource,
+		RegisterIdempotentRoute: deps.RegisterIdempotentRoute,
+	}); err != nil {
+		return err
+	}
+	if err := file_download.Register(api, file_download.Dependencies{
+		Connection:              deps.Connection,
+		RequireAuth:             deps.RequireAuth,
+		RequirePermission:       deps.RequirePermission,
+		RegisterAuditResource:   deps.RegisterAuditResource,
+		RegisterIdempotentRoute: deps.RegisterIdempotentRoute,
+	}); err != nil {
+		return err
+	}
+	if err := notification.Register(api, notification.Dependencies{
+		Connection:              deps.Connection,
+		RequireAuth:             deps.RequireAuth,
+		RequirePermission:       deps.RequirePermission,
+		RegisterAuditResource:   deps.RegisterAuditResource,
+		RegisterIdempotentRoute: deps.RegisterIdempotentRoute,
+	}); err != nil {
+		return err
+	}
+	if err := report.Register(api, report.Dependencies{
+		Connection:              deps.Connection,
+		RequireAuth:             deps.RequireAuth,
+		RequirePermission:       deps.RequirePermission,
+		RegisterAuditResource:   deps.RegisterAuditResource,
+		RegisterIdempotentRoute: deps.RegisterIdempotentRoute,
+	}); err != nil {
+		return err
+	}
+	if err := user_security.Register(api, user_security.Dependencies{
+		Connection:              deps.Connection,
+		RequireAuth:             deps.RequireAuth,
+		RequirePermission:       deps.RequirePermission,
+		RegisterAuditResource:   deps.RegisterAuditResource,
+		RegisterIdempotentRoute: deps.RegisterIdempotentRoute,
+	}); err != nil {
+		return err
+	}
+	if err := platform_user.Register(api, platform_user.Dependencies{
 		Connection:              deps.Connection,
 		RequireAuth:             deps.RequireAuth,
 		RequirePermission:       deps.RequirePermission,

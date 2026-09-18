@@ -20,6 +20,9 @@ var reservedRoutePrefixes = map[string]bool{
 	"login-audits": true, "menu": true, "logs": true, "monitor": true,
 	"load-ranking": true, "auth": true, "codegen": true, "departments": true,
 	"roles": true, "permissions": true,
+	// 内置站内信 notifications 模块（app.go notifications.Register）占用的前缀，
+	// 业务生成模块不得复用（曾导致 /api/notifications 重复注册启动失败）
+	"notifications": true,
 }
 
 var (
@@ -129,7 +132,11 @@ type templateModel struct {
 	UpdateArgs            string
 	KeywordClause         string
 	KeywordArgs           string
-	Modules               []registryModule
+	// PKColumn 是主键的数据库列名（复合主键取第一列），PKJSONName 是其 JSON
+	// 字段名（驼峰）。模板 SQL 与前端行键都引用它们，不能写死 "id"。
+	PKColumn   string
+	PKJSONName string
+	Modules    []registryModule
 }
 
 func buildTemplateModel(config TableConfig, registryModules []registryModule) (templateModel, error) {
@@ -191,6 +198,14 @@ func buildTemplateModel(config TableConfig, registryModules []registryModule) (t
 		model.ListedColumns[0].First = true
 	}
 	model.Columns = columns
+	pkColumn, pkJSONName := "id", "id"
+	for _, column := range columns {
+		if column.IsPK {
+			pkColumn, pkJSONName = column.Name, column.JSONName
+			break
+		}
+	}
+	model.PKColumn, model.PKJSONName = pkColumn, pkJSONName
 	model.SelectList = strings.Join(allColumnNames(columns), ", ")
 	writableNames := make([]string, 0, len(model.WritableColumns))
 	insertPlaceholders := make([]string, 0, len(model.WritableColumns))

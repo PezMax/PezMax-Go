@@ -3,8 +3,8 @@
   <div class="page-stack">
     <section class="page-heading">
       <div>
-        <h1>[[.Business]]</h1>
-        <p>代码生成器生成 · 表 [[.Table]]</p>
+        <h1>下载记录</h1>
+        <p>代码生成器生成 · 表 ptmj_file_download</p>
       </div>
       <a-space wrap>
         <a-button :loading="loading" @click="fetchList">
@@ -17,21 +17,53 @@
         </a-button>
       </a-space>
     </section>
-
-[[- if .QueryColumns]]
     <section class="panel">
       <a-form :model="filters" layout="inline" class="search-form">
-[[- range .QueryColumns]]
-        <a-form-item label="[[.Label]]">
+        <a-form-item label="Creat By">
           <a-input
-            v-model:value="filters.[[.JSONName]]"
+            v-model:value="filters.creatBy"
             allow-clear
             class="control-md"
-            placeholder="[[.Label]]"
+            placeholder="Creat By"
             @press-enter="search"
           />
         </a-form-item>
-[[- end]]
+        <a-form-item label="Creat Time">
+          <a-input
+            v-model:value="filters.creatTime"
+            allow-clear
+            class="control-md"
+            placeholder="Creat Time"
+            @press-enter="search"
+          />
+        </a-form-item>
+        <a-form-item label="Update By">
+          <a-input
+            v-model:value="filters.updateBy"
+            allow-clear
+            class="control-md"
+            placeholder="Update By"
+            @press-enter="search"
+          />
+        </a-form-item>
+        <a-form-item label="Update Time">
+          <a-input
+            v-model:value="filters.updateTime"
+            allow-clear
+            class="control-md"
+            placeholder="Update Time"
+            @press-enter="search"
+          />
+        </a-form-item>
+        <a-form-item label="Remark">
+          <a-input
+            v-model:value="filters.remark"
+            allow-clear
+            class="control-md"
+            placeholder="Remark"
+            @press-enter="search"
+          />
+        </a-form-item>
         <a-form-item>
           <a-space wrap>
             <a-button type="primary" @click="search"><SearchOutlined />查询</a-button>
@@ -40,7 +72,6 @@
         </a-form-item>
       </a-form>
     </section>
-[[- end]]
 
     <a-alert
       v-if="errorText"
@@ -57,7 +88,7 @@
         <a-tag color="blue">共 {{ total }} 条</a-tag>
       </div>
       <a-table
-        row-key="{{.PKJSONName}}"
+        row-key="downloadId"
         class="compact-user-table"
         size="small"
         :columns="columns"
@@ -68,17 +99,30 @@
         @change="handleTableChange"
       >
         <template #bodyCell="{ column, record }">
-[[- range .ListedColumns]]
-          <template [[if .First]]v-if[[else]]v-else-if[[end]]="column.key === '[[.JSONName]]'">
-[[- if eq .Control "switch"]]
-            <a-tag :color="record.[[.JSONName]] ? 'green' : 'default'">{{ record.[[.JSONName]] ? '是' : '否' }}</a-tag>
-[[- else if eq .Control "textarea"]]
-            <a-typography-text :content="record.[[.JSONName]] || '-'" ellipsis />
-[[- else]]
-            {{ record.[[.JSONName]] ?? '-' }}
-[[- end]]
+          <template v-if="column.key === 'downloadId'">
+            {{ record.downloadId ?? '-' }}
           </template>
-[[- end]]
+          <template v-else-if="column.key === 'fileId'">
+            {{ record.fileId ?? '-' }}
+          </template>
+          <template v-else-if="column.key === 'userId'">
+            {{ record.userId ?? '-' }}
+          </template>
+          <template v-else-if="column.key === 'creatBy'">
+            {{ record.creatBy ?? '-' }}
+          </template>
+          <template v-else-if="column.key === 'creatTime'">
+            {{ record.creatTime ?? '-' }}
+          </template>
+          <template v-else-if="column.key === 'updateBy'">
+            {{ record.updateBy ?? '-' }}
+          </template>
+          <template v-else-if="column.key === 'updateTime'">
+            {{ record.updateTime ?? '-' }}
+          </template>
+          <template v-else-if="column.key === 'remark'">
+            <a-typography-text :content="record.remark || '-'" ellipsis />
+          </template>
           <template v-else-if="column.key === 'action'">
             <a-space :size="2">
               <a-tooltip v-if="canUpdate" title="编辑">
@@ -105,7 +149,7 @@
 
     <a-modal
       :open="modalOpen"
-      :title="editingId ? '编辑[[.Business]]' : '新增[[.Business]]'"
+      :title="editingId ? '编辑下载记录' : '新增下载记录'"
       :confirm-loading="submitting"
       :mask-closable="false"
       :destroy-on-close="true"
@@ -114,58 +158,48 @@
       @cancel="requestClose"
     >
       <a-form ref="formRef" :model="formState" :rules="rules" layout="vertical">
-[[- range .WritableColumns]]
-        <a-form-item name="[[.JSONName]]" label="[[.Label]]">
-[[- if eq .Control "textarea"]]
-          <a-textarea
-            v-model:value="formState.[[.JSONName]]"
-            :rows="3"
-            placeholder="请输入[[.Label]]"
+        <a-form-item name="creatBy" label="Creat By">
+          <a-input
+            v-model:value="formState.creatBy"
+            placeholder="请输入Creat By"
             @change="markDirty"
           />
-[[- else if eq .Control "number"]]
-          <a-input-number
-            v-model:value="formState.[[.JSONName]]"
-            style="width: 100%"
-            placeholder="请输入[[.Label]]"
-            @change="markDirty"
-          />
-[[- else if eq .Control "switch"]]
-          <a-switch v-model:checked="formState.[[.JSONName]]" @change="markDirty" />
-[[- else if eq .Control "datetime"]]
+        </a-form-item>
+        <a-form-item name="creatTime" label="Creat Time">
           <a-date-picker
-            v-model:value="formState.[[.JSONName]]"
+            v-model:value="formState.creatTime"
             show-time
             value-format="YYYY-MM-DD HH:mm:ss"
             style="width: 100%"
-            placeholder="请选择[[.Label]]"
+            placeholder="请选择Creat Time"
             @change="markDirty"
           />
-[[- else if eq .Control "date"]]
-          <a-date-picker
-            v-model:value="formState.[[.JSONName]]"
-            value-format="YYYY-MM-DD"
-            style="width: 100%"
-            placeholder="请选择[[.Label]]"
-            @change="markDirty"
-          />
-[[- else if eq .Control "time"]]
-          <a-time-picker
-            v-model:value="formState.[[.JSONName]]"
-            value-format="HH:mm:ss"
-            style="width: 100%"
-            placeholder="请选择[[.Label]]"
-            @change="markDirty"
-          />
-[[- else]]
-          <a-input
-            v-model:value="formState.[[.JSONName]]"
-            placeholder="请输入[[.Label]]"
-            @change="markDirty"
-          />
-[[- end]]
         </a-form-item>
-[[- end]]
+        <a-form-item name="updateBy" label="Update By">
+          <a-input
+            v-model:value="formState.updateBy"
+            placeholder="请输入Update By"
+            @change="markDirty"
+          />
+        </a-form-item>
+        <a-form-item name="updateTime" label="Update Time">
+          <a-date-picker
+            v-model:value="formState.updateTime"
+            show-time
+            value-format="YYYY-MM-DD HH:mm:ss"
+            style="width: 100%"
+            placeholder="请选择Update Time"
+            @change="markDirty"
+          />
+        </a-form-item>
+        <a-form-item name="remark" label="Remark">
+          <a-textarea
+            v-model:value="formState.remark"
+            :rows="3"
+            placeholder="请输入Remark"
+            @change="markDirty"
+          />
+        </a-form-item>
       </a-form>
     </a-modal>
   </div>
@@ -185,38 +219,45 @@ import { message, Modal, type FormInstance } from 'ant-design-vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 
 import {
-  create[[.Class]],
-  delete[[.Class]],
-  get[[.Class]]List,
-  update[[.Class]],
-  type [[.Class]],
-  type [[.Class]]Payload,
-} from '#/api/kadmin/generated/[[.Module]]';
+  createFileDownload,
+  deleteFileDownload,
+  getFileDownloadList,
+  updateFileDownload,
+  type FileDownload,
+  type FileDownloadPayload,
+} from '#/api/kadmin/generated/file_download';
 
 type TablePagination = { current?: number; pageSize?: number };
 
 const { hasAccessByCodes } = useAccess();
-const canCreate = computed(() => hasAccessByCodes(['system:[[.Module]]:create', '*']));
-const canUpdate = computed(() => hasAccessByCodes(['system:[[.Module]]:update', '*']));
-const canDelete = computed(() => hasAccessByCodes(['system:[[.Module]]:delete', '*']));
+const canCreate = computed(() => hasAccessByCodes(['system:file_download:create', '*']));
+const canUpdate = computed(() => hasAccessByCodes(['system:file_download:update', '*']));
+const canDelete = computed(() => hasAccessByCodes(['system:file_download:delete', '*']));
 
 const loading = ref(false);
 const errorText = ref('');
-const items = ref<[[.Class]][]>([]);
+const items = ref<FileDownload[]>([]);
 const total = ref(0);
 const page = ref(1);
 const pageSize = ref(20);
 
 const filters = reactive<Record<string, string>>({
-[[- range .QueryColumns]]
-  [[.JSONName]]: '',
-[[- end]]
+  creatBy: '',
+  creatTime: '',
+  updateBy: '',
+  updateTime: '',
+  remark: '',
 });
 
 const columns = [
-[[- range .ListedColumns]]
-  { title: '[[.Label]]', dataIndex: '[[.JSONName]]', key: '[[.JSONName]]', width: 160, ellipsis: true },
-[[- end]]
+  { title: 'Download Id', dataIndex: 'downloadId', key: 'downloadId', width: 160, ellipsis: true },
+  { title: 'File Id', dataIndex: 'fileId', key: 'fileId', width: 160, ellipsis: true },
+  { title: 'User Id', dataIndex: 'userId', key: 'userId', width: 160, ellipsis: true },
+  { title: 'Creat By', dataIndex: 'creatBy', key: 'creatBy', width: 160, ellipsis: true },
+  { title: 'Creat Time', dataIndex: 'creatTime', key: 'creatTime', width: 160, ellipsis: true },
+  { title: 'Update By', dataIndex: 'updateBy', key: 'updateBy', width: 160, ellipsis: true },
+  { title: 'Update Time', dataIndex: 'updateTime', key: 'updateTime', width: 160, ellipsis: true },
+  { title: 'Remark', dataIndex: 'remark', key: 'remark', width: 160, ellipsis: true },
   { title: '操作', key: 'action', width: 120, fixed: 'right' },
 ];
 
@@ -233,12 +274,14 @@ async function fetchList() {
   loading.value = true;
   errorText.value = '';
   try {
-    const result = await get[[.Class]]List({
+    const result = await getFileDownloadList({
       page: page.value,
       pageSize: pageSize.value,
-[[- range .QueryColumns]]
-      [[.JSONName]]: filters.[[.JSONName]] || undefined,
-[[- end]]
+      creatBy: filters.creatBy || undefined,
+      creatTime: filters.creatTime || undefined,
+      updateBy: filters.updateBy || undefined,
+      updateTime: filters.updateTime || undefined,
+      remark: filters.remark || undefined,
     });
     items.value = result.items;
     total.value = result.total;
@@ -255,9 +298,11 @@ function search() {
 }
 
 function resetSearch() {
-[[- range .QueryColumns]]
-  filters.[[.JSONName]] = '';
-[[- end]]
+  filters.creatBy = '';
+  filters.creatTime = '';
+  filters.updateBy = '';
+  filters.updateTime = '';
+  filters.remark = '';
   search();
 }
 
@@ -274,32 +319,35 @@ const formRef = ref<FormInstance>();
 const dirty = ref(false);
 
 const formState = reactive<Record<string, any>>({
-[[- range .WritableColumns]]
-  [[.JSONName]]: [[.Default]],
-[[- end]]
+  creatBy: '',
+  creatTime: '',
+  updateBy: '',
+  updateTime: '',
+  remark: '',
 });
 
 const rules: Record<string, unknown> = {
-[[- range .RequiredColumns]]
-  [[.JSONName]]: [{ required: true, message: '请输入[[.Label]]', trigger: 'blur' }],
-[[- end]]
 };
 
 function openCreate() {
   editingId.value = null;
   dirty.value = false;
-[[- range .WritableColumns]]
-  formState.[[.JSONName]] = [[.Default]];
-[[- end]]
+  formState.creatBy = '';
+  formState.creatTime = '';
+  formState.updateBy = '';
+  formState.updateTime = '';
+  formState.remark = '';
   modalOpen.value = true;
 }
 
-async function openEdit(record: [[.Class]]) {
-  editingId.value = record.{{.PKJSONName}};
+async function openEdit(record: FileDownload) {
+  editingId.value = record.downloadId;
   dirty.value = false;
-[[- range .WritableColumns]]
-  formState.[[.JSONName]] = record.[[.JSONName]];
-[[- end]]
+  formState.creatBy = record.creatBy;
+  formState.creatTime = record.creatTime;
+  formState.updateBy = record.updateBy;
+  formState.updateTime = record.updateTime;
+  formState.remark = record.remark;
   modalOpen.value = true;
 }
 
@@ -336,15 +384,17 @@ async function submit() {
   submitting.value = true;
   try {
     const payload = {
-[[- range .WritableColumns]]
-      [[.JSONName]]: formState.[[.JSONName]],
-[[- end]]
-    } as [[.Class]]Payload;
+      creatBy: formState.creatBy,
+      creatTime: formState.creatTime,
+      updateBy: formState.updateBy,
+      updateTime: formState.updateTime,
+      remark: formState.remark,
+    } as FileDownloadPayload;
     if (editingId.value === null) {
-      await create[[.Class]](payload);
+      await createFileDownload(payload);
       message.success('新增成功');
     } else {
-      await update[[.Class]](editingId.value, payload);
+      await updateFileDownload(editingId.value, payload);
       message.success('修改成功');
     }
     modalOpen.value = false;
@@ -357,9 +407,9 @@ async function submit() {
   }
 }
 
-async function remove(record: [[.Class]]) {
+async function remove(record: FileDownload) {
   try {
-    await delete[[.Class]](record.{{.PKJSONName}});
+    await deleteFileDownload(record.downloadId);
     message.success('删除成功');
     await fetchList();
   } catch (error) {

@@ -3,8 +3,8 @@
   <div class="page-stack">
     <section class="page-heading">
       <div>
-        <h1>[[.Business]]</h1>
-        <p>代码生成器生成 · 表 [[.Table]]</p>
+        <h1>书签收藏</h1>
+        <p>代码生成器生成 · 表 ptmj_bookmark_favorite</p>
       </div>
       <a-space wrap>
         <a-button :loading="loading" @click="fetchList">
@@ -17,30 +17,6 @@
         </a-button>
       </a-space>
     </section>
-
-[[- if .QueryColumns]]
-    <section class="panel">
-      <a-form :model="filters" layout="inline" class="search-form">
-[[- range .QueryColumns]]
-        <a-form-item label="[[.Label]]">
-          <a-input
-            v-model:value="filters.[[.JSONName]]"
-            allow-clear
-            class="control-md"
-            placeholder="[[.Label]]"
-            @press-enter="search"
-          />
-        </a-form-item>
-[[- end]]
-        <a-form-item>
-          <a-space wrap>
-            <a-button type="primary" @click="search"><SearchOutlined />查询</a-button>
-            <a-button @click="resetSearch"><ClearOutlined />重置</a-button>
-          </a-space>
-        </a-form-item>
-      </a-form>
-    </section>
-[[- end]]
 
     <a-alert
       v-if="errorText"
@@ -57,7 +33,7 @@
         <a-tag color="blue">共 {{ total }} 条</a-tag>
       </div>
       <a-table
-        row-key="{{.PKJSONName}}"
+        row-key="bookmarkId"
         class="compact-user-table"
         size="small"
         :columns="columns"
@@ -68,17 +44,12 @@
         @change="handleTableChange"
       >
         <template #bodyCell="{ column, record }">
-[[- range .ListedColumns]]
-          <template [[if .First]]v-if[[else]]v-else-if[[end]]="column.key === '[[.JSONName]]'">
-[[- if eq .Control "switch"]]
-            <a-tag :color="record.[[.JSONName]] ? 'green' : 'default'">{{ record.[[.JSONName]] ? '是' : '否' }}</a-tag>
-[[- else if eq .Control "textarea"]]
-            <a-typography-text :content="record.[[.JSONName]] || '-'" ellipsis />
-[[- else]]
-            {{ record.[[.JSONName]] ?? '-' }}
-[[- end]]
+          <template v-if="column.key === 'bookmarkId'">
+            {{ record.bookmarkId ?? '-' }}
           </template>
-[[- end]]
+          <template v-else-if="column.key === 'userId'">
+            {{ record.userId ?? '-' }}
+          </template>
           <template v-else-if="column.key === 'action'">
             <a-space :size="2">
               <a-tooltip v-if="canUpdate" title="编辑">
@@ -105,7 +76,7 @@
 
     <a-modal
       :open="modalOpen"
-      :title="editingId ? '编辑[[.Business]]' : '新增[[.Business]]'"
+      :title="editingId ? '编辑书签收藏' : '新增书签收藏'"
       :confirm-loading="submitting"
       :mask-closable="false"
       :destroy-on-close="true"
@@ -114,58 +85,14 @@
       @cancel="requestClose"
     >
       <a-form ref="formRef" :model="formState" :rules="rules" layout="vertical">
-[[- range .WritableColumns]]
-        <a-form-item name="[[.JSONName]]" label="[[.Label]]">
-[[- if eq .Control "textarea"]]
-          <a-textarea
-            v-model:value="formState.[[.JSONName]]"
-            :rows="3"
-            placeholder="请输入[[.Label]]"
-            @change="markDirty"
-          />
-[[- else if eq .Control "number"]]
+        <a-form-item name="userId" label="User Id">
           <a-input-number
-            v-model:value="formState.[[.JSONName]]"
+            v-model:value="formState.userId"
             style="width: 100%"
-            placeholder="请输入[[.Label]]"
+            placeholder="请输入User Id"
             @change="markDirty"
           />
-[[- else if eq .Control "switch"]]
-          <a-switch v-model:checked="formState.[[.JSONName]]" @change="markDirty" />
-[[- else if eq .Control "datetime"]]
-          <a-date-picker
-            v-model:value="formState.[[.JSONName]]"
-            show-time
-            value-format="YYYY-MM-DD HH:mm:ss"
-            style="width: 100%"
-            placeholder="请选择[[.Label]]"
-            @change="markDirty"
-          />
-[[- else if eq .Control "date"]]
-          <a-date-picker
-            v-model:value="formState.[[.JSONName]]"
-            value-format="YYYY-MM-DD"
-            style="width: 100%"
-            placeholder="请选择[[.Label]]"
-            @change="markDirty"
-          />
-[[- else if eq .Control "time"]]
-          <a-time-picker
-            v-model:value="formState.[[.JSONName]]"
-            value-format="HH:mm:ss"
-            style="width: 100%"
-            placeholder="请选择[[.Label]]"
-            @change="markDirty"
-          />
-[[- else]]
-          <a-input
-            v-model:value="formState.[[.JSONName]]"
-            placeholder="请输入[[.Label]]"
-            @change="markDirty"
-          />
-[[- end]]
         </a-form-item>
-[[- end]]
       </a-form>
     </a-modal>
   </div>
@@ -185,38 +112,34 @@ import { message, Modal, type FormInstance } from 'ant-design-vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 
 import {
-  create[[.Class]],
-  delete[[.Class]],
-  get[[.Class]]List,
-  update[[.Class]],
-  type [[.Class]],
-  type [[.Class]]Payload,
-} from '#/api/kadmin/generated/[[.Module]]';
+  createBookmarkFavorite,
+  deleteBookmarkFavorite,
+  getBookmarkFavoriteList,
+  updateBookmarkFavorite,
+  type BookmarkFavorite,
+  type BookmarkFavoritePayload,
+} from '#/api/kadmin/generated/bookmark_favorite';
 
 type TablePagination = { current?: number; pageSize?: number };
 
 const { hasAccessByCodes } = useAccess();
-const canCreate = computed(() => hasAccessByCodes(['system:[[.Module]]:create', '*']));
-const canUpdate = computed(() => hasAccessByCodes(['system:[[.Module]]:update', '*']));
-const canDelete = computed(() => hasAccessByCodes(['system:[[.Module]]:delete', '*']));
+const canCreate = computed(() => hasAccessByCodes(['system:bookmark_favorite:create', '*']));
+const canUpdate = computed(() => hasAccessByCodes(['system:bookmark_favorite:update', '*']));
+const canDelete = computed(() => hasAccessByCodes(['system:bookmark_favorite:delete', '*']));
 
 const loading = ref(false);
 const errorText = ref('');
-const items = ref<[[.Class]][]>([]);
+const items = ref<BookmarkFavorite[]>([]);
 const total = ref(0);
 const page = ref(1);
 const pageSize = ref(20);
 
 const filters = reactive<Record<string, string>>({
-[[- range .QueryColumns]]
-  [[.JSONName]]: '',
-[[- end]]
 });
 
 const columns = [
-[[- range .ListedColumns]]
-  { title: '[[.Label]]', dataIndex: '[[.JSONName]]', key: '[[.JSONName]]', width: 160, ellipsis: true },
-[[- end]]
+  { title: 'Bookmark Id', dataIndex: 'bookmarkId', key: 'bookmarkId', width: 160, ellipsis: true },
+  { title: 'User Id', dataIndex: 'userId', key: 'userId', width: 160, ellipsis: true },
   { title: '操作', key: 'action', width: 120, fixed: 'right' },
 ];
 
@@ -233,12 +156,9 @@ async function fetchList() {
   loading.value = true;
   errorText.value = '';
   try {
-    const result = await get[[.Class]]List({
+    const result = await getBookmarkFavoriteList({
       page: page.value,
       pageSize: pageSize.value,
-[[- range .QueryColumns]]
-      [[.JSONName]]: filters.[[.JSONName]] || undefined,
-[[- end]]
     });
     items.value = result.items;
     total.value = result.total;
@@ -255,9 +175,6 @@ function search() {
 }
 
 function resetSearch() {
-[[- range .QueryColumns]]
-  filters.[[.JSONName]] = '';
-[[- end]]
   search();
 }
 
@@ -274,32 +191,23 @@ const formRef = ref<FormInstance>();
 const dirty = ref(false);
 
 const formState = reactive<Record<string, any>>({
-[[- range .WritableColumns]]
-  [[.JSONName]]: [[.Default]],
-[[- end]]
+  userId: undefined,
 });
 
 const rules: Record<string, unknown> = {
-[[- range .RequiredColumns]]
-  [[.JSONName]]: [{ required: true, message: '请输入[[.Label]]', trigger: 'blur' }],
-[[- end]]
 };
 
 function openCreate() {
   editingId.value = null;
   dirty.value = false;
-[[- range .WritableColumns]]
-  formState.[[.JSONName]] = [[.Default]];
-[[- end]]
+  formState.userId = undefined;
   modalOpen.value = true;
 }
 
-async function openEdit(record: [[.Class]]) {
-  editingId.value = record.{{.PKJSONName}};
+async function openEdit(record: BookmarkFavorite) {
+  editingId.value = record.bookmarkId;
   dirty.value = false;
-[[- range .WritableColumns]]
-  formState.[[.JSONName]] = record.[[.JSONName]];
-[[- end]]
+  formState.userId = record.userId;
   modalOpen.value = true;
 }
 
@@ -336,15 +244,13 @@ async function submit() {
   submitting.value = true;
   try {
     const payload = {
-[[- range .WritableColumns]]
-      [[.JSONName]]: formState.[[.JSONName]],
-[[- end]]
-    } as [[.Class]]Payload;
+      userId: formState.userId,
+    } as BookmarkFavoritePayload;
     if (editingId.value === null) {
-      await create[[.Class]](payload);
+      await createBookmarkFavorite(payload);
       message.success('新增成功');
     } else {
-      await update[[.Class]](editingId.value, payload);
+      await updateBookmarkFavorite(editingId.value, payload);
       message.success('修改成功');
     }
     modalOpen.value = false;
@@ -357,9 +263,9 @@ async function submit() {
   }
 }
 
-async function remove(record: [[.Class]]) {
+async function remove(record: BookmarkFavorite) {
   try {
-    await delete[[.Class]](record.{{.PKJSONName}});
+    await deleteBookmarkFavorite(record.bookmarkId);
     message.success('删除成功');
     await fetchList();
   } catch (error) {

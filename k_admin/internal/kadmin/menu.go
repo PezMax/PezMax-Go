@@ -325,7 +325,10 @@ func (m menuItem) toVbenMenu(children []vbenMenu) vbenMenu {
 		meta["confirmExternal"] = true
 		iframeSrc = ""
 	}
-	if iframeSrc != "" && !hasBinding {
+	// 目录和带子菜单的分支节点不能进入 iframe 模式：vue-router 会把父路由
+	// meta 合并进子路由，iframeSrc 会顺着继承链把子页面的组件全部隐藏。
+	isBranch := m.Type == menuTypeDirectory || len(children) > 0
+	if iframeSrc != "" && !hasBinding && !isBranch {
 		meta["iframeSrc"] = iframeSrc
 	}
 
@@ -343,7 +346,7 @@ func (m menuItem) toVbenMenu(children []vbenMenu) vbenMenu {
 		Children: children,
 	}
 
-	if m.Type == menuTypeDirectory || len(children) > 0 {
+	if isBranch {
 		if len(children) > 0 {
 			menu.Redirect = children[0].Path
 		}
