@@ -12,6 +12,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"image/jpeg"
 	"image/png"
 	"io"
 	"net"
@@ -149,6 +150,13 @@ func splitConfigList(value string) []string {
 }
 
 func (s *securityService) issueCaptcha(ttl time.Duration) (captchaChallenge, error) {
+	return s.issueCaptchaRendered(captchaPNG, ttl)
+}
+
+// issueCaptchaRendered issues a one-time challenge whose image is produced by
+// the given renderer, so callers can pick the wire format: the admin console
+// uses a PNG data URI while the desktop client expects a bare base64 JPEG.
+func (s *securityService) issueCaptchaRendered(render func(string) (string, error), ttl time.Duration) (captchaChallenge, error) {
 	if ttl <= 0 {
 		ttl = defaultCaptchaTTL
 	}
@@ -156,7 +164,7 @@ func (s *securityService) issueCaptcha(ttl time.Duration) (captchaChallenge, err
 	if err != nil {
 		return captchaChallenge{}, err
 	}
-	imageData, err := captchaPNG(answer)
+	imageData, err := render(answer)
 	if err != nil {
 		return captchaChallenge{}, err
 	}
@@ -212,6 +220,33 @@ var captchaDigitGlyphs = [10][7]uint8{
 }
 
 func captchaPNG(answer string) (string, error) {
+	canvas, err := renderCaptcha(answer)
+	if err != nil {
+		return "", err
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, canvas); err != nil {
+		return "", err
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(encoded.Bytes()), nil
+}
+
+// captchaJPEG renders the same digit challenge as a bare base64 JPEG payload.
+// The desktop client prepends its own "data:image/jpeg;base64," prefix, so no
+// data URI scheme is embedded here.
+func captchaJPEG(answer string) (string, error) {
+	canvas, err := renderCaptcha(answer)
+	if err != nil {
+		return "", err
+	}
+	var encoded bytes.Buffer
+	if err := jpeg.Encode(&encoded, canvas, &jpeg.Options{Quality: 90}); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(encoded.Bytes()), nil
+}
+
+func renderCaptcha(answer string) (*image.RGBA, error) {
 	const width, height, scale = 190, 56, 4
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 	draw.Draw(canvas, canvas.Bounds(), &image.Uniform{C: color.RGBA{R: 246, G: 248, B: 251, A: 255}}, image.Point{}, draw.Src)
@@ -219,23 +254,23 @@ func captchaPNG(answer string) (string, error) {
 	for range 9 {
 		x1, err := secureRandomInt(width)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		y1, err := secureRandomInt(height)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		x2, err := secureRandomInt(width)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		y2, err := secureRandomInt(height)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		shade, err := secureRandomInt(35)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		drawCaptchaLine(canvas, x1, y1, x2, y2, color.RGBA{R: uint8(165 + shade), G: uint8(175 + shade), B: uint8(190 + shade), A: 255})
 	}
@@ -248,19 +283,19 @@ func captchaPNG(answer string) (string, error) {
 	}
 	for index, character := range []byte(answer) {
 		if character < '0' || character > '9' {
-			return "", errors.New("captcha contains an unsupported character")
+			return nil, errors.New("captcha contains an unsupported character")
 		}
 		yJitter, err := secureRandomInt(9)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		slant, err := secureRandomInt(3)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		colorIndex, err := secureRandomInt(len(foreground))
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		glyph := captchaDigitGlyphs[character-'0']
 		baseX := 10 + index*29
@@ -280,24 +315,20 @@ func captchaPNG(answer string) (string, error) {
 	for range 140 {
 		x, err := secureRandomInt(width)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		y, err := secureRandomInt(height)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		shade, err := secureRandomInt(80)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		canvas.SetRGBA(x, y, color.RGBA{R: uint8(90 + shade), G: uint8(100 + shade), B: uint8(115 + shade), A: 255})
 	}
 
-	var encoded bytes.Buffer
-	if err := png.Encode(&encoded, canvas); err != nil {
-		return "", err
-	}
-	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(encoded.Bytes()), nil
+	return canvas, nil
 }
 
 func drawCaptchaLine(canvas *image.RGBA, x1, y1, x2, y2 int, lineColor color.RGBA) {

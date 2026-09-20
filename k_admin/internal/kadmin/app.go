@@ -90,6 +90,7 @@ func Register(r *gin.Engine, conn db.Connection) (*Runtime, error) {
 	api.OPTIONS("/*path", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
+	registerDatumRoutes(r, s)
 
 	loginLogManager, err := loginlogs.Register(api, loginlogs.Dependencies{
 		Connection:        s.conn,
