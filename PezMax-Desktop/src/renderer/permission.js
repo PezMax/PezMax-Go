@@ -3,12 +3,11 @@ import { ElMessage } from 'element-plus'
 import NProgress from 'nprogress'
 import 'nprogress/nprogress.css'
 
-import { isHttp, isPathMatch } from '@/utils/validate'
+import { isPathMatch } from '@/utils/validate'
 import { isRelogin } from '@/utils/request'
 import useUserStore from '@/store/modules/user'
 import useLockStore from '@/store/modules/lock'
 import useSettingsStore from '@/store/modules/settings'
-import usePermissionStore from '@/store/modules/permission'
 import { PTMJ_AUTH_ROUTES, PTMJ_AUTH_ROUTE_LIST,isPtmjAuthRoute} from '@/constants/ptmjAuth'
 import { ElMessageBox } from 'element-plus'
 import { getToken, removeToken } from '@/utils/auth'
@@ -68,15 +67,9 @@ router.beforeEach((to, from, next) => {
             return
           }
           isRelogin.show = false
-          usePermissionStore().generateRoutes().then(accessRoutes => {
-            // 根据roles权限生成可访问的路由表
-            accessRoutes.forEach(route => {
-              if (!isHttp(route.path)) {
-                router.addRoute(route) // 动态添加可访问路由表
-              }
-            })
-            next({ ...to, replace: true }) // hack方法 确保addRoutes已完成
-          })
+          // 桌面端路由已全部静态声明（router/index.js constantRoutes），
+          // 拉取完用户信息后直接放行，不再向后端请求 /getRouters 动态路由
+          next({ ...to, replace: true })
         }).catch(err => {
           useUserStore().logOut().then(() => {
             removeToken()//LYZ四次修改：被封号直接删除token

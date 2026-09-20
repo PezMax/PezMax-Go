@@ -1,11 +1,14 @@
 import request from '@/utils/request'
 
-// 查询公告列表
-export function listNotice(query) {
+// 通知铃铛（layout/components/HeaderNotice）专用公告接口。
+// 注意：以下端点仍指向旧 RuoYi 后端 /system/notice/*，属于迁移待办——
+// k_admin 已有站内通知模块（/api/notifications），datum 通知落地后应整体切换并删除本文件。
+
+// 首页顶部公告列表（带已读状态）
+export function listNoticeTop() {
   return request({
-    url: '/system/notice/list',
-    method: 'get',
-    params: query
+    url: '/system/notice/listTop',
+    method: 'get'
   })
 }
 
@@ -13,40 +16,6 @@ export function listNotice(query) {
 export function getNotice(noticeId) {
   return request({
     url: '/system/notice/' + noticeId,
-    method: 'get'
-  })
-}
-
-// 新增公告
-export function addNotice(data) {
-  return request({
-    url: '/system/notice',
-    method: 'post',
-    data: data
-  })
-}
-
-// 修改公告
-export function updateNotice(data) {
-  return request({
-    url: '/system/notice',
-    method: 'put',
-    data: data
-  })
-}
-
-// 删除公告
-export function delNotice(noticeId) {
-  return request({
-    url: '/system/notice/' + noticeId,
-    method: 'delete'
-  })
-}
-
-// 首页顶部公告列表（带已读状态）
-export function listNoticeTop() {
-  return request({
-    url: '/system/notice/listTop',
     method: 'get'
   })
 }

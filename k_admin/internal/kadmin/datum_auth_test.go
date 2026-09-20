@@ -142,7 +142,7 @@ func TestDatumCaptchaImageIssuesBareBase64JpegChallenge(t *testing.T) {
 	}
 }
 
-func TestVerifyDatumCaptchaConsumesChallengeAndReportsRuoYiError(t *testing.T) {
+func TestVerifyDatumCaptchaConsumesChallengeAndReportsStatusError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store, _ := newDatumTestStore(t, nil)
 	if err := store.security.storeCaptcha("known", "123456", time.Minute); err != nil {
@@ -157,8 +157,8 @@ func TestVerifyDatumCaptchaConsumesChallengeAndReportsRuoYiError(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/check?uuid=known&code=999999", nil))
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("business failure status = %d, want 200 (RuoYi envelope)", recorder.Code)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("invalid captcha status = %d, want 400", recorder.Code)
 	}
 	var failure struct {
 		Code int    `json:"code"`
@@ -167,8 +167,8 @@ func TestVerifyDatumCaptchaConsumesChallengeAndReportsRuoYiError(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &failure); err != nil {
 		t.Fatalf("decode failure body: %v", err)
 	}
-	if failure.Code != http.StatusInternalServerError || failure.Msg == "" {
-		t.Fatalf("failure envelope = %#v, want code 500 with a message", failure)
+	if failure.Code != http.StatusBadRequest || failure.Msg == "" {
+		t.Fatalf("failure envelope = %#v, want code 400 with a message", failure)
 	}
 
 	if err := store.security.storeCaptcha("known-2", "654321", time.Minute); err != nil {

@@ -15,6 +15,56 @@ let downloadLoadingInstance
 // 是否显示重新登录
 export let isRelogin = { show: false }
 
+// 已知特定错误原因保留原始报错，否则显示通用提示（RuoYi code=500 与 kadmin HTTP 错误共用）
+const specificPatterns = /上传失败|用户名或密码|用户不存在|账号已被停用|验证码错误|暂不支持|不能为空|格式错误|文件过大|没有权限|非法操作|已被停用|命名错误|大小超过|类型错误|已存在|不支持此文件|封面文件/
+
+// 会话失效统一处理：RuoYi 风格（HTTP 200 + code 401）与 kadmin 原生（HTTP 401）都走这里
+function handleSessionExpired() {
+  if (!isRelogin.show) {
+    isRelogin.show = true
+    const currentPath = router.currentRoute.value.path || ''
+    const isAuthPage = isPtmjAuthRoute(currentPath)
+    const clearLocalSession = () => {
+      const userStore = useUserStore()
+      userStore.$patch({
+        token: '',
+        id: '',
+        name: '',
+        nickName: '',
+        avatar: '',
+        roles: [],
+        permissions: []
+      })
+      removeToken()
+    }
+
+    if (!getToken() || isAuthPage) {
+      clearLocalSession()
+      isRelogin.show = false
+      return Promise.reject(new Error('无效的会话，或者会话已过期，请重新登录。'))
+    }
+
+    showSessionExpired().then(() => {
+      clearLocalSession()
+      isRelogin.show = false
+      router.replace({ path: PTMJ_AUTH_ROUTES.login, query: { redirect: currentPath } })
+    }).catch(() => {
+      isRelogin.show = false
+    })
+  }
+  return Promise.reject('无效的会话，或者会话已过期，请重新登录。')
+}
+
+// kadmin 分页响应归一：{items,total,page,pageSize} 映射为 RuoYi 风格 {rows,total}，
+// 列表视图无需逐页改造；非分页响应原样返回。
+function normalizeKAdminPage(body) {
+  const payload = body && body.data
+  if (payload && Array.isArray(payload.items) && typeof payload.total === 'number') {
+    body.data = { rows: payload.items, total: payload.total }
+  }
+  return body
+}
+
 axios.defaults.headers['Content-Type'] = 'application/json;charset=utf-8'
 // 创建axios实例
 const service = axios.create({
@@ -122,42 +172,9 @@ service.interceptors.response.use(res => {
     const msg = errorCode[code] || res.data.msg || errorCode['default']
     
     if (code === 401) {
-      if (!isRelogin.show) {
-        isRelogin.show = true
-        const currentPath = router.currentRoute.value.path || ''
-        const isAuthPage = isPtmjAuthRoute(currentPath)
-        const clearLocalSession = () => {
-          const userStore = useUserStore()
-          userStore.$patch({
-            token: '',
-            id: '',
-            name: '',
-            nickName: '',
-            avatar: '',
-            roles: [],
-            permissions: []
-          })
-          removeToken()
-        }
-
-        if (!getToken() || isAuthPage) {
-          clearLocalSession()
-          isRelogin.show = false
-          return Promise.reject(new Error('无效的会话，或者会话已过期，请重新登录。'))
-        }
-
-        showSessionExpired().then(() => {
-          clearLocalSession()
-          isRelogin.show = false
-          router.replace({ path: PTMJ_AUTH_ROUTES.login, query: { redirect: currentPath } })
-        }).catch(() => {
-          isRelogin.show = false
-        })
-      }
-      return Promise.reject('无效的会话，或者会话已过期，请重新登录。')
+      return handleSessionExpired()
     } else if (code === 500) {
       // 已知特定错误原因保留原始报错，否则显示通用维护提示
-      const specificPatterns = /上传失败|用户名或密码|用户不存在|账号已被停用|验证码错误|暂不支持|不能为空|格式错误|文件过大|没有权限|非法操作|已被停用|命名错误|大小超过|类型错误|已存在|不支持此文件|封面文件/
       const displayMsg = specificPatterns.test(msg) ? msg : '系统正在维护，如有需求请联系管理员'
       ElMessage({ message: displayMsg, type: 'error' })
       return Promise.reject(new Error(msg))
@@ -168,11 +185,18 @@ service.interceptors.response.use(res => {
       ElNotification.error({ title: msg })
       return Promise.reject('error')
     } else {
-      return  Promise.resolve(res.data)
+      return Promise.resolve(normalizeKAdminPage(res.data))
     }
   },
   error => {
     console.log('err' + error)
+    // kadmin 原生端点以 HTTP 状态码承载错误，body 的 msg/message 为业务文案：
+    // 401 走会话失效流程，其余优先展示匹配已知模式的业务提示
+    const responseData = error.response && error.response.data
+    const serverMsg = responseData && (responseData.msg || responseData.message)
+    if (error.response && error.response.status === 401) {
+      return handleSessionExpired()
+    }
     let { message } = error
     if (message == "Network Error") {
       message = "后端接口连接异常"
@@ -181,8 +205,14 @@ service.interceptors.response.use(res => {
     } else if (message.includes("Request failed with status code")) {
       message = "系统接口" + message.slice(-3) + "异常"
     }
-    ElMessage({ message: message, type: 'error', duration: 5 * 1000 })
-    return Promise.reject(error)
+    let displayMsg = message
+    if (serverMsg && specificPatterns.test(serverMsg)) {
+      displayMsg = serverMsg
+    }
+    ElMessage({ message: displayMsg, type: 'error', duration: 5 * 1000 })
+    const friendlyError = new Error(displayMsg)
+    friendlyError.response = error.response
+    return Promise.reject(friendlyError)
   }
 )
 

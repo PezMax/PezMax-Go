@@ -92,8 +92,9 @@ export const constantRoutes = [
   }
 ]
 
-// 动态路由，基于用户权限动态去加载 (目前由于后台系统页面已清理，可暂时置空)
-export const dynamicRoutes = []
+// 桌面端页面全部走上方 constantRoutes 静态声明；
+// 原 RuoYi 动态路由（/getRouters + filterAsyncRouter）已随旧后端契约移除，
+// 若未来需要后端托管菜单，应基于 kadmin 菜单接口重新设计。
 
 const router = createRouter({
   history: createWebHashHistory(),
