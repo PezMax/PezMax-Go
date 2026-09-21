@@ -27,6 +27,7 @@ type Store struct {
 	menuMutationMu sync.Mutex
 	auth           *authService
 	security       *securityService
+	datum          *datumIdentity
 	audit          *businessAuditRecorder
 	jobs           *jobs.Manager
 	loginLogs      *loginlogs.Manager
@@ -78,6 +79,7 @@ func Register(r *gin.Engine, conn db.Connection) (*Runtime, error) {
 		auth: newAuthServiceFromEnv(),
 	}
 	s.security = newSecurityService(s.auth)
+	s.datum = newDatumIdentity(s.auth.keyPrefix+":datum", s.auth.redis, datumSessionTTL())
 	if err := s.syncDefaultPermissions(); err != nil {
 		return nil, fmt.Errorf("同步默认权限失败: %w", err)
 	}

@@ -50,10 +50,10 @@ export function unlockScreen(password) {
   })
 }
 
-// 退出方法
+// 退出方法（桌面端会话：/datum/user/logout，由 datum 认证模块签发与吊销）
 export function logout() {
   return request({
-    url: '/logout',
+    url: buildDatumUserApiUrl('logout'),
     method: 'post'
   })
 }

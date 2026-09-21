@@ -90,6 +90,51 @@ services:
     depends_on:
       - minio
 
+  # KAdmin 应用服务（可选）：内置 LibreOffice 转档器。
+  # 默认 docker compose up 不启动；docker compose --profile app up -d kadmin 启用。
+  # 本机开发（Go 直跑宿主机）无需此服务，LibreOffice 改为宿主机安装。
+  kadmin:
+    build:
+      context: ./k_admin
+      dockerfile: Dockerfile.app
+    container_name: pezmax-go-kadmin
+    restart: unless-stopped
+    profiles:
+      - app
+    environment:
+      KADMIN_DB_HOST: postgres
+      KADMIN_DB_PORT: "5432"
+      KADMIN_DB_NAME: ${PEZMAX_DB_NAME:-pezmax}
+      KADMIN_DB_USER: ${PEZMAX_DB_USER:-postgres}
+      KADMIN_DB_PASSWORD: ${PEZMAX_DB_PASSWORD:-pezmax_dev_pwd}
+      KADMIN_REDIS_HOST: redis
+      KADMIN_REDIS_PORT: "6379"
+      KADMIN_REDIS_PASSWORD: ${PEZMAX_REDIS_PASSWORD:-pezmax_redis_pwd}
+      KADMIN_JWT_SECRET: ${KADMIN_JWT_SECRET:-8kF2xPqL9mN4vR7wJ1bY6tH3zA0c}
+      KADMIN_APP_PORT: "9033"
+      KADMIN_MINIO_ENABLED: "true"
+      KADMIN_MINIO_ENDPOINT: http://minio:9000
+      KADMIN_MINIO_INTERNAL_ENDPOINT: http://minio:9000
+      KADMIN_MINIO_PUBLIC_BASE: ${PEZMAX_MINIO_PUBLIC_BASE:-http://127.0.0.1:29000}
+      KADMIN_MINIO_ACCESS_KEY: ${PEZMAX_MINIO_ACCESS_KEY:-pezmax_minio}
+      KADMIN_MINIO_SECRET_KEY: ${PEZMAX_MINIO_SECRET_KEY:-pezmax_minio_pwd}
+      KADMIN_MINIO_BUCKET: ${PEZMAX_MINIO_BUCKET:-ptmj}
+      KADMIN_DATUM_SESSION_TTL: 120h
+      TZ: Asia/Shanghai
+    ports:
+      - "${PEZMAX_APP_PORT:-9033}:9033"
+    volumes:
+      - kadmin_uploads:/app/uploads
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
 networks:
   backend:
     name: pezmax-go-backend
@@ -101,3 +146,5 @@ volumes:
     name: pezmax-go-redis-data
   minio_data:
     name: pezmax-go-minio-data
+  kadmin_uploads:
+    name: pezmax-go-kadmin-uploads

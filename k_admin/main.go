@@ -26,6 +26,8 @@ import (
 
 	"github.com/GoAdminGroup/go-admin/engine"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/convert"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/fileurl"
 	"github.com/GoAdminGroup/go-admin/modules/config"
 	"github.com/GoAdminGroup/go-admin/modules/language"
 	"github.com/gin-gonic/gin"
@@ -100,6 +102,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	probeDatumInfra()
 	defer closeDatabase(e)
 	defer requestLogs.Close()
 	defer appRuntime.Close()
@@ -263,4 +266,26 @@ func minioConfig() map[string]interface{} {
 		"bucket":            getenv("KADMIN_MINIO_BUCKET", "kadmin"),
 		"use_ssl":           getenvBool("KADMIN_MINIO_USE_SSL", false),
 	}
+}
+
+// probeDatumInfra 预检 datum 模块依赖的基础组件（LibreOffice 转档、文件 URL 重写），
+// 在启动日志中暴露配置问题；组件不可用不阻断启动，转档上传时按原逻辑报错。
+func probeDatumInfra() {
+	converterConfig := convert.ConfigFromEnv(getenv)
+	converter := convert.New(converterConfig)
+	probeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := converter.Probe(probeCtx); err != nil {
+		log.Printf("LibreOffice 转档器不可用（转档上传将按原逻辑报错）：%v", err)
+	} else {
+		log.Printf("LibreOffice 转档器就绪（%s，并发 %d，单次超时 %s）",
+			converterConfig.Bin, converterConfig.MaxConcurrent, converterConfig.Timeout)
+	}
+
+	rewriter, err := fileurl.FromEnv(getenv)
+	if err != nil {
+		log.Printf("文件 URL 重写器未启用：%v", err)
+		return
+	}
+	log.Printf("文件 URL 重写器就绪（%s）", rewriter.Describe())
 }

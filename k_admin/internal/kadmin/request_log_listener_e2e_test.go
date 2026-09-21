@@ -123,7 +123,7 @@ func TestRequestLogListenerFeedsLoadRankingEndToEnd(t *testing.T) {
 	engine := gin.New()
 	engine.Use(listener.Middleware())
 	sampler, err := loadrank.Register(engine.Group("/api"), loadrank.Dependencies{
-		Connection: connection,
+		Connection:  connection,
 		RequireAuth: func(c *gin.Context) { c.Next() },
 		RequirePermission: func(...string) gin.HandlerFunc {
 			return func(c *gin.Context) { c.Next() }
