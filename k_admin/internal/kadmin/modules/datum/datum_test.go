@@ -302,3 +302,148 @@ func TestScanHelpers(t *testing.T) {
 		t.Fatalf("ScanString([]byte) = %q", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// bookmark report parity (desktop feedback flow)
+// ---------------------------------------------------------------------------
+
+func TestBookmarkReportFindByReporterAndBookmark(t *testing.T) {
+	conn := newScriptedConn()
+	var query string
+	var args []interface{}
+	conn.onSQL(func(q string, a []interface{}) ([]map[string]interface{}, error) {
+		query, args = q, a
+		return []map[string]interface{}{{
+			"report_id": int64(11), "bookmark_id": int64(5), "user_id": int64(7),
+			"reason": "失效链接", "result": "0",
+		}}, nil
+	}, "FROM ptmj_bookmark_report WHERE bookmark_id")
+	report, found, err := NewBookmarkReportRepo(conn).FindByReporterAndBookmark(5, 7)
+	if err != nil || !found {
+		t.Fatalf("found = %v err = %v", found, err)
+	}
+	if !containsAll(query, "bookmark_id = ?", "user_id = ?") || len(args) != 2 {
+		t.Fatalf("query = %s args = %v", query, args)
+	}
+	if report.ReportID != 11 || report.Reason != "失效链接" || report.Result != "0" {
+		t.Fatalf("report = %+v", report)
+	}
+}
+
+func TestBookmarkReportListByReporterJoinsBookmark(t *testing.T) {
+	conn := newScriptedConn()
+	conn.onSQL(func(_ string, _ []interface{}) ([]map[string]interface{}, error) {
+		return []map[string]interface{}{{"count": int64(1)}}, nil
+	}, "count(*)")
+	conn.onSQL(func(q string, _ []interface{}) ([]map[string]interface{}, error) {
+		if !containsAll(q, "LEFT JOIN ptmj_bookmark b", "b.title", "b.url") {
+			t.Fatalf("reporter list must join bookmark context: %s", q)
+		}
+		return []map[string]interface{}{{
+			"report_id": int64(11), "bookmark_id": int64(5), "user_id": int64(7),
+			"reason": "失效链接", "result": "2",
+			"title": "Go 官网", "url": "https://go.dev",
+		}}, nil
+	}, "FROM ptmj_bookmark_report rp")
+
+	page, err := NewBookmarkReportRepo(conn).ListByReporter(7, 1, 20)
+	if err != nil {
+		t.Fatalf("ListByReporter: %v", err)
+	}
+	items := page.Items.([]ReportedBookmark)
+	if len(items) != 1 || items[0].BookmarkTitle != "Go 官网" || items[0].BookmarkURL != "https://go.dev" || items[0].Result != "2" {
+		t.Fatalf("items = %+v", items)
+	}
+	if page.Total != 1 {
+		t.Fatalf("total = %d", page.Total)
+	}
+}
+
+func TestBookmarkReportListByResultFilter(t *testing.T) {
+	conn := newScriptedConn()
+	var filteredQuery string
+	conn.onSQL(func(q string, _ []interface{}) ([]map[string]interface{}, error) {
+		filteredQuery = q
+		return []map[string]interface{}{{"count": int64(2)}}, nil
+	}, "count(*)")
+	conn.onSQL(func(_ string, _ []interface{}) ([]map[string]interface{}, error) {
+		return nil, nil
+	}, "FROM ptmj_bookmark_report WHERE result")
+
+	if _, err := NewBookmarkReportRepo(conn).ListByResult("0", 1, 20); err != nil {
+		t.Fatalf("ListByResult: %v", err)
+	}
+	if !strings.Contains(filteredQuery, "WHERE result = ?") {
+		t.Fatalf("filtered query = %s", filteredQuery)
+	}
+	conn2 := newScriptedConn()
+	conn2.onSQL(func(q string, _ []interface{}) ([]map[string]interface{}, error) {
+		if strings.Contains(q, "WHERE result") {
+			t.Fatalf("unfiltered query must not carry result filter: %s", q)
+		}
+		return []map[string]interface{}{{"count": int64(0)}}, nil
+	}, "count(*)")
+	conn2.onSQL(func(_ string, _ []interface{}) ([]map[string]interface{}, error) {
+		return nil, nil
+	}, "FROM ptmj_bookmark_report WHERE 1=1")
+	if _, err := NewBookmarkReportRepo(conn2).ListByResult("all", 1, 20); err != nil {
+		t.Fatalf("ListByResult(all): %v", err)
+	}
+}
+
+func TestBookmarkReportCreateCarriesRemarkAndDuplicatePropagates(t *testing.T) {
+	conn := newScriptedConn()
+	conn.onSQL(func(q string, args []interface{}) ([]map[string]interface{}, error) {
+		if !strings.Contains(q, "remark") {
+			t.Fatalf("create must persist remark: %s", q)
+		}
+		return []map[string]interface{}{{"report_id": int64(12)}}, nil
+	}, "INSERT INTO ptmj_bookmark_report")
+	id, err := NewBookmarkReportRepo(conn).Create(5, 7, "失效链接", "用户补充说明")
+	if err != nil || id != 12 {
+		t.Fatalf("create = (%d, %v)", id, err)
+	}
+
+	connDup := newScriptedConn()
+	connDup.onSQL(func(_ string, _ []interface{}) ([]map[string]interface{}, error) {
+		return nil, errors.New("duplicate key value violates unique constraint \"uk_user_bookmark\"")
+	}, "INSERT INTO ptmj_bookmark_report")
+	if _, err := NewBookmarkReportRepo(connDup).Create(5, 7, "再次举报", ""); err == nil || !strings.Contains(err.Error(), "duplicate key") {
+		t.Fatalf("duplicate error = %v", err)
+	}
+}
+
+func TestFileReportListByReporterJoinsFile(t *testing.T) {
+	conn := newScriptedConn()
+	conn.onSQL(func(_ string, _ []interface{}) ([]map[string]interface{}, error) {
+		return []map[string]interface{}{{"count": int64(1)}}, nil
+	}, "count(*)")
+	conn.onSQL(func(q string, _ []interface{}) ([]map[string]interface{}, error) {
+		if !containsAll(q, "LEFT JOIN ptmj_file f", "f.file_name") {
+			t.Fatalf("reporter list must join file context: %s", q)
+		}
+		return []map[string]interface{}{{
+			"report_id": int64(3), "file_id": int64(1007), "user_id": int64(7),
+			"reason": "内容不符", "result": "1",
+			"file_name": "试卷.docx", "file_subject": "高数", "file_school": "QLU",
+		}}, nil
+	}, "FROM ptmj_report rp")
+
+	page, err := NewReportRepo(conn).ListByReporter(7, 1, 20)
+	if err != nil {
+		t.Fatalf("ListByReporter: %v", err)
+	}
+	items := page.Items.([]ReportedFile)
+	if len(items) != 1 || items[0].FileName != "试卷.docx" || items[0].Result != "1" {
+		t.Fatalf("items = %+v", items)
+	}
+}
+
+func containsAll(haystack string, needles ...string) bool {
+	for _, needle := range needles {
+		if !strings.Contains(haystack, needle) {
+			return false
+		}
+	}
+	return true
+}
