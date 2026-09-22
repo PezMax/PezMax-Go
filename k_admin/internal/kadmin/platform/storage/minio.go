@@ -254,9 +254,24 @@ func (m *minioHTTPClient) putObject(ctx context.Context, objectKey string, body 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("minio upload failed: %s", resp.Status)
+		return fmt.Errorf("minio upload failed: %s: %s", resp.Status, minioErrorSnippet(resp.Body))
 	}
 	return nil
+}
+
+// minioErrorSnippet reads a bounded prefix of an error response body so
+// callers log MinIO's actual rejection reason (SignatureDoesNotMatch,
+// RequestTimeTooSkewed, AccessDenied, …) instead of a bare status code.
+func minioErrorSnippet(body io.Reader) string {
+	if body == nil {
+		return ""
+	}
+	snippet, _ := io.ReadAll(io.LimitReader(body, 512))
+	text := strings.TrimSpace(string(snippet))
+	if text == "" {
+		return "(empty body)"
+	}
+	return text
 }
 
 func (m *minioHTTPClient) getObject(ctx context.Context, objectKey string) (io.ReadCloser, ObjectInfo, error) {

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,7 +27,9 @@ type fakeDatumDB struct {
 	mu       sync.Mutex
 	users    map[string]*datumUser
 	security map[int64][2]string
+	files    []map[string]interface{}
 	nextID   int64
+	seedSeq  int
 }
 
 func newFakeDatumDB() *fakeDatumDB {
@@ -80,8 +83,70 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 			return nil, nil
 		}
 		return []map[string]interface{}{{"question": row[0], "answer": row[1]}}, nil
+	case strings.Contains(query, "FROM ptmj_file_download WHERE user_id"):
+		return []map[string]interface{}{{"count": int64(5)}}, nil
+	case strings.Contains(query, "FROM ptmj_file_favorite WHERE user_id"):
+		return []map[string]interface{}{{"count": int64(3)}}, nil
+	case strings.Contains(query, "FROM ptmj_bookmark_favorite WHERE user_id"):
+		return []map[string]interface{}{{"count": int64(2)}}, nil
+	case strings.Contains(query, "INSERT INTO ptmj_file"):
+		f.nextID++
+		row := map[string]interface{}{
+			"file_id": f.nextID, "user_id": toDatumInt64(args[0]), "file_name": toDatumString(args[1]),
+			"file_url": toDatumString(args[2]), "file_size": toDatumInt64(args[3]), "file_format": toDatumString(args[4]),
+			"file_year": toDatumInt64(args[5]), "file_type": toDatumInt64(args[6]), "file_school": toDatumString(args[7]),
+			"file_subject": toDatumString(args[8]), "file_status": toDatumInt64(args[10]), "del_flag": int64(0),
+			"remark": toDatumString(args[13]),
+		}
+		f.files = append(f.files, row)
+		return []map[string]interface{}{{"file_id": row["file_id"]}}, nil
+	case strings.Contains(query, "status = '1' AND count > 0"):
+		rows := []map[string]interface{}{}
+		for _, user := range f.users {
+			if user.Status == "1" {
+				rows = append(rows, map[string]interface{}{"user_id": user.UserID, "user_name": user.UserName, "avatar": user.Avatar, "count": user.Count})
+			}
+		}
+		return rows, nil
+	case strings.Contains(query, "file_status = 1 AND del_flag = 0") && strings.Contains(query, "ORDER BY file_type"):
+		approved := []map[string]interface{}{}
+		for _, file := range f.files {
+			if toDatumInt64(file["file_status"]) == 1 && toDatumInt64(file["del_flag"]) == 0 {
+				approved = append(approved, file)
+			}
+		}
+		return approved, nil
+	case strings.Contains(query, "count(*)") && strings.Contains(query, "FROM ptmj_file"):
+		total := int64(0)
+		for _, file := range f.files {
+			if toDatumInt64(file["del_flag"]) == 0 {
+				total++
+			}
+		}
+		return []map[string]interface{}{{"count": total}}, nil
+	case strings.Contains(query, "FROM ptmj_file WHERE file_id"):
+		rows := []map[string]interface{}{}
+		for _, file := range f.files {
+			if file["file_id"] == toDatumInt64(args[0]) && toDatumInt64(file["del_flag"]) == 0 {
+				rows = append(rows, file)
+			}
+		}
+		return rows, nil
+	case strings.Contains(query, "FROM ptmj_file"):
+		rows := []map[string]interface{}{}
+		for _, file := range f.files {
+			if toDatumInt64(file["del_flag"]) == 0 {
+				rows = append(rows, file)
+			}
+		}
+		if strings.Contains(query, "LIMIT ? OFFSET ?") {
+			return rows, nil
+		}
+		return rows, nil
+	case strings.Contains(query, "DISTINCT file_school") || strings.Contains(query, "GROUP BY file_subject"):
+		return nil, nil
 	}
-	return nil, errFakeUnsupportedQuery
+	return nil, fmt.Errorf("fakeDatumDB: unsupported query: %s", query)
 }
 
 func (f *fakeDatumDB) Exec(query string, args ...interface{}) (sql.Result, error) {
@@ -89,16 +154,64 @@ func (f *fakeDatumDB) Exec(query string, args ...interface{}) (sql.Result, error
 	defer f.mu.Unlock()
 	switch {
 	case strings.Contains(query, "UPDATE ptmj_user"):
-		userID := toDatumInt64(args[1])
+		userID := toDatumInt64(args[len(args)-1])
 		for _, user := range f.users {
-			if user.UserID == userID {
+			if user.UserID != userID {
+				continue
+			}
+			switch {
+			case strings.Contains(query, "SET user_name"):
+				newName := strings.ToLower(toDatumString(args[0]))
+				for _, other := range f.users {
+					if other.UserID != userID && strings.ToLower(other.UserName) == newName {
+						return nil, errFakeDuplicateKey
+					}
+				}
+				user.UserName = toDatumString(args[0])
+			case strings.Contains(query, "SET avatar"):
+				user.Avatar = toDatumString(args[0])
+			case strings.Contains(query, "SET count = count + 1"):
+				user.Count++
+			case strings.Contains(query, "SET count"):
+				if user.Count > 0 {
+					user.Count--
+				}
+			default:
 				user.Password = toDatumString(args[0])
 			}
 		}
+	case strings.Contains(query, "ON CONFLICT (user_id)"):
+		f.security[toDatumInt64(args[0])] = [2]string{toDatumString(args[1]), toDatumString(args[2])}
 	case strings.Contains(query, "INSERT INTO ptmj_security"):
 		f.security[toDatumInt64(args[0])] = [2]string{toDatumString(args[1]), toDatumString(args[2])}
+	case strings.Contains(query, "UPDATE ptmj_file SET del_flag"):
+		for _, file := range f.files {
+			if file["file_id"] == toDatumInt64(args[0]) && file["user_id"] == toDatumInt64(args[1]) {
+				file["del_flag"] = int64(1)
+			}
+		}
+	case strings.Contains(query, "UPDATE ptmj_file"):
+		for _, file := range f.files {
+			if file["file_id"] == toDatumInt64(args[len(args)-1]) && file["user_id"] == toDatumInt64(args[len(args)-2]) {
+				file["file_name"] = toDatumString(args[0])
+				file["file_year"] = toDatumInt64(args[1])
+				file["file_type"] = toDatumInt64(args[2])
+				file["file_school"] = toDatumString(args[3])
+				file["file_subject"] = toDatumString(args[4])
+				file["remark"] = toDatumString(args[5])
+			}
+		}
 	}
 	return fakeDatumResult{}, nil
+}
+
+func (f *fakeDatumDB) findUserByID(userID int64) *datumUser {
+	for _, user := range f.users {
+		if user.UserID == userID {
+			return user
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +277,8 @@ func datumBody(t *testing.T, recorder *httptest.ResponseRecorder) map[string]int
 
 func seedDatumUser(t *testing.T, db *fakeDatumDB, username, password, status string, withSecurity bool) {
 	t.Helper()
-	user := &datumUser{UserID: 7, UserName: username, Password: mustHashSecret(t, password), Avatar: "/a.png", Count: 3, Status: status}
+	db.seedSeq++
+	user := &datumUser{UserID: int64(6 + db.seedSeq), UserName: username, Password: mustHashSecret(t, password), Avatar: "/a.png", Count: 3, Status: status}
 	db.users[strings.ToLower(username)] = user
 	if withSecurity {
 		db.security[user.UserID] = [2]string{

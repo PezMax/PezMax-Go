@@ -44,10 +44,12 @@ export function delUser(userId) {
     })
 }
 
-export function getUploadRank() {
+// hash 参数（可选）：客户端本地缓存的排行榜哈希；一致时服务端返回 unchanged
+export function getUploadRank(hash) {
   return request({
     url: buildDatumUserApiUrl('rank'),
     method: 'get',
+    params: hash ? { hash } : undefined,
     headers: { noMessage: true }
   })
 }

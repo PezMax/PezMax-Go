@@ -126,6 +126,7 @@ import { normalizeFileUrl } from '@/utils/url'
 import GlobalLoader from './components/GlobalLoader.vue'
 import { ElMessage } from 'element-plus'
 import { getToken } from '@/utils/auth'
+import { getStorageItem, setStorageItem } from '@/utils/clientStorage'
 import ReportFileDialog from './components/ReportFileDialog.vue'
 import ReportBookmarkDialog from './components/ReportBookmarkDialog.vue'
 import NotificationDialog from '@/components/NotificationDialog/index.vue'
@@ -209,7 +210,7 @@ const loadPopupNotifications = async () => {
       userId = userStore.id
     }
     const res = await getUserPopupNotifications(userId)
-    if (res.code === 200 && res.data?.length > 0) {
+    if ((res.code === 200 || res.code === 0) && res.data?.length > 0) {
       // 获取已处理的通知ID（从 localStorage 读取，避免重复显示）
       const processedNotifications = JSON.parse(localStorage.getItem('processedNotifications') || '[]')
       // 过滤通知逻辑：
@@ -588,13 +589,32 @@ const handleNotificationAcknowledge = () => {
 }
 
 // lxq 获取并格式化后端返回的文件树
+// 哈希缓存：本地保存 {hash, tree}，请求携带 hash；服务端未变化时返回 unchanged，
+// 直接复用本地树避免重新渲染，哈希变化（树内容更新）时才接收新数据。
+const TREE_CACHE_KEY = 'ptmj_file_tree_cache'
 const fetchTreeData = async () => {
   try {
-    const res = await getFileTree()
-    if (res.code === 200) {
+    let cached = null
+    try {
+      cached = JSON.parse(getStorageItem(TREE_CACHE_KEY) || 'null')
+    } catch { cached = null }
+    const cachedHash = (cached && cached.hash) || ''
+    if (cached && Array.isArray(cached.tree) && cached.tree.length > 0) {
+      // 先展示本地缓存，界面立即可用；后台再校验哈希
+      allFileTreeData.value = cached.tree
+      fileTreeData.value = cached.tree
+    }
+    const res = await getFileTree(cachedHash ? { hash: cachedHash } : undefined)
+    if (res.code === 200 || res.code === 0) {
+      if (res.unchanged && Array.isArray(cached?.tree)) {
+        return // 哈希一致：继续使用本地树
+      }
       const tree = formatTreeData(res.data)
       allFileTreeData.value = tree
       fileTreeData.value = tree
+      if (res.hash) {
+        setStorageItem(TREE_CACHE_KEY, JSON.stringify({ hash: res.hash, tree }))
+      }
     } else {
       ElMessage.error(res.msg || '获取文件树失败')
     }
@@ -660,7 +680,7 @@ const handleLocalSearch = (query) => {
 // const fetchTreeData = async () => {
 //   try {
 //     const res = await getFileTree()
-//     if (res.code === 200) {
+//     if (res.code === 200 || res.code === 0) {
 //       fileTreeData.value = formatTreeData(res.data)
 //     } else {
 //       ElMessage.error(res.msg || '获取文件树失败')

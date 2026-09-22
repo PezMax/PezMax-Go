@@ -206,6 +206,38 @@ func (r *datumUserRepo) updatePassword(userID int64, passwordHash string) error 
 	return err
 }
 
+func (r *datumUserRepo) updateUserName(userID int64, userName string) error {
+	result, err := r.conn.Exec(`UPDATE ptmj_user SET user_name = ?, update_time = CURRENT_TIMESTAMP WHERE user_id = ?`, userName, userID)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return errDatumUserNotFound
+	}
+	return nil
+}
+
+func (r *datumUserRepo) updateAvatar(userID int64, avatar string) error {
+	result, err := r.conn.Exec(`UPDATE ptmj_user SET avatar = ?, update_time = CURRENT_TIMESTAMP WHERE user_id = ?`, avatar, userID)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return errDatumUserNotFound
+	}
+	return nil
+}
+
+// updateSecurity upserts the pipe-separated Q/A row (answers arrive
+// pre-hashed).
+func (r *datumUserRepo) updateSecurity(userID int64, question, answer string) error {
+	_, err := r.conn.Exec(`INSERT INTO ptmj_security (user_id, question, answer, create_time, update_time)
+		VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT (user_id) DO UPDATE SET question = EXCLUDED.question, answer = EXCLUDED.answer, update_time = CURRENT_TIMESTAMP`,
+		userID, question, answer)
+	return err
+}
+
 // securityRow reads the pipe-separated Q/A row: question = q1|q2|q3,
 // answer = bcrypt(a1)|bcrypt(a2)|bcrypt(a3).
 func (r *datumUserRepo) securityRow(userID int64) (question, answer string, found bool, err error) {

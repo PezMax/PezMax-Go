@@ -20,6 +20,8 @@ func registerDatumRoutes(r *gin.Engine, s *Store) {
 	})
 	user := datum.Group("/user")
 	s.registerDatumUserRoutes(user)
+	s.registerDatumFileRoutes(datum)
+	s.registerDatumDesktopRoutes(datum)
 }
 
 // datumCaptchaImage implements GET /datum/user/captchaImage: the payload

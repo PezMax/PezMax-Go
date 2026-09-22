@@ -91,7 +91,7 @@ const useUploadStore = defineStore('upload', {
           const filePath = this.selectedFile.path
           const res = await window.electronAPI.uploadFile({ filePath, metadata, token, baseUrl })
           
-          if (res.code === 200) {
+          if (res.code === 200 || res.code === 0) {
             // 上传成功，更新用户上传计数
             const userStore = useUserStore()
             userStore.count += 1
@@ -146,7 +146,7 @@ const useUploadStore = defineStore('upload', {
 
             try {
               const res = await window.electronAPI.uploadFile({ filePath, metadata, token, baseUrl })
-              if (res.code === 200) {
+              if (res.code === 200 || res.code === 0) {
                 successCount++
                 // 批量上传中每成功一个文件也更新计数
                 const userStore = useUserStore()

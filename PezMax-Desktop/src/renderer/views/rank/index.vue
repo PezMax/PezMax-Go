@@ -112,6 +112,7 @@ import { Refresh } from '@element-plus/icons-vue'
 import { getUploadRank, getUser } from '@/api/datum/user'
 import { isEmpty, isHttp } from '@/utils/validate'
 import { normalizeAvatar } from '@/utils/avatar'
+import { getStorageItem, setStorageItem } from '@/utils/clientStorage'
 
 const fallbackAvatar = 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
 const rankLoading = ref(false)
@@ -234,23 +235,28 @@ const userRemarkLabel = computed(() => {
   return '无备注'
 })
 
+// 哈希缓存：本地保存 {hash, rows}，请求携带 hash；未变化时直接复用本地数据
+const RANK_CACHE_KEY = 'ptmj_upload_rank_cache'
+
 async function fetchRank() {
   if (rankLoading.value) return
   rankLoading.value = true
   try {
-    const res = await getUploadRank()
-    if (res?.code !== 200) return
-
-    const data = Array.isArray(res?.data) ? res.data : []
-    rankList.value = data.map(normalizeRankUser)
-    const firstItem = rankList.value[0]
-    if (firstItem) {
-      openUserDetail(firstItem, 0)
-    } else {
-      activeUserId.value = null
-      activeRankIndex.value = -1
-      userDetail.value = null
+    let cached = null
+    try {
+      cached = JSON.parse(getStorageItem(RANK_CACHE_KEY) || 'null')
+    } catch { cached = null }
+    const res = await getUploadRank(cached?.hash || undefined)
+    if (res?.code !== 200 && res?.code !== 0) return
+    if (res.unchanged && Array.isArray(cached?.rows)) {
+      applyRankRows(cached.rows)
+      return
     }
+    const data = Array.isArray(res?.data) ? res.data : []
+    if (res.hash) {
+      setStorageItem(RANK_CACHE_KEY, JSON.stringify({ hash: res.hash, rows: data }))
+    }
+    applyRankRows(data)
   } catch {
     rankList.value = []
     activeUserId.value = null
@@ -258,6 +264,18 @@ async function fetchRank() {
     userDetail.value = null
   } finally {
     rankLoading.value = false
+  }
+}
+
+function applyRankRows(rows) {
+  rankList.value = rows.map(normalizeRankUser)
+  const firstItem = rankList.value[0]
+  if (firstItem) {
+    openUserDetail(firstItem, 0)
+  } else {
+    activeUserId.value = null
+    activeRankIndex.value = -1
+    userDetail.value = null
   }
 }
 
@@ -277,7 +295,7 @@ async function openUserDetail(item, index) {
   if (userId) {
     try {
       const res = await getUser(userId)
-      if (res?.code === 200 && res.data) {
+      if ((res?.code === 200 || res?.code === 0) && res.data) {
         // 如果后端直接返回 SysUser 对象
         const realUser = res.data.user || res.data
         userDetail.value = normalizeDetailUser(realUser, normalizedItem)
