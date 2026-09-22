@@ -322,3 +322,52 @@ func scanBookmarkReport(row map[string]interface{}) BookmarkReport {
 		Remark:     ScanString(row["remark"]),
 	}
 }
+
+// UpdateOwn edits reason/remark of one pending report filed by the user.
+func (r *ReportRepo) UpdateOwn(reportID, userID int64, reason, remark string) error {
+	result, err := r.conn.Exec(`UPDATE ptmj_report SET reason = ?, remark = ?, update_by = ?, update_time = CURRENT_TIMESTAMP
+		WHERE report_id = ? AND user_id = ? AND result = '0'`, reason, remark, userID, reportID, userID)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteOwn removes one report filed by the user.
+func (r *ReportRepo) DeleteOwn(reportID, userID int64) error {
+	result, err := r.conn.Exec(`DELETE FROM ptmj_report WHERE report_id = ? AND user_id = ?`, reportID, userID)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateOwn / DeleteOwn bookmark variants.
+func (r *BookmarkReportRepo) UpdateOwn(reportID, userID int64, reason, remark string) error {
+	result, err := r.conn.Exec(`UPDATE ptmj_bookmark_report SET reason = ?, remark = ?, update_by = ?, update_time = CURRENT_TIMESTAMP
+		WHERE report_id = ? AND user_id = ? AND result = '0'`, reason, remark, userID, reportID, userID)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *BookmarkReportRepo) DeleteOwn(reportID, userID int64) error {
+	result, err := r.conn.Exec(`DELETE FROM ptmj_bookmark_report WHERE report_id = ? AND user_id = ?`, reportID, userID)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

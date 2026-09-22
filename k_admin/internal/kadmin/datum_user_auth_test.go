@@ -24,17 +24,20 @@ import (
 
 type fakeDatumDB struct {
 	db.Connection
-	mu             sync.Mutex
-	users          map[string]*datumUser
-	security       map[int64][2]string
-	files          []map[string]interface{}
-	bookmarks      map[int64]map[string]interface{}
-	downloads      []map[string]interface{}
-	fileFavs       [][2]int64
-	bookmarkFavs   map[int64]int64
-	nextDownloadID int64
-	nextID         int64
-	seedSeq        int
+	mu              sync.Mutex
+	users           map[string]*datumUser
+	security        map[int64][2]string
+	files           []map[string]interface{}
+	bookmarks       map[int64]map[string]interface{}
+	downloads       []map[string]interface{}
+	fileFavs        [][2]int64
+	bookmarkFavs    map[int64]int64
+	notifications   []map[string]interface{}
+	reports         []map[string]interface{}
+	bookmarkReports []map[string]interface{}
+	nextDownloadID  int64
+	nextID          int64
+	seedSeq         int
 }
 
 func newFakeDatumDB() *fakeDatumDB {
@@ -88,12 +91,160 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 			}
 		}
 		return nil, nil
+	case strings.Contains(query, "goadmin_users") && strings.Contains(query, "id"):
+		return []map[string]interface{}{{"id": toDatumInt64(args[len(args)-1]), "status": "enable"}}, nil
 	case strings.Contains(query, "FROM ptmj_security WHERE user_id"):
 		row, exists := f.security[toDatumInt64(args[0])]
 		if !exists {
 			return nil, nil
 		}
 		return []map[string]interface{}{{"question": row[0], "answer": row[1]}}, nil
+	case strings.Contains(query, "INSERT INTO ptmj_notification") && strings.Contains(query, "RETURNING notify_id"):
+		f.nextDownloadID++
+		f.notifications = append(f.notifications, map[string]interface{}{
+			"notify_id": f.nextDownloadID, "notify_type": toDatumString(args[0]), "title": toDatumString(args[1]),
+			"content": toDatumString(args[2]), "status": toDatumString(args[3]), "sort": toDatumInt64(args[4]),
+			"display_mode":   toDatumString(args[5]),
+			"upload_user_id": toDatumInt64(args[11]), "material_id": toDatumInt64(args[12]),
+			"material_title_snapshot": toDatumString(args[13]),
+			"scroll_time_interval":    toDatumInt64(args[16]), "remark": toDatumString(args[17]),
+		})
+		return []map[string]interface{}{{"notify_id": f.nextDownloadID}}, nil
+	case strings.Contains(query, "INSERT INTO ptmj_report"):
+		f.nextDownloadID++
+		row := map[string]interface{}{
+			"report_id": f.nextDownloadID, "file_id": toDatumInt64(args[0]), "user_id": toDatumInt64(args[1]),
+			"reason": toDatumString(args[2]), "result": "0", "remark": toDatumString(args[3]),
+			"create_time": "2026-09-22 10:00:00", "update_time": "2026-09-22 10:00:00",
+		}
+		f.reports = append(f.reports, row)
+		return []map[string]interface{}{{"report_id": row["report_id"]}}, nil
+	case strings.Contains(query, "INSERT INTO ptmj_bookmark_report"):
+		f.nextDownloadID++
+		row := map[string]interface{}{
+			"report_id": f.nextDownloadID, "bookmark_id": toDatumInt64(args[0]), "user_id": toDatumInt64(args[1]),
+			"reason": toDatumString(args[2]), "result": "0", "remark": toDatumString(args[3]),
+			"create_time": "2026-09-22 10:00:00", "update_time": "2026-09-22 10:00:00",
+		}
+		f.bookmarkReports = append(f.bookmarkReports, row)
+		return []map[string]interface{}{{"report_id": row["report_id"]}}, nil
+	case strings.Contains(query, "FROM ptmj_report WHERE report_id = ?"):
+		for _, report := range f.reports {
+			if report["report_id"] == toDatumInt64(args[0]) {
+				return []map[string]interface{}{report}, nil
+			}
+		}
+		return nil, nil
+	case strings.Contains(query, "FROM ptmj_report WHERE file_id = ?"):
+		rows := []map[string]interface{}{}
+		for _, report := range f.reports {
+			if report["file_id"] == toDatumInt64(args[0]) {
+				rows = append(rows, report)
+			}
+		}
+		return rows, nil
+	case strings.Contains(query, "FROM ptmj_report rp") && strings.Contains(query, "count(*)"):
+		total := int64(0)
+		for _, report := range f.reports {
+			if report["user_id"] == toDatumInt64(args[0]) {
+				total++
+			}
+		}
+		return []map[string]interface{}{{"count": total}}, nil
+	case strings.Contains(query, "FROM ptmj_report rp"):
+		rows := []map[string]interface{}{}
+		for _, report := range f.reports {
+			if report["user_id"] != toDatumInt64(args[0]) {
+				continue
+			}
+			row := map[string]interface{}{}
+			for key, value := range report {
+				row[key] = value
+			}
+			for _, file := range f.files {
+				if file["file_id"] == report["file_id"] {
+					row["file_name"] = file["file_name"]
+					row["file_subject"] = file["file_subject"]
+					row["file_school"] = file["file_school"]
+				}
+			}
+			rows = append(rows, row)
+		}
+		return rows, nil
+	case strings.Contains(query, "FROM ptmj_bookmark_report WHERE report_id = ?"):
+		for _, report := range f.bookmarkReports {
+			if report["report_id"] == toDatumInt64(args[0]) {
+				return []map[string]interface{}{report}, nil
+			}
+		}
+		return nil, nil
+	case strings.Contains(query, "FROM ptmj_bookmark_report WHERE bookmark_id = ?"):
+		rows := []map[string]interface{}{}
+		for _, report := range f.bookmarkReports {
+			if report["bookmark_id"] == toDatumInt64(args[0]) {
+				rows = append(rows, report)
+			}
+		}
+		return rows, nil
+	case strings.Contains(query, "FROM ptmj_bookmark_report rp") && strings.Contains(query, "count(*)"):
+		total := int64(0)
+		for _, report := range f.bookmarkReports {
+			if report["user_id"] == toDatumInt64(args[0]) {
+				total++
+			}
+		}
+		return []map[string]interface{}{{"count": total}}, nil
+	case strings.Contains(query, "FROM ptmj_bookmark_report rp"):
+		rows := []map[string]interface{}{}
+		for _, report := range f.bookmarkReports {
+			if report["user_id"] != toDatumInt64(args[0]) {
+				continue
+			}
+			row := map[string]interface{}{}
+			for key, value := range report {
+				row[key] = value
+			}
+			for id, bookmark := range f.bookmarks {
+				if toDatumInt64(id) == report["bookmark_id"] {
+					row["title"] = bookmark["title"]
+					row["url"] = bookmark["url"]
+				}
+			}
+			rows = append(rows, row)
+		}
+		return rows, nil
+	case strings.Contains(query, "FROM ptmj_notification") && strings.Contains(query, "display_mode = '0'"):
+		return f.notificationRows("0"), nil
+	case strings.Contains(query, "FROM ptmj_notification") && strings.Contains(query, "display_mode = '1'"):
+		return f.notificationRows("1"), nil
+	case strings.Contains(query, "FROM ptmj_notification WHERE notify_id = ?"):
+		for _, notification := range f.notifications {
+			if notification["notify_id"] == toDatumInt64(args[0]) {
+				return []map[string]interface{}{notification}, nil
+			}
+		}
+		return nil, nil
+	case strings.Contains(query, "FROM ptmj_notification") && strings.Contains(query, "count(*)") && !strings.Contains(query, "WHERE notify_id"):
+		total := int64(len(f.notifications))
+		if strings.Contains(query, "notify_type = ?") && len(args) > 0 {
+			want := toDatumString(args[0])
+			total = 0
+			for _, notification := range f.notifications {
+				if toDatumString(notification["notify_type"]) == want {
+					total++
+				}
+			}
+		}
+		return []map[string]interface{}{{"count": total}}, nil
+	case strings.Contains(query, "FROM ptmj_notification"):
+		rows := []map[string]interface{}{}
+		for _, notification := range f.notifications {
+			if strings.Contains(query, "notify_type = ?") && toDatumString(notification["notify_type"]) != toDatumString(args[0]) {
+				continue
+			}
+			rows = append(rows, notification)
+		}
+		return rows, nil
 	case strings.Contains(query, "FROM ptmj_file_download WHERE download_id = ?") || strings.Contains(query, "FROM ptmj_file_download WHERE download_id"):
 		for _, record := range f.downloads {
 			if record["download_id"] == toDatumInt64(args[0]) {
@@ -345,12 +496,129 @@ func (f *fakeDatumDB) Exec(query string, args ...interface{}) (sql.Result, error
 		return fakeDatumResult{rows: 0}, nil
 	case strings.Contains(query, "ON CONFLICT (user_id)"):
 		f.security[toDatumInt64(args[0])] = [2]string{toDatumString(args[1]), toDatumString(args[2])}
+	case strings.Contains(query, "INSERT INTO ptmj_notification") && strings.Contains(query, "VALUES ('4', ?"):
+		f.notifications = append(f.notifications, map[string]interface{}{
+			"notify_type": "4", "title": toDatumString(args[0]),
+			"upload_user_id": toDatumInt64(args[1]), "material_id": toDatumInt64(args[2]),
+			"material_title_snapshot": toDatumString(args[3]),
+		})
+		return fakeDatumResult{rows: 1}, nil
+	case strings.Contains(query, "INSERT INTO ptmj_notification"):
+		f.nextDownloadID++
+		f.notifications = append(f.notifications, map[string]interface{}{
+			"notify_id": f.nextDownloadID, "notify_type": toDatumString(args[0]), "title": toDatumString(args[1]),
+			"content": toDatumString(args[2]), "status": toDatumString(args[3]), "sort": toDatumInt64(args[4]),
+			"display_mode":   toDatumString(args[5]),
+			"upload_user_id": toDatumInt64(args[11]), "material_id": toDatumInt64(args[12]),
+			"material_title_snapshot": toDatumString(args[13]),
+			"scroll_time_interval":    toDatumInt64(args[16]), "remark": toDatumString(args[17]),
+		})
+		return fakeDatumResult{rows: 1}, nil
+	case strings.Contains(query, "UPDATE ptmj_notification") && strings.Contains(query, "WHERE notify_id = ?"):
+		notifyID := toDatumInt64(args[len(args)-1])
+		for _, notification := range f.notifications {
+			if notification["notify_id"] == notifyID {
+				// Update SQL: notify_id=?, notify_type=?, title=?, content=?, status=?...
+				notification["title"] = toDatumString(args[2])
+				notification["status"] = toDatumString(args[4])
+			}
+		}
+	case strings.Contains(query, "DELETE FROM ptmj_notification WHERE notify_id IN"):
+		kept := []map[string]interface{}{}
+		for _, notification := range f.notifications {
+			removed := false
+			for _, id := range args {
+				if notification["notify_id"] == toDatumInt64(id) {
+					removed = true
+					break
+				}
+			}
+			if !removed {
+				kept = append(kept, notification)
+			}
+		}
+		f.notifications = kept
 	case strings.Contains(query, "INSERT INTO ptmj_security"):
 		f.security[toDatumInt64(args[0])] = [2]string{toDatumString(args[1]), toDatumString(args[2])}
+	case strings.Contains(query, "UPDATE ptmj_report SET result"):
+		for _, report := range f.reports {
+			if report["report_id"] == toDatumInt64(args[3]) {
+				report["result"] = toDatumString(args[0])
+				report["update_by"] = toDatumString(args[1])
+				report["update_time"] = "2026-09-22 11:00:00"
+				if len(args) > 4 {
+					report["remark"] = toDatumString(args[2])
+				}
+			}
+		}
+	case strings.Contains(query, "UPDATE ptmj_report SET reason"):
+		updated := int64(0)
+		for _, report := range f.reports {
+			if report["report_id"] == toDatumInt64(args[3]) && report["user_id"] == toDatumInt64(args[4]) && report["result"] == "0" {
+				report["reason"] = toDatumString(args[0])
+				report["remark"] = toDatumString(args[1])
+				updated++
+			}
+		}
+		return fakeDatumResult{rows: updated}, nil
+	case strings.Contains(query, "UPDATE ptmj_bookmark_report SET result"):
+		for _, report := range f.bookmarkReports {
+			if report["report_id"] == toDatumInt64(args[3]) {
+				report["result"] = toDatumString(args[0])
+				report["update_time"] = "2026-09-22 11:00:00"
+			}
+		}
+	case strings.Contains(query, "UPDATE ptmj_bookmark_report SET reason"):
+		updated := int64(0)
+		for _, report := range f.bookmarkReports {
+			if report["report_id"] == toDatumInt64(args[3]) && report["user_id"] == toDatumInt64(args[4]) && report["result"] == "0" {
+				report["reason"] = toDatumString(args[0])
+				report["remark"] = toDatumString(args[1])
+				updated++
+			}
+		}
+		return fakeDatumResult{rows: updated}, nil
+	case strings.Contains(query, "DELETE FROM ptmj_report WHERE report_id"):
+		kept := []map[string]interface{}{}
+		removed := int64(0)
+		for _, report := range f.reports {
+			if report["report_id"] == toDatumInt64(args[0]) && report["user_id"] == toDatumInt64(args[1]) {
+				removed++
+				continue
+			}
+			kept = append(kept, report)
+		}
+		f.reports = kept
+		return fakeDatumResult{rows: removed}, nil
+	case strings.Contains(query, "DELETE FROM ptmj_bookmark_report WHERE report_id"):
+		keptBR := []map[string]interface{}{}
+		removedBR := int64(0)
+		for _, report := range f.bookmarkReports {
+			if report["report_id"] == toDatumInt64(args[0]) && report["user_id"] == toDatumInt64(args[1]) {
+				removedBR++
+				continue
+			}
+			keptBR = append(keptBR, report)
+		}
+		f.bookmarkReports = keptBR
+		return fakeDatumResult{rows: removedBR}, nil
 	case strings.Contains(query, "UPDATE ptmj_file_download SET remark"):
 		for _, record := range f.downloads {
 			if record["download_id"] == toDatumInt64(args[2]) && record["user_id"] == toDatumInt64(args[3]) {
 				record["remark"] = toDatumString(args[0])
+			}
+		}
+	case strings.Contains(query, "UPDATE ptmj_file SET file_status"):
+		for _, file := range f.files {
+			if file["file_id"] == toDatumInt64(args[2]) {
+				file["file_status"] = toDatumInt64(args[0])
+				file["reviewer"] = toDatumString(args[1])
+			}
+		}
+	case strings.Contains(query, "UPDATE ptmj_bookmark SET status"):
+		for _, bookmark := range f.bookmarks {
+			if bookmarkID, ok := bookmark["id"]; ok && bookmarkID == toDatumInt64(args[1]) {
+				bookmark["status"] = toDatumInt64(args[0])
 			}
 		}
 	case strings.Contains(query, "UPDATE ptmj_file SET del_flag"):
@@ -675,4 +943,41 @@ func TestDatumPasswordRecoveryFlow(t *testing.T) {
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("wrong answer status = %d", recorder.Code)
 	}
+}
+
+// 委托 With* 系列到 Query/Exec，满足查询构建器（db.WithDriver().Table().All()）。
+func (f *fakeDatumDB) QueryWithConnection(_ string, query string, args ...interface{}) ([]map[string]interface{}, error) {
+	return f.Query(query, args...)
+}
+
+func (f *fakeDatumDB) QueryWith(_ *sql.Tx, _ string, query string, args ...interface{}) ([]map[string]interface{}, error) {
+	return f.Query(query, args...)
+}
+
+func (f *fakeDatumDB) QueryWithTx(_ *sql.Tx, query string, args ...interface{}) ([]map[string]interface{}, error) {
+	return f.Query(query, args...)
+}
+
+func (f *fakeDatumDB) ExecWithConnection(_ string, query string, args ...interface{}) (sql.Result, error) {
+	return f.Exec(query, args...)
+}
+
+func (f *fakeDatumDB) ExecWith(_ *sql.Tx, _ string, query string, args ...interface{}) (sql.Result, error) {
+	return f.Exec(query, args...)
+}
+
+func (f *fakeDatumDB) ExecWithTx(_ *sql.Tx, query string, args ...interface{}) (sql.Result, error) {
+	return f.Exec(query, args...)
+}
+
+func (f *fakeDatumDB) Name() string { return "postgresql" }
+
+func (f *fakeDatumDB) notificationRows(displayMode string) []map[string]interface{} {
+	rows := []map[string]interface{}{}
+	for _, notification := range f.notifications {
+		if toDatumString(notification["status"]) == "0" && toDatumString(notification["display_mode"]) == displayMode {
+			rows = append(rows, notification)
+		}
+	}
+	return rows
 }

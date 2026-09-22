@@ -22,7 +22,9 @@ func registerDatumRoutes(r *gin.Engine, s *Store) {
 	s.registerDatumUserRoutes(user)
 	s.registerDatumFileRoutes(datum)
 	s.registerDatumDesktopRoutes(datum)
+	s.registerDatumReportRoutes(datum)
 	s.registerDatumActivityRoutes(datum)
+	s.registerDatumNotificationRoutes(r, datum)
 }
 
 // datumCaptchaImage implements GET /datum/user/captchaImage: the payload
