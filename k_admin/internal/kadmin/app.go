@@ -7,6 +7,7 @@ import (
 
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/codegen"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/datum"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/files"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/jobs"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/loadrank"
@@ -80,6 +81,11 @@ func Register(r *gin.Engine, conn db.Connection) (*Runtime, error) {
 	}
 	s.security = newSecurityService(s.auth)
 	s.datum = newDatumIdentity(s.auth.keyPrefix+":datum", s.auth.redis, datumSessionTTL())
+	// Business tables heal at startup so the datum handlers (and any
+	// migrated database) always find the ten ptmj_* tables ready.
+	if err := datum.EnsureSchema(s.conn); err != nil {
+		return nil, fmt.Errorf("初始化 datum 业务表失败: %w", err)
+	}
 	if err := s.syncDefaultPermissions(); err != nil {
 		return nil, fmt.Errorf("同步默认权限失败: %w", err)
 	}
