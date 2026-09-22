@@ -237,7 +237,14 @@ func (s *Store) datumFileList(c *gin.Context) {
 	for _, file := range items {
 		rows = append(rows, datumFilePayload(file))
 	}
-	success(c, gin.H{"rows": rows, "total": result.Total, "pageNum": result.Page, "pageSize": result.PageSize})
+	// RuoYi TableDataInfo 形状：rows/total 在顶层（桌面端直接读 response.rows/total）
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "ok",
+		"msg":     "ok",
+		"rows":    rows,
+		"total":   result.Total,
+	})
 }
 
 func (s *Store) datumFileTree(c *gin.Context) {

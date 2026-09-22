@@ -24,25 +24,36 @@ import (
 
 type fakeDatumDB struct {
 	db.Connection
-	mu       sync.Mutex
-	users    map[string]*datumUser
-	security map[int64][2]string
-	files    []map[string]interface{}
-	nextID   int64
-	seedSeq  int
+	mu             sync.Mutex
+	users          map[string]*datumUser
+	security       map[int64][2]string
+	files          []map[string]interface{}
+	bookmarks      map[int64]map[string]interface{}
+	downloads      []map[string]interface{}
+	fileFavs       [][2]int64
+	bookmarkFavs   map[int64]int64
+	nextDownloadID int64
+	nextID         int64
+	seedSeq        int
 }
 
 func newFakeDatumDB() *fakeDatumDB {
-	return &fakeDatumDB{users: map[string]*datumUser{}, security: map[int64][2]string{}, nextID: 100}
+	return &fakeDatumDB{
+		users:        map[string]*datumUser{},
+		security:     map[int64][2]string{},
+		bookmarks:    map[int64]map[string]interface{}{},
+		bookmarkFavs: map[int64]int64{},
+		nextID:       100,
+	}
 }
 
 var errFakeDuplicateKey = errors.New("duplicate key value violates unique constraint")
 var errFakeUnsupportedQuery = errors.New("fakeDatumDB: unsupported query")
 
-type fakeDatumResult struct{}
+type fakeDatumResult struct{ rows int64 }
 
-func (fakeDatumResult) LastInsertId() (int64, error) { return 0, nil }
-func (fakeDatumResult) RowsAffected() (int64, error) { return 1, nil }
+func (r fakeDatumResult) LastInsertId() (int64, error) { return 0, nil }
+func (r fakeDatumResult) RowsAffected() (int64, error) { return r.rows, nil }
 
 func (f *fakeDatumDB) userRow(user *datumUser) map[string]interface{} {
 	return map[string]interface{}{
@@ -83,6 +94,107 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 			return nil, nil
 		}
 		return []map[string]interface{}{{"question": row[0], "answer": row[1]}}, nil
+	case strings.Contains(query, "FROM ptmj_file_download WHERE download_id = ?") || strings.Contains(query, "FROM ptmj_file_download WHERE download_id"):
+		for _, record := range f.downloads {
+			if record["download_id"] == toDatumInt64(args[0]) {
+				return []map[string]interface{}{record}, nil
+			}
+		}
+		return nil, nil
+	case strings.Contains(query, "FROM ptmj_file_download d") && strings.Contains(query, "count(*)"):
+		total := int64(0)
+		for _, record := range f.downloads {
+			if record["user_id"] == toDatumInt64(args[0]) {
+				total++
+			}
+		}
+		return []map[string]interface{}{{"count": total}}, nil
+	case strings.Contains(query, "FROM ptmj_file_download d"):
+		rows := []map[string]interface{}{}
+		for _, record := range f.downloads {
+			if record["user_id"] != toDatumInt64(args[0]) {
+				continue
+			}
+			row := map[string]interface{}{}
+			for key, value := range record {
+				row[key] = value
+			}
+			for _, file := range f.files {
+				if file["file_id"] == record["file_id"] {
+					for key, value := range file {
+						if _, exists := row[key]; !exists {
+							row[key] = value
+						}
+					}
+				}
+			}
+			rows = append(rows, row)
+		}
+		return rows, nil
+	case strings.Contains(query, "SELECT 1 FROM ptmj_file_favorite WHERE"):
+		pair := [2]int64{toDatumInt64(args[0]), toDatumInt64(args[1])}
+		for _, existing := range f.fileFavs {
+			if existing == pair {
+				return []map[string]interface{}{{"1": int64(1)}}, nil
+			}
+		}
+		return nil, nil
+	case strings.Contains(query, "FROM ptmj_file_favorite fav") && strings.Contains(query, "count(*)"):
+		total := int64(0)
+		for _, pair := range f.fileFavs {
+			if pair[1] == toDatumInt64(args[0]) {
+				total++
+			}
+		}
+		return []map[string]interface{}{{"count": total}}, nil
+	case strings.Contains(query, "FROM ptmj_file_favorite fav"):
+		rows := []map[string]interface{}{}
+		for _, pair := range f.fileFavs {
+			if pair[1] != toDatumInt64(args[0]) {
+				continue
+			}
+			for _, file := range f.files {
+				if file["file_id"] == toDatumInt64(pair[0]) {
+					rows = append(rows, file)
+				}
+			}
+		}
+		return rows, nil
+	case strings.Contains(query, "SELECT count(*) AS count FROM ptmj_bookmark_favorite") && !strings.Contains(query, "WHERE"):
+		return []map[string]interface{}{{"count": int64(len(f.bookmarkFavs))}}, nil
+	case strings.Contains(query, "SELECT bookmark_id, user_id FROM ptmj_bookmark_favorite"):
+		rows := []map[string]interface{}{}
+		for bookmarkID, userID := range f.bookmarkFavs {
+			rows = append(rows, map[string]interface{}{"bookmark_id": bookmarkID, "user_id": userID})
+		}
+		return rows, nil
+	case strings.Contains(query, "FROM ptmj_bookmark_favorite fav") && strings.Contains(query, "JOIN ptmj_bookmark b"):
+		rows := []map[string]interface{}{}
+		for bookmarkID, userID := range f.bookmarkFavs {
+			if userID != toDatumInt64(args[0]) {
+				continue
+			}
+			if bookmark, exists := f.bookmarks[bookmarkID]; exists {
+				row := map[string]interface{}{}
+				for key, value := range bookmark {
+					row[key] = value
+				}
+				rows = append(rows, row)
+			}
+		}
+		return rows, nil
+	case strings.Contains(query, "SELECT 1 FROM ptmj_bookmark_favorite WHERE"):
+		userID, exists := f.bookmarkFavs[toDatumInt64(args[0])]
+		if exists && userID == toDatumInt64(args[1]) {
+			return []map[string]interface{}{{"1": int64(1)}}, nil
+		}
+		return nil, nil
+	case strings.Contains(query, "FROM ptmj_bookmark WHERE id = ?"):
+		row, exists := f.bookmarks[toDatumInt64(args[0])]
+		if !exists {
+			return nil, nil
+		}
+		return []map[string]interface{}{row}, nil
 	case strings.Contains(query, "FROM ptmj_file_download WHERE user_id"):
 		return []map[string]interface{}{{"count": int64(5)}}, nil
 	case strings.Contains(query, "FROM ptmj_file_favorite WHERE user_id"):
@@ -180,10 +292,67 @@ func (f *fakeDatumDB) Exec(query string, args ...interface{}) (sql.Result, error
 				user.Password = toDatumString(args[0])
 			}
 		}
+	case strings.Contains(query, "INSERT INTO ptmj_file_download"):
+		f.nextDownloadID++
+		f.downloads = append(f.downloads, map[string]interface{}{
+			"download_id": f.nextDownloadID, "file_id": toDatumInt64(args[0]), "user_id": toDatumInt64(args[1]),
+			"creat_time": "2026-09-22 10:00:00",
+		})
+	case strings.Contains(query, "DELETE FROM ptmj_file_download WHERE download_id IN"):
+		kept := []map[string]interface{}{}
+		for _, record := range f.downloads {
+			matched := false
+			for _, id := range args[:len(args)-1] {
+				if record["download_id"] == toDatumInt64(id) && record["user_id"] == toDatumInt64(args[len(args)-1]) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				kept = append(kept, record)
+			}
+		}
+		f.downloads = kept
+	case strings.Contains(query, "DELETE FROM ptmj_file_download WHERE file_id"):
+		kept := []map[string]interface{}{}
+		for _, record := range f.downloads {
+			if !(record["file_id"] == toDatumInt64(args[0]) && record["user_id"] == toDatumInt64(args[1])) {
+				kept = append(kept, record)
+			}
+		}
+		f.downloads = kept
+	case strings.Contains(query, "INSERT INTO ptmj_file_favorite"):
+		f.fileFavs = append(f.fileFavs, [2]int64{toDatumInt64(args[0]), toDatumInt64(args[1])})
+	case strings.Contains(query, "DELETE FROM ptmj_file_favorite"):
+		kept := [][2]int64{}
+		removed := int64(0)
+		for _, pair := range f.fileFavs {
+			if pair[0] == toDatumInt64(args[0]) && pair[1] == toDatumInt64(args[1]) {
+				removed++
+				continue
+			}
+			kept = append(kept, pair)
+		}
+		f.fileFavs = kept
+		return fakeDatumResult{rows: removed}, nil
+	case strings.Contains(query, "INSERT INTO ptmj_bookmark_favorite"):
+		f.bookmarkFavs[toDatumInt64(args[0])] = toDatumInt64(args[1])
+	case strings.Contains(query, "DELETE FROM ptmj_bookmark_favorite WHERE bookmark_id"):
+		if _, existed := f.bookmarkFavs[toDatumInt64(args[0])]; existed {
+			delete(f.bookmarkFavs, toDatumInt64(args[0]))
+			return fakeDatumResult{rows: 1}, nil
+		}
+		return fakeDatumResult{rows: 0}, nil
 	case strings.Contains(query, "ON CONFLICT (user_id)"):
 		f.security[toDatumInt64(args[0])] = [2]string{toDatumString(args[1]), toDatumString(args[2])}
 	case strings.Contains(query, "INSERT INTO ptmj_security"):
 		f.security[toDatumInt64(args[0])] = [2]string{toDatumString(args[1]), toDatumString(args[2])}
+	case strings.Contains(query, "UPDATE ptmj_file_download SET remark"):
+		for _, record := range f.downloads {
+			if record["download_id"] == toDatumInt64(args[2]) && record["user_id"] == toDatumInt64(args[3]) {
+				record["remark"] = toDatumString(args[0])
+			}
+		}
 	case strings.Contains(query, "UPDATE ptmj_file SET del_flag"):
 		for _, file := range f.files {
 			if file["file_id"] == toDatumInt64(args[0]) && file["user_id"] == toDatumInt64(args[1]) {
@@ -202,7 +371,7 @@ func (f *fakeDatumDB) Exec(query string, args ...interface{}) (sql.Result, error
 			}
 		}
 	}
-	return fakeDatumResult{}, nil
+	return fakeDatumResult{rows: 1}, nil
 }
 
 func (f *fakeDatumDB) findUserByID(userID int64) *datumUser {

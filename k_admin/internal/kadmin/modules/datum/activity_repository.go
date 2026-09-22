@@ -66,16 +66,12 @@ func (r *DownloadRepo) ListByUser(userID int64, page, size int) (Page, error) {
 	if err != nil {
 		return Page{}, err
 	}
-	type downloadedFile struct {
-		File
-		FirstDownloadTime string `json:"firstDownloadTime"`
-	}
-	items := make([]downloadedFile, 0, len(rows))
+	DownloadedItem := make([]DownloadedFile, 0, len(rows))
 	for _, row := range rows {
 		item := scanFile(row)
-		items = append(items, downloadedFile{File: item, FirstDownloadTime: ScanString(row["first_download_time"])})
+		DownloadedItem = append(DownloadedItem, DownloadedFile{File: item, FirstDownloadTime: ScanString(row["first_download_time"])})
 	}
-	return Page{Items: items, Total: total, Page: page, PageSize: size}, nil
+	return Page{Items: DownloadedItem, Total: total, Page: page, PageSize: size}, nil
 }
 
 // CountByUser feeds the profile stats card.
@@ -85,6 +81,13 @@ func (r *DownloadRepo) CountByUser(userID int64) (int64, error) {
 		return 0, err
 	}
 	return ScanInt64(rows[0]["count"]), nil
+}
+
+// DownloadedFile is one row of the desktop "my downloads" view: the file
+// plus when the user first downloaded it.
+type DownloadedFile struct {
+	File
+	FirstDownloadTime string `json:"firstDownloadTime"`
 }
 
 // FileFavoriteRepo owns ptmj_file_favorite (pure join table).
@@ -144,7 +147,8 @@ func (r *FileFavoriteRepo) ListFilesByUser(userID int64, page, size int) (Page, 
 	total := ScanInt64(countRows[0]["count"])
 
 	queryArgs := append(append([]interface{}{}, args...), size, (page-1)*size)
-	rows, err := r.conn.Query(`SELECT `+strings.ReplaceAll(fileColumns, ", ", ", f.")+`
+	rows, err := r.conn.Query(`SELECT f.file_id, f.user_id, f.file_name, f.file_url, f.file_size, f.file_format, f.file_year, f.file_type,
+		f.file_school, f.file_subject, f.reviewer, f.file_status, f.del_flag, f.create_by, f.create_time, f.update_by, f.update_time, f.remark
 		FROM ptmj_file_favorite fav
 		JOIN ptmj_file f ON f.file_id = fav.file_id AND f.user_id = (SELECT min(user_id) FROM ptmj_file mf WHERE mf.file_id = fav.file_id)
 		`+where+`
@@ -217,7 +221,8 @@ func (r *BookmarkFavoriteRepo) ListByUser(userID int64, page, size int) (Page, e
 	total := ScanInt64(countRows[0]["count"])
 
 	queryArgs := append(append([]interface{}{}, args...), size, (page-1)*size)
-	rows, err := r.conn.Query(`SELECT `+strings.ReplaceAll(bookmarkColumns, ", ", ", b.")+`
+	rows, err := r.conn.Query(`SELECT b.id, b.user_id, b.url, b.title, b.description, b.cover_image, b.subject, b.resource_type, b.collection,
+		b.status, b.del_flag, b.create_by, b.create_time, b.update_by, b.update_time, b.remark
 		FROM ptmj_bookmark_favorite fav
 		JOIN ptmj_bookmark b ON b.id = fav.bookmark_id
 		`+where+`
@@ -244,4 +249,88 @@ func normalizePage(page, size int) (int, int) {
 		size = 100
 	}
 	return page, size
+}
+
+// FindByID reads one download record (owner-checked by callers).
+func (r *DownloadRepo) FindByID(downloadID int64) (FileDownload, bool, error) {
+	rows, err := r.conn.Query(`SELECT download_id, file_id, user_id, creat_by, creat_time, update_by, update_time, remark
+		FROM ptmj_file_download WHERE download_id = ?`, downloadID)
+	if err != nil {
+		return FileDownload{}, false, err
+	}
+	if len(rows) == 0 {
+		return FileDownload{}, false, nil
+	}
+	row := rows[0]
+	return FileDownload{
+		DownloadID: ScanInt64(row["download_id"]),
+		FileID:     ScanInt64(row["file_id"]),
+		UserID:     ScanInt64(row["user_id"]),
+		CreatBy:    ScanString(row["creat_by"]),
+		CreatTime:  ScanString(row["creat_time"]),
+		UpdateBy:   ScanString(row["update_by"]),
+		UpdateTime: ScanString(row["update_time"]),
+		Remark:     ScanString(row["remark"]),
+	}, true, nil
+}
+
+// UpdateRemark edits the note on one owned download record.
+func (r *DownloadRepo) UpdateRemark(downloadID, userID int64, remark string) error {
+	result, err := r.conn.Exec(`UPDATE ptmj_file_download SET remark = ?, update_by = ?, update_time = CURRENT_TIMESTAMP
+		WHERE download_id = ? AND user_id = ?`, remark, userID, downloadID, userID)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteByIDs removes owned download records by id (the desktop passes
+// comma-separated ids in one call).
+func (r *DownloadRepo) DeleteByIDs(ids []int64, userID int64) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	args := make([]interface{}, 0, len(ids)+1)
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	args = append(args, userID)
+	result, err := r.conn.Exec(`DELETE FROM ptmj_file_download WHERE download_id IN (`+placeholders+`) AND user_id = ?`, args...)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// BookmarkFavoriteRelation is one raw row of ptmj_bookmark_favorite.
+type BookmarkFavoriteRelation struct {
+	BookmarkID int64
+	UserID     int64
+}
+
+// ListAll pages raw favorite relations; the desktop home view fetches the
+// whole set and marks which bookmarks the current user already favorited.
+func (r *BookmarkFavoriteRepo) ListAll(page, size int) (Page, error) {
+	page, size = normalizePage(page, size)
+	countRows, err := r.conn.Query(`SELECT count(*) AS count FROM ptmj_bookmark_favorite`)
+	if err != nil {
+		return Page{}, err
+	}
+	total := ScanInt64(countRows[0]["count"])
+	rows, err := r.conn.Query(`SELECT bookmark_id, user_id FROM ptmj_bookmark_favorite ORDER BY bookmark_id DESC LIMIT ? OFFSET ?`, size, (page-1)*size)
+	if err != nil {
+		return Page{}, err
+	}
+	relations := make([]BookmarkFavoriteRelation, 0, len(rows))
+	for _, row := range rows {
+		relations = append(relations, BookmarkFavoriteRelation{
+			BookmarkID: ScanInt64(row["bookmark_id"]),
+			UserID:     ScanInt64(row["user_id"]),
+		})
+	}
+	return Page{Items: relations, Total: total, Page: page, PageSize: size}, nil
 }
