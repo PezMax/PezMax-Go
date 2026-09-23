@@ -91,34 +91,61 @@
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'id'">
-            {{ record.id ?? '-' }}
+            <a-typography-text
+              :content="record.id ?? '-'"
+              :ellipsis="{ tooltip: record.id ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'name'">
-            {{ record.name ?? '-' }}
+            <a-typography-text
+              :content="record.name ?? '-'"
+              :ellipsis="{ tooltip: record.name ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'sku'">
-            {{ record.sku ?? '-' }}
+            <a-typography-text
+              :content="record.sku ?? '-'"
+              :ellipsis="{ tooltip: record.sku ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'price'">
-            {{ record.price ?? '-' }}
+            <a-typography-text
+              :content="record.price ?? '-'"
+              :ellipsis="{ tooltip: record.price ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'stock'">
-            {{ record.stock ?? '-' }}
+            <a-typography-text
+              :content="record.stock ?? '-'"
+              :ellipsis="{ tooltip: record.stock ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'active'">
             <a-tag :color="record.active ? 'green' : 'default'">{{ record.active ? '是' : '否' }}</a-tag>
           </template>
           <template v-else-if="column.key === 'description'">
-            <a-typography-text :content="record.description || '-'" ellipsis />
+            <a-typography-text
+              :content="record.description || '-'"
+              :ellipsis="{ tooltip: record.description || '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'publishedAt'">
-            {{ record.publishedAt ?? '-' }}
+            <a-typography-text
+              :content="record.publishedAt ?? '-'"
+              :ellipsis="{ tooltip: record.publishedAt ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'createdAt'">
-            {{ record.createdAt ?? '-' }}
+            <a-typography-text
+              :content="record.createdAt ?? '-'"
+              :ellipsis="{ tooltip: record.createdAt ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'updatedAt'">
-            {{ record.updatedAt ?? '-' }}
+            <a-typography-text
+              :content="record.updatedAt ?? '-'"
+              :ellipsis="{ tooltip: record.updatedAt ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'action'">
             <a-space :size="2">

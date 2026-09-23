@@ -154,58 +154,112 @@
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'fileId'">
-            {{ record.fileId ?? '-' }}
+            <a-typography-text
+              :content="record.fileId ?? '-'"
+              :ellipsis="{ tooltip: record.fileId ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'userId'">
-            {{ record.userId ?? '-' }}
+            <a-typography-text
+              :content="record.userId ?? '-'"
+              :ellipsis="{ tooltip: record.userId ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'fileName'">
-            {{ record.fileName ?? '-' }}
+            <a-typography-text
+              :content="record.fileName ?? '-'"
+              :ellipsis="{ tooltip: record.fileName ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'fileUrl'">
-            <a-typography-text :content="record.fileUrl || '-'" ellipsis />
+            <a-typography-text
+              :content="record.fileUrl || '-'"
+              :ellipsis="{ tooltip: record.fileUrl || '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'fileSize'">
-            {{ record.fileSize ?? '-' }}
+            <a-typography-text
+              :content="record.fileSize ?? '-'"
+              :ellipsis="{ tooltip: record.fileSize ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'fileFormat'">
-            {{ record.fileFormat ?? '-' }}
+            <a-typography-text
+              :content="record.fileFormat ?? '-'"
+              :ellipsis="{ tooltip: record.fileFormat ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'fileYear'">
-            {{ record.fileYear ?? '-' }}
+            <a-typography-text
+              :content="record.fileYear ?? '-'"
+              :ellipsis="{ tooltip: record.fileYear ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'fileType'">
-            {{ record.fileType ?? '-' }}
+            <a-typography-text
+              :content="record.fileType ?? '-'"
+              :ellipsis="{ tooltip: record.fileType ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'fileSchool'">
-            {{ record.fileSchool ?? '-' }}
+            <a-typography-text
+              :content="record.fileSchool ?? '-'"
+              :ellipsis="{ tooltip: record.fileSchool ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'fileSubject'">
-            {{ record.fileSubject ?? '-' }}
+            <a-typography-text
+              :content="record.fileSubject ?? '-'"
+              :ellipsis="{ tooltip: record.fileSubject ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'reviewer'">
-            {{ record.reviewer ?? '-' }}
+            <a-typography-text
+              :content="record.reviewer ?? '-'"
+              :ellipsis="{ tooltip: record.reviewer ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'fileStatus'">
-            {{ record.fileStatus ?? '-' }}
+            <a-typography-text
+              :content="record.fileStatus ?? '-'"
+              :ellipsis="{ tooltip: record.fileStatus ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'delFlag'">
-            {{ record.delFlag ?? '-' }}
+            <a-typography-text
+              :content="record.delFlag ?? '-'"
+              :ellipsis="{ tooltip: record.delFlag ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'createBy'">
-            {{ record.createBy ?? '-' }}
+            <a-typography-text
+              :content="record.createBy ?? '-'"
+              :ellipsis="{ tooltip: record.createBy ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'createTime'">
-            {{ record.createTime ?? '-' }}
+            <a-typography-text
+              :content="record.createTime ?? '-'"
+              :ellipsis="{ tooltip: record.createTime ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'updateBy'">
-            {{ record.updateBy ?? '-' }}
+            <a-typography-text
+              :content="record.updateBy ?? '-'"
+              :ellipsis="{ tooltip: record.updateBy ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'updateTime'">
-            {{ record.updateTime ?? '-' }}
+            <a-typography-text
+              :content="record.updateTime ?? '-'"
+              :ellipsis="{ tooltip: record.updateTime ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'remark'">
-            <a-typography-text :content="record.remark || '-'" ellipsis />
+            <a-typography-text
+              :content="record.remark || '-'"
+              :ellipsis="{ tooltip: record.remark || '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'action'">
             <a-space :size="2">

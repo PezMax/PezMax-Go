@@ -100,28 +100,52 @@
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'downloadId'">
-            {{ record.downloadId ?? '-' }}
+            <a-typography-text
+              :content="record.downloadId ?? '-'"
+              :ellipsis="{ tooltip: record.downloadId ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'fileId'">
-            {{ record.fileId ?? '-' }}
+            <a-typography-text
+              :content="record.fileId ?? '-'"
+              :ellipsis="{ tooltip: record.fileId ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'userId'">
-            {{ record.userId ?? '-' }}
+            <a-typography-text
+              :content="record.userId ?? '-'"
+              :ellipsis="{ tooltip: record.userId ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'creatBy'">
-            {{ record.creatBy ?? '-' }}
+            <a-typography-text
+              :content="record.creatBy ?? '-'"
+              :ellipsis="{ tooltip: record.creatBy ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'creatTime'">
-            {{ record.creatTime ?? '-' }}
+            <a-typography-text
+              :content="record.creatTime ?? '-'"
+              :ellipsis="{ tooltip: record.creatTime ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'updateBy'">
-            {{ record.updateBy ?? '-' }}
+            <a-typography-text
+              :content="record.updateBy ?? '-'"
+              :ellipsis="{ tooltip: record.updateBy ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'updateTime'">
-            {{ record.updateTime ?? '-' }}
+            <a-typography-text
+              :content="record.updateTime ?? '-'"
+              :ellipsis="{ tooltip: record.updateTime ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'remark'">
-            <a-typography-text :content="record.remark || '-'" ellipsis />
+            <a-typography-text
+              :content="record.remark || '-'"
+              :ellipsis="{ tooltip: record.remark || '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'action'">
             <a-space :size="2">

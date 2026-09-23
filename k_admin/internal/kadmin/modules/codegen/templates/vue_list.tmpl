@@ -57,7 +57,7 @@
         <a-tag color="blue">共 {{ total }} 条</a-tag>
       </div>
       <a-table
-        row-key="{{.PKJSONName}}"
+        row-key="[[.PKJSONName]]"
         class="compact-user-table"
         size="small"
         :columns="columns"
@@ -73,9 +73,15 @@
 [[- if eq .Control "switch"]]
             <a-tag :color="record.[[.JSONName]] ? 'green' : 'default'">{{ record.[[.JSONName]] ? '是' : '否' }}</a-tag>
 [[- else if eq .Control "textarea"]]
-            <a-typography-text :content="record.[[.JSONName]] || '-'" ellipsis />
+            <a-typography-text
+              :content="record.[[.JSONName]] || '-'"
+              :ellipsis="{ tooltip: record.[[.JSONName]] || '-' }"
+            />
 [[- else]]
-            {{ record.[[.JSONName]] ?? '-' }}
+            <a-typography-text
+              :content="record.[[.JSONName]] ?? '-'"
+              :ellipsis="{ tooltip: record.[[.JSONName]] ?? '-' }"
+            />
 [[- end]]
           </template>
 [[- end]]
@@ -295,7 +301,7 @@ function openCreate() {
 }
 
 async function openEdit(record: [[.Class]]) {
-  editingId.value = record.{{.PKJSONName}};
+  editingId.value = record.[[.PKJSONName]];
   dirty.value = false;
 [[- range .WritableColumns]]
   formState.[[.JSONName]] = record.[[.JSONName]];
@@ -359,7 +365,7 @@ async function submit() {
 
 async function remove(record: [[.Class]]) {
   try {
-    await delete[[.Class]](record.{{.PKJSONName}});
+    await delete[[.Class]](record.[[.PKJSONName]]);
     message.success('删除成功');
     await fetchList();
   } catch (error) {

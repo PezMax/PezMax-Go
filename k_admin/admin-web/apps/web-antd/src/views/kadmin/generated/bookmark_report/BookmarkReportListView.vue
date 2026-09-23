@@ -118,34 +118,64 @@
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'reportId'">
-            {{ record.reportId ?? '-' }}
+            <a-typography-text
+              :content="record.reportId ?? '-'"
+              :ellipsis="{ tooltip: record.reportId ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'bookmarkId'">
-            {{ record.bookmarkId ?? '-' }}
+            <a-typography-text
+              :content="record.bookmarkId ?? '-'"
+              :ellipsis="{ tooltip: record.bookmarkId ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'userId'">
-            {{ record.userId ?? '-' }}
+            <a-typography-text
+              :content="record.userId ?? '-'"
+              :ellipsis="{ tooltip: record.userId ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'reason'">
-            <a-typography-text :content="record.reason || '-'" ellipsis />
+            <a-typography-text
+              :content="record.reason || '-'"
+              :ellipsis="{ tooltip: record.reason || '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'result'">
-            {{ record.result ?? '-' }}
+            <a-typography-text
+              :content="record.result ?? '-'"
+              :ellipsis="{ tooltip: record.result ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'createBy'">
-            {{ record.createBy ?? '-' }}
+            <a-typography-text
+              :content="record.createBy ?? '-'"
+              :ellipsis="{ tooltip: record.createBy ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'createTime'">
-            {{ record.createTime ?? '-' }}
+            <a-typography-text
+              :content="record.createTime ?? '-'"
+              :ellipsis="{ tooltip: record.createTime ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'updateBy'">
-            {{ record.updateBy ?? '-' }}
+            <a-typography-text
+              :content="record.updateBy ?? '-'"
+              :ellipsis="{ tooltip: record.updateBy ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'updateTime'">
-            {{ record.updateTime ?? '-' }}
+            <a-typography-text
+              :content="record.updateTime ?? '-'"
+              :ellipsis="{ tooltip: record.updateTime ?? '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'remark'">
-            <a-typography-text :content="record.remark || '-'" ellipsis />
+            <a-typography-text
+              :content="record.remark || '-'"
+              :ellipsis="{ tooltip: record.remark || '-' }"
+            />
           </template>
           <template v-else-if="column.key === 'action'">
             <a-space :size="2">
