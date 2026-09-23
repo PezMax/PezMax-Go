@@ -15,8 +15,8 @@
       </div>
       <div v-else>
         <div v-for="item in noticeList" :key="item.noticeId" class="notice-item" :class="{ 'is-read': item.isRead }" @click="previewNotice(item)">
-          <el-tag size="small" :type="item.noticeType === '1' ? 'warning' : 'success'" class="notice-tag">
-            {{ item.noticeType === '1' ? '通知' : '公告' }}
+          <el-tag size="small" :type="noticeTagType(item.noticeType)" class="notice-tag">
+            {{ noticeTypeLabel(item.noticeType) }}
           </el-tag>
           <span class="notice-item-title">{{ item.noticeTitle }}</span>
           <span class="notice-item-date">{{ item.createTime }}</span>
@@ -35,13 +35,13 @@
     <!-- 预览弹窗 -->
     <el-dialog v-model="previewVisible" :title="previewTitle" width="680px" append-to-body class="notice-preview-dialog">
       <div class="notice-preview-meta">
-        <el-tag size="small" :type="previewNoticeType === '1' ? 'warning' : 'success'">
-          {{ previewNoticeType === '1' ? '通知' : '公告' }}
+        <el-tag size="small" :type="noticeTagType(previewNoticeType)">
+          {{ noticeTypeLabel(previewNoticeType) }}
         </el-tag>
-        <span class="notice-preview-info">
+        <span v-if="previewCreateBy" class="notice-preview-info">
           <el-icon><User /></el-icon> {{ previewCreateBy }}
         </span>
-        <span class="notice-preview-info">
+        <span v-if="previewCreateTime" class="notice-preview-info">
           <el-icon><Timer /></el-icon> {{ previewCreateTime }}
         </span>
       </div>
@@ -52,8 +52,16 @@
 </template>
 
 <script setup>
-import { listNoticeTop, markNoticeRead, markNoticeReadAll, getNotice } from '@/api/system/notice'
+// 通知铃铛：已切换至 kadmin datum 通知（/system/notification/user/popup，与
+// NotificationCenter/home 弹窗同源）。ptmj_notification 是广播表、无 per-user
+// 已读模型，已读状态按桌面端本地库惯例记在主进程 SQLite（notice_reads 表）。
+import { getUserPopupNotifications } from '@/api/datum/notification'
+import useUserStore from '@/store/modules/user'
 
+// 1-版本更新 2-系统故障 3-系统维护 4-资料下架 5-日常滚动
+const NOTICE_TYPE_LABELS = { 1: '版本更新', 2: '系统故障', 3: '系统维护', 4: '资料下架', 5: '公告' }
+
+const userStore = useUserStore()
 const noticePopover = ref(null)
 const noticeList = ref([])
 const unreadCount = ref(0)
@@ -67,15 +75,77 @@ const previewNoticeType = ref('')
 const previewCreateBy = ref('')
 const previewCreateTime = ref('')
 
-// 加载顶部公告列表
-function loadNoticeTop() {
+function noticeTypeLabel(type) {
+  return NOTICE_TYPE_LABELS[`${type}`] || '公告'
+}
+
+function noticeTagType(type) {
+  switch (`${type}`) {
+    case '2':
+    case '3':
+      return 'warning'
+    case '4':
+      return 'danger'
+    default:
+      return 'success'
+  }
+}
+
+// 解析当前登录用户 ID（与 home/index.vue 弹窗通知同一兜底链）
+async function resolveCurrentUserId() {
+  if (userStore.id) return `${userStore.id}`
+  try {
+    await userStore.getInfo()
+  } catch (error) {
+    console.warn('铃铛获取用户信息失败：', error)
+  }
+  return `${userStore.id || ''}`
+}
+
+// 本地已读状态经主进程 SQLite 存取；非 Electron 环境降级为空集（均视为未读）
+async function loadLocalReadIds(userId) {
+  try {
+    const result = await window.electronAPI?.noticeReads?.list(userId)
+    return result?.success ? result.ids || [] : []
+  } catch (error) {
+    console.warn('铃铛本地已读读取失败：', error)
+    return []
+  }
+}
+
+function markLocalRead(userId, notifyIds) {
+  try {
+    const result = window.electronAPI?.noticeReads?.mark(userId, notifyIds)
+    if (result && typeof result.catch === 'function') result.catch(() => {})
+  } catch (error) {
+    console.warn('铃铛本地已读写入失败：', error)
+  }
+}
+
+// 加载站内通知（popup 端点）并合并本地已读状态
+async function loadNoticeTop() {
   noticeLoading.value = true
-  listNoticeTop().then(res => {
-    noticeList.value = res.data || []
-    unreadCount.value = res.unreadCount !== undefined ? res.unreadCount : noticeList.value.filter(n => !n.isRead).length
-  }).finally(() => {
+  try {
+    const userId = await resolveCurrentUserId()
+    const res = await getUserPopupNotifications(userId || undefined)
+    const rows = ((res.code === 200 || res.code === 0 ? res.data : res) || []).map((item) => ({
+      noticeId: item.notifyId,
+      noticeTitle: item.title,
+      noticeType: item.notifyType,
+      createTime: item.createTime,
+      content: item.content
+    }))
+    const readIds = await loadLocalReadIds(userId)
+    const readSet = new Set(readIds.map(Number))
+    noticeList.value = rows.map((item) => ({ ...item, isRead: readSet.has(Number(item.noticeId)) }))
+    unreadCount.value = noticeList.value.filter((item) => !item.isRead).length
+  } catch (error) {
+    console.warn('铃铛通知加载失败：', error)
+    noticeList.value = []
+    unreadCount.value = 0
+  } finally {
     noticeLoading.value = false
-  })
+  }
 }
 
 onMounted(() => loadNoticeTop())
@@ -101,31 +171,29 @@ function onNoticeLeave() {
   noticeLeaveTimer.value = setTimeout(() => { noticeVisible.value = false }, 150)
 }
 
-// 预览公告详情
+// 预览公告详情（popup 载荷已含正文，直接取列表项，省一次详情请求）
 function previewNotice(item) {
+  const userId = `${userStore.id || ''}`
   if (!item.isRead) {
-    markNoticeRead(item.noticeId).catch(() => {})
+    markLocalRead(userId, [item.noticeId])
     const idx = noticeList.value.indexOf(item)
     if (idx !== -1) noticeList.value[idx] = { ...item, isRead: true }
     unreadCount.value = Math.max(0, unreadCount.value - 1)
   }
-  getNotice(item.noticeId).then(res => {
-    const notice = res.data
-    previewTitle.value = notice.noticeTitle
-    previewContent.value = notice.noticeContent
-    previewNoticeType.value = notice.noticeType
-    previewCreateBy.value = notice.createBy
-    previewCreateTime.value = notice.createTime
-    previewVisible.value = true
-  })
+  previewTitle.value = item.noticeTitle
+  previewContent.value = item.content
+  previewNoticeType.value = item.noticeType
+  previewCreateBy.value = ''
+  previewCreateTime.value = item.createTime
+  previewVisible.value = true
 }
 
 // 全部已读
 function markAllRead() {
-  const ids = noticeList.value.map(n => n.noticeId).join(',')
-  if (!ids) return
-  markNoticeReadAll(ids).catch(() => {})
-  noticeList.value = noticeList.value.map(n => ({ ...n, isRead: true }))
+  const ids = noticeList.value.filter((n) => !n.isRead).map((n) => n.noticeId)
+  if (!ids.length) return
+  markLocalRead(`${userStore.id || ''}`, ids)
+  noticeList.value = noticeList.value.map((n) => ({ ...n, isRead: true }))
   unreadCount.value = 0
 }
 </script>

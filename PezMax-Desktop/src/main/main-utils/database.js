@@ -41,7 +41,7 @@ async function getDb() {
       download_time TEXT DEFAULT (datetime('now','localtime'))
     )
   `)
-  
+
   // 为旧数据库添加新字段（向后兼容）
   try {
     db.run('ALTER TABLE download_records ADD COLUMN file_school TEXT DEFAULT ""')
@@ -50,6 +50,17 @@ async function getDb() {
     // 字段可能已存在，忽略错误
     console.log('[download-db] file_school 字段已存在或数据库初始化中')
   }
+
+  // 通知铃铛已读状态（ptmj_notification 为广播表，无 per-user 已读，本地记账）
+  db.run(`
+    CREATE TABLE IF NOT EXISTS notice_reads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      notify_id INTEGER NOT NULL,
+      read_time TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(user_id, notify_id)
+    )
+  `)
   saveDb()
   console.log('[download-db] 数据库初始化完成')
   return db
@@ -154,6 +165,31 @@ export function checkLocalFileExists(filePath) {
   } catch {
     return false
   }
+}
+
+// ================= 通知铃铛已读状态（本地记账） =================
+
+// 查询某用户已读的通知 ID 列表
+export async function listNoticeReadIds(userId) {
+  await getDb()
+  const uid = Number(userId) || 0
+  return execSelect('SELECT notify_id FROM notice_reads WHERE user_id = ?', [uid]).map(
+    (row) => Number(row.notify_id)
+  )
+}
+
+// 标记通知已读（INSERT OR IGNORE 幂等，可单条或批量）
+export async function markNoticesRead(userId, notifyIds) {
+  await getDb()
+  const uid = Number(userId) || 0
+  const ids = (Array.isArray(notifyIds) ? notifyIds : [notifyIds])
+    .map((id) => Number(id))
+    .filter((id) => id > 0)
+  for (const notifyId of ids) {
+    db.run('INSERT OR IGNORE INTO notice_reads (user_id, notify_id) VALUES (?, ?)', [uid, notifyId])
+  }
+  saveDb()
+  return ids.length
 }
 
 // 通过 file_id 查询记录

@@ -49,6 +49,11 @@ if (process.contextIsolated) {
         add: (record) => ipcRenderer.invoke('download:add', record),
         delete: (userId, fileId) => ipcRenderer.invoke('download:delete', { userId, fileId }),
         flush: () => ipcRenderer.invoke('download:flush')
+      },
+      // 通知铃铛已读状态（本地 SQLite，ptmj_notification 为广播表无 per-user 已读）
+      noticeReads: {
+        list: (userId) => ipcRenderer.invoke('notice-read:list', userId),
+        mark: (userId, notifyIds) => ipcRenderer.invoke('notice-read:mark', { userId, notifyIds })
       }
     })
   } catch (error) {

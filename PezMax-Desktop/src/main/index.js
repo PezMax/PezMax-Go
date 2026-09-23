@@ -6,7 +6,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { apiRegistry,findApi } from './main-utils/apiRegistry'
 import { checkForUpdates, configureFromSettings, downloadUpdate, getPresetUpdateSources, getUpdateInfo, initUpdater, quitAndInstallUpdate } from './main-utils/updater'
-import { insertDownloadRecord, listDownloadRecords, deleteDownloadRecord, flushDb, closeDatabase } from './main-utils/database'
+import { insertDownloadRecord, listDownloadRecords, deleteDownloadRecord, flushDb, closeDatabase, listNoticeReadIds, markNoticesRead } from './main-utils/database'
 
 // ================= 持久化设置与开机自启逻辑 =================
 const settingsPath = join(app.getPath('userData'), 'ptmj-settings.json')
@@ -466,6 +466,28 @@ app.whenReady().then(() => {
       return { success: true }
     } catch (e) {
       console.error('[download:flush] 刷盘失败:', e)
+      return { success: false, message: e.message }
+    }
+  })
+
+  // ================= 通知铃铛已读状态（本地 SQLite） =================
+  ipcMain.handle('notice-read:list', async (event, userId) => {
+    try {
+      const ids = await listNoticeReadIds(userId)
+      return { success: true, ids }
+    } catch (e) {
+      console.error('[notice-read:list] 查询已读状态失败:', e)
+      return { success: false, ids: [], message: e.message }
+    }
+  })
+
+  // mark 与 mark-all 共用批量入口；已读写入即刷盘（写入频次低、数据量小）
+  ipcMain.handle('notice-read:mark', async (event, { userId, notifyIds }) => {
+    try {
+      const count = await markNoticesRead(userId, notifyIds)
+      return { success: true, count }
+    } catch (e) {
+      console.error('[notice-read:mark] 标记已读失败:', e)
       return { success: false, message: e.message }
     }
   })
