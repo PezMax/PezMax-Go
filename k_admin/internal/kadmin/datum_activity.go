@@ -45,7 +45,8 @@ func (s *Store) registerDatumActivityRoutes(datumGroup *gin.RouterGroup) {
 	favorites.GET("/:fileId", s.datumFavoriteStatus)
 
 	bookmarkFavorites := datumGroup.Group("/bookmark/favorite", s.requireDatumAuth())
-	bookmarkFavorites.GET("/list", s.datumBookmarkFavoriteRelations)
+	// GET /list 与 datum/bookmark 的通配分发器在 gin v1.3 GET 树中冲突，
+	// 由 datum_bookmark.go 的 datumBookmarkGet 统一分发到 datumBookmarkFavoriteRelations。
 	bookmarkFavorites.POST("", s.datumBookmarkFavoriteAdd)
 }
 

@@ -21,6 +21,7 @@ func registerDatumRoutes(r *gin.Engine, s *Store) {
 	user := datum.Group("/user")
 	s.registerDatumUserRoutes(user)
 	s.registerDatumFileRoutes(datum)
+	s.registerDatumBookmarkRoutes(datum)
 	s.registerDatumDesktopRoutes(datum)
 	s.registerDatumReportRoutes(datum)
 	s.registerDatumActivityRoutes(datum)

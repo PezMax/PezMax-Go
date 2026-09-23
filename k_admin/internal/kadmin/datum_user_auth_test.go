@@ -346,6 +346,23 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 			return nil, nil
 		}
 		return []map[string]interface{}{row}, nil
+	case strings.Contains(query, "INSERT INTO ptmj_bookmark") && strings.Contains(query, "RETURNING id"):
+		f.nextID++
+		row := map[string]interface{}{
+			"id": f.nextID, "user_id": toDatumInt64(args[0]), "url": toDatumString(args[1]),
+			"title": toDatumString(args[2]), "description": toDatumString(args[3]),
+			"cover_image": toDatumString(args[4]), "subject": toDatumString(args[5]),
+			"resource_type": toDatumString(args[6]), "collection": toDatumString(args[7]),
+			"status": toDatumInt64(args[8]), "del_flag": int64(0),
+			"create_time": "2026-09-23 09:00:00", "update_time": "2026-09-23 09:00:00",
+			"remark": toDatumString(args[11]),
+		}
+		f.bookmarks[f.nextID] = row
+		return []map[string]interface{}{{"id": f.nextID}}, nil
+	case strings.Contains(query, "count(*)") && strings.Contains(query, "FROM ptmj_bookmark WHERE del_flag"):
+		return []map[string]interface{}{{"count": int64(len(f.matchBookmarks(query, args)))}}, nil
+	case strings.Contains(query, "FROM ptmj_bookmark WHERE del_flag"):
+		return f.matchBookmarks(query, args), nil
 	case strings.Contains(query, "FROM ptmj_file_download WHERE user_id"):
 		return []map[string]interface{}{{"count": int64(5)}}, nil
 	case strings.Contains(query, "FROM ptmj_file_favorite WHERE user_id"):
@@ -494,6 +511,35 @@ func (f *fakeDatumDB) Exec(query string, args ...interface{}) (sql.Result, error
 			return fakeDatumResult{rows: 1}, nil
 		}
 		return fakeDatumResult{rows: 0}, nil
+	case strings.Contains(query, "UPDATE ptmj_bookmark SET del_flag"):
+		row, exists := f.bookmarks[toDatumInt64(args[0])]
+		if !exists || toDatumInt64(row["user_id"]) != toDatumInt64(args[1]) || toDatumInt64(row["del_flag"]) != 0 {
+			return fakeDatumResult{rows: 0}, nil
+		}
+		row["del_flag"] = int64(1)
+		return fakeDatumResult{rows: 1}, nil
+	case strings.Contains(query, "UPDATE ptmj_bookmark SET cover_image"):
+		row, exists := f.bookmarks[toDatumInt64(args[2])]
+		if !exists || toDatumInt64(row["user_id"]) != toDatumInt64(args[3]) || toDatumInt64(row["del_flag"]) != 0 {
+			return fakeDatumResult{rows: 0}, nil
+		}
+		row["cover_image"] = toDatumString(args[0])
+		return fakeDatumResult{rows: 1}, nil
+	case strings.Contains(query, "UPDATE ptmj_bookmark SET") && strings.Contains(query, "WHERE id = ? AND user_id = ?"):
+		// UpdateOwner：SET 与首个列名之间有换行，用 WHERE 子句识别
+		row, exists := f.bookmarks[toDatumInt64(args[9])]
+		if !exists || toDatumInt64(row["user_id"]) != toDatumInt64(args[10]) || toDatumInt64(row["del_flag"]) != 0 {
+			return fakeDatumResult{rows: 0}, nil
+		}
+		row["url"] = toDatumString(args[0])
+		row["title"] = toDatumString(args[1])
+		row["description"] = toDatumString(args[2])
+		row["cover_image"] = toDatumString(args[3])
+		row["subject"] = toDatumString(args[4])
+		row["resource_type"] = toDatumString(args[5])
+		row["collection"] = toDatumString(args[6])
+		row["remark"] = toDatumString(args[7])
+		return fakeDatumResult{rows: 1}, nil
 	case strings.Contains(query, "ON CONFLICT (user_id)"):
 		f.security[toDatumInt64(args[0])] = [2]string{toDatumString(args[1]), toDatumString(args[2])}
 	case strings.Contains(query, "INSERT INTO ptmj_notification") && strings.Contains(query, "VALUES ('4', ?"):

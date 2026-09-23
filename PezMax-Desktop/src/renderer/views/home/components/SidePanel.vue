@@ -859,7 +859,8 @@ const fetchBookmarks = async () => {
       pageNum: 1,
       pageSize: 100
     })
-    if (res.code === 200) {
+    // kadmin 原生信封 code=0（request.js 将 0 归一为 200 前的原始值仍在响应体上）
+    if (res.code === 200 || res.code === 0) {
       bookmarkList.value = res.rows || []
     }
   } catch (error) {
@@ -944,7 +945,7 @@ const submitBookmark = async () => {
     }
 
     const saveRes = await addBookmark(payload)
-    if (saveRes.code !== 200) {
+    if (saveRes.code !== 200 && saveRes.code !== 0) {
       ElMessage.error(saveRes.msg || '保存失败')
       return
     }
@@ -1001,7 +1002,8 @@ const submitBookmark = async () => {
           isUploadingCover.value = false
         }
 
-        if (uploadRes && uploadRes.code === 200) {
+        // Electron 主进程直传返回原始信封：kadmin 成功码为 0
+        if (uploadRes && (uploadRes.code === 200 || uploadRes.code === 0)) {
           let coverUrl = ''
           if (typeof uploadRes.data === 'string') coverUrl = uploadRes.data
           else if (uploadRes.data && typeof uploadRes.data === 'object') coverUrl = uploadRes.data.url || uploadRes.data.fileUrl || uploadRes.data.fileName || ''

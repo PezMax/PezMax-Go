@@ -145,6 +145,10 @@ func bookmarkFilterWhere(filter BookmarkFilter) (string, []interface{}) {
 		conditions = append(conditions, "collection = ?")
 		args = append(args, strings.TrimSpace(filter.Collection))
 	}
+	if strings.TrimSpace(filter.URL) != "" {
+		conditions = append(conditions, "url = ?")
+		args = append(args, strings.TrimSpace(filter.URL))
+	}
 	if filter.UserID > 0 {
 		conditions = append(conditions, "user_id = ?")
 		args = append(args, filter.UserID)

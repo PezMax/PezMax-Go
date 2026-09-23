@@ -157,6 +157,7 @@ type BookmarkFilter struct {
 	Subject      string
 	ResourceType string
 	Collection   string
+	URL          string // exact match; the desktop re-queries a just-saved bookmark by URL
 	Keyword      string
 	UserID       int64
 	OnlyApproved bool
@@ -170,8 +171,9 @@ func (f *BookmarkFilter) page() (int, int) {
 	if size < 1 {
 		size = 20
 	}
-	if size > 100 {
-		size = 100
+	// 桌面端上传管理器一次拉取本人全部书签（pageSize=1000），书签行较窄，上限对齐 datumPageParams
+	if size > 1000 {
+		size = 1000
 	}
 	return page, size
 }
