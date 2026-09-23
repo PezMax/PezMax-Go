@@ -45,13 +45,15 @@ func TestDatumCaptchaImageRouteIsRegistered(t *testing.T) {
 
 	registered := false
 	for _, route := range engine.Routes() {
-		if route.Method+" "+route.Path == "GET /datum/user/captchaImage" {
+		// gin(v1.3) GET 树限制：/datum/user 全部读接口经通配分发器路由，
+		// captchaImage 由 datumUserGet 分发（行为由下方用例覆盖）。
+		if route.Method+" "+route.Path == "GET /datum/user/*rest" {
 			registered = true
 			break
 		}
 	}
 	if !registered {
-		t.Fatal("route GET /datum/user/captchaImage was not registered")
+		t.Fatal("route GET /datum/user/*rest was not registered")
 	}
 
 	preflight := httptest.NewRecorder()

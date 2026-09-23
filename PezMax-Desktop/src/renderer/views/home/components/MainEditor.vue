@@ -518,7 +518,8 @@ watch(() => currentFileObj.value, async (newVal) => {
     // 但通常 ID 可能是字符串形式的数字
     try {
       const res = await getUser(userId)
-      if (res.code === 200) {
+      // kadmin 信封 code=0 与旧 RuoYi code=200 双兼容
+      if (res.code === 200 || res.code === 0) {
         contributorInfo.value = res.data?.user || res.data
       } else {
         console.warn('获取上传者信息接口返回异常:', res)

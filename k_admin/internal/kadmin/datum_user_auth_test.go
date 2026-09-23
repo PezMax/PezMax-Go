@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -62,6 +63,8 @@ func (f *fakeDatumDB) userRow(user *datumUser) map[string]interface{} {
 	return map[string]interface{}{
 		"user_id": user.UserID, "user_name": user.UserName, "password": user.Password,
 		"avatar": user.Avatar, "count": user.Count, "status": user.Status,
+		"creat_by": user.CreatBy, "create_time": user.CreateTime,
+		"update_by": user.UpdateBy, "update_time": user.UpdateTime, "remark": user.Remark,
 	}
 }
 
@@ -69,6 +72,18 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	switch {
+	case strings.Contains(query, "INSERT INTO ptmj_user") && strings.Contains(query, "remark"):
+		// createAdmin：携带 status/count/remark 的管理端建号
+		userName := toDatumString(args[0])
+		if _, exists := f.users[strings.ToLower(userName)]; exists {
+			return nil, errFakeDuplicateKey
+		}
+		f.nextID++
+		user := &datumUser{UserID: f.nextID, UserName: userName, Password: toDatumString(args[1]),
+			Avatar: toDatumString(args[2]), Count: toDatumInt64(args[3]), Status: toDatumString(args[4]),
+			Remark: toDatumString(args[5]), CreateTime: "2026-09-23 10:00:00", UpdateTime: "2026-09-23 10:00:00"}
+		f.users[strings.ToLower(userName)] = user
+		return []map[string]interface{}{{"user_id": user.UserID}}, nil
 	case strings.Contains(query, "INSERT INTO ptmj_user"):
 		userName := toDatumString(args[0])
 		if _, exists := f.users[strings.ToLower(userName)]; exists {
@@ -78,6 +93,36 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 		user := &datumUser{UserID: f.nextID, UserName: userName, Password: toDatumString(args[1]), Avatar: toDatumString(args[2]), Status: "1"}
 		f.users[strings.ToLower(userName)] = user
 		return []map[string]interface{}{{"user_id": user.UserID}}, nil
+	case strings.Contains(query, "count(*)") && strings.Contains(query, "FROM ptmj_user"):
+		total := int64(0)
+		for _, user := range f.users {
+			if f.matchUserAdmin(query, args, user) {
+				total++
+			}
+		}
+		return []map[string]interface{}{{"count": total}}, nil
+	case strings.Contains(query, "FROM ptmj_user") && strings.Contains(query, "ORDER BY user_id DESC"):
+		rows := []map[string]interface{}{}
+		for _, user := range f.users {
+			if f.matchUserAdmin(query, args, user) {
+				rows = append(rows, f.userRow(user))
+			}
+		}
+		sort.Slice(rows, func(i, j int) bool {
+			return toDatumInt64(rows[i]["user_id"]) > toDatumInt64(rows[j]["user_id"])
+		})
+		if strings.Contains(query, "LIMIT ? OFFSET ?") && len(args) >= 2 {
+			size := toDatumInt64(args[len(args)-2])
+			offset := toDatumInt64(args[len(args)-1])
+			if offset >= int64(len(rows)) {
+				return nil, nil
+			}
+			rows = rows[offset:]
+			if size > 0 && size < int64(len(rows)) {
+				rows = rows[:size]
+			}
+		}
+		return rows, nil
 	case strings.Contains(query, "FROM ptmj_user WHERE user_name"):
 		user, exists := f.users[strings.ToLower(toDatumString(args[0]))]
 		if !exists {
@@ -433,6 +478,58 @@ func (f *fakeDatumDB) Exec(query string, args ...interface{}) (sql.Result, error
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	switch {
+	case strings.Contains(query, "DELETE FROM ptmj_security WHERE user_id"):
+		delete(f.security, toDatumInt64(args[0]))
+		return fakeDatumResult{rows: 1}, nil
+	case strings.Contains(query, "DELETE FROM ptmj_user WHERE user_id"):
+		target := f.findUserByID(toDatumInt64(args[0]))
+		if target == nil {
+			return fakeDatumResult{rows: 0}, nil
+		}
+		delete(f.users, strings.ToLower(target.UserName))
+		return fakeDatumResult{rows: 1}, nil
+	case strings.Contains(query, "UPDATE ptmj_user SET") && strings.Contains(query, "update_by = ?"):
+		// updateAdmin：SET 子句按 handler 提供顺序拼接，逐列位置解析
+		userID := toDatumInt64(args[len(args)-1])
+		target := f.findUserByID(userID)
+		if target == nil {
+			return fakeDatumResult{rows: 0}, nil
+		}
+		columns := []string{"user_name", "password", "avatar", "count", "status", "remark"}
+		argIndex := 0
+		values := map[string]string{}
+		for _, column := range columns {
+			if strings.Contains(query, column+" = ?") {
+				values[column] = toDatumString(args[argIndex])
+				argIndex++
+			}
+		}
+		if name, ok := values["user_name"]; ok {
+			for _, other := range f.users {
+				if other.UserID != userID && strings.EqualFold(other.UserName, name) {
+					return nil, errFakeDuplicateKey
+				}
+			}
+			target.UserName = name
+		}
+		if value, ok := values["password"]; ok {
+			target.Password = value
+		}
+		if value, ok := values["avatar"]; ok {
+			target.Avatar = value
+		}
+		if value, ok := values["count"]; ok {
+			target.Count = toDatumInt64(value)
+		}
+		if value, ok := values["status"]; ok {
+			target.Status = value
+		}
+		if value, ok := values["remark"]; ok {
+			target.Remark = value
+		}
+		target.UpdateBy = toDatumString(args[len(args)-2])
+		target.UpdateTime = "2026-09-23 11:00:00"
+		return fakeDatumResult{rows: 1}, nil
 	case strings.Contains(query, "UPDATE ptmj_user"):
 		userID := toDatumInt64(args[len(args)-1])
 		for _, user := range f.users {
@@ -686,6 +783,25 @@ func (f *fakeDatumDB) Exec(query string, args ...interface{}) (sql.Result, error
 		}
 	}
 	return fakeDatumResult{rows: 1}, nil
+}
+
+// matchUserAdmin emulates listAdmin's WHERE clause: filter values are
+// extracted once per query, in clause order (user_name ILIKE, status).
+func (f *fakeDatumDB) matchUserAdmin(query string, args []interface{}, user *datumUser) bool {
+	argIndex := 0
+	if strings.Contains(query, "user_name ILIKE ?") {
+		want := strings.Trim(toDatumString(args[argIndex]), "%")
+		argIndex++
+		if !strings.Contains(strings.ToLower(user.UserName), strings.ToLower(want)) {
+			return false
+		}
+	}
+	if strings.Contains(query, "AND status = ?") {
+		if user.Status != toDatumString(args[argIndex]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (f *fakeDatumDB) findUserByID(userID int64) *datumUser {

@@ -141,29 +141,48 @@ type datumDB interface {
 }
 
 type datumUser struct {
-	UserID   int64
-	UserName string
-	Password string
-	Avatar   string
-	Count    int64
-	Status   string
+	UserID     int64
+	UserName   string
+	Password   string
+	Avatar     string
+	Count      int64
+	Status     string
+	CreatBy    string
+	CreateTime string
+	UpdateBy   string
+	UpdateTime string
+	Remark     string
 }
 
 type datumUserRepo struct {
 	conn datumDB
 }
 
-const datumUserColumns = "user_id, user_name, password, avatar, count, status"
+const datumUserColumns = "user_id, user_name, password, avatar, count, status, creat_by, create_time, update_by, update_time, remark"
 
 func (r *datumUserRepo) scanUser(row map[string]interface{}) *datumUser {
 	return &datumUser{
-		UserID:   toDatumInt64(row["user_id"]),
-		UserName: toDatumString(row["user_name"]),
-		Password: toDatumString(row["password"]),
-		Avatar:   toDatumString(row["avatar"]),
-		Count:    toDatumInt64(row["count"]),
-		Status:   toDatumString(row["status"]),
+		UserID:     toDatumInt64(row["user_id"]),
+		UserName:   toDatumString(row["user_name"]),
+		Password:   toDatumString(row["password"]),
+		Avatar:     toDatumString(row["avatar"]),
+		Count:      toDatumInt64(row["count"]),
+		Status:     toDatumString(row["status"]),
+		CreatBy:    toDatumString(row["creat_by"]),
+		CreateTime: datumTimeString(row["create_time"]),
+		UpdateBy:   toDatumString(row["update_by"]),
+		UpdateTime: datumTimeString(row["update_time"]),
+		Remark:     toDatumString(row["remark"]),
 	}
+}
+
+// datumTimeString renders timestamp columns (time.Time from PG, preformatted
+// strings from tests) in the RuoYi-facing "yyyy-MM-dd HH:mm:ss" shape.
+func datumTimeString(value interface{}) string {
+	if parsed, ok := value.(time.Time); ok {
+		return parsed.Format("2006-01-02 15:04:05")
+	}
+	return toDatumString(value)
 }
 
 func (r *datumUserRepo) findByUserName(userName string) (*datumUser, error) {
@@ -322,13 +341,73 @@ func hashDatumSecret(plain string) (string, error) {
 // ---------------------------------------------------------------------------
 
 func (s *Store) registerDatumUserRoutes(user *gin.RouterGroup) {
-	user.GET("/captchaImage", s.datumCaptchaImage)
+	// 与 datum/file、datum/bookmark 相同的 gin(v1.3) 限制：GET/DELETE 树不允许
+	// 静态子节点与 :param 并存。认证端点（captchaImage/securityQuestions/getInfo）、
+	// 管理读接口（list/:userId，datum_user_admin.go）与排行榜（rank，datum_file.go）
+	// 统一走通配分发；POST/PUT 树无冲突，保持直接注册。
+	user.GET("/*rest", s.datumUserGet)
+	user.POST("", s.requireDatumAuth(), s.datumUserCreate)
+	user.PUT("", s.requireDatumAuth(), s.datumUserUpdate)
+	user.DELETE("/*rest", s.datumUserDeleteDispatch)
+	user.POST("/resetSecurityAnswers", s.requireDatumAuth(), s.datumAdminResetSecurityAnswers)
+	user.POST("/resetPasswordBySecurity", s.datumResetPassword)
 	user.POST("/login", s.datumLogin)
 	user.POST("/register", s.datumRegister)
-	user.GET("/securityQuestions", s.datumSecurityQuestions)
-	user.POST("/resetPasswordBySecurity", s.datumResetPassword)
-	user.GET("/getInfo", s.requireDatumAuth(), s.datumGetInfo)
 	user.POST("/logout", s.requireDatumAuth(), s.datumLogout)
+}
+
+// datumUserGet dispatches the read-only /datum/user routes:
+// /captchaImage /list /securityQuestions /getInfo /rank /{userId}
+func (s *Store) datumUserGet(c *gin.Context) {
+	rest := strings.Trim(c.Param("rest"), "/")
+	switch {
+	case rest == "captchaImage":
+		s.datumCaptchaImage(c)
+	case rest == "list":
+		s.datumUserList(c)
+	case rest == "securityQuestions":
+		s.datumSecurityQuestions(c)
+	case rest == "getInfo":
+		s.requireDatumAuth()(c)
+		if c.IsAborted() {
+			return
+		}
+		s.datumGetInfo(c)
+	case rest == "rank":
+		s.datumUserRank(c)
+	default:
+		if userID, err := strconv.ParseInt(rest, 10, 64); err == nil && userID > 0 {
+			c.Params = append(c.Params, gin.Param{Key: "userId", Value: rest})
+			s.datumUserDetail(c)
+			return
+		}
+		fail(c, http.StatusNotFound, "接口不存在")
+	}
+}
+
+// datumUserDeleteDispatch splits DELETE /datum/user between the rank-cache
+// purge (datum_file.go) and the management delete /{userId}.
+func (s *Store) datumUserDeleteDispatch(c *gin.Context) {
+	rest := strings.Trim(c.Param("rest"), "/")
+	switch {
+	case rest == "rank/cache":
+		s.requireDatumAuth()(c)
+		if c.IsAborted() {
+			return
+		}
+		s.datumRankCachePurge(c)
+	default:
+		if userID, err := strconv.ParseInt(rest, 10, 64); err == nil && userID > 0 {
+			c.Params = append(c.Params, gin.Param{Key: "userId", Value: rest})
+			s.requireDatumAuth()(c)
+			if c.IsAborted() {
+				return
+			}
+			s.datumUserDelete(c)
+			return
+		}
+		fail(c, http.StatusNotFound, "接口不存在")
+	}
 }
 
 func (s *Store) requireDatumAuth() gin.HandlerFunc {

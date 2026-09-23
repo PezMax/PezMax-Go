@@ -142,9 +142,8 @@ func (s *Store) registerDatumFileRoutes(datumGroup *gin.RouterGroup) {
 	files.PUT("", s.requireDatumAuth(), s.datumFileUpdate)
 	files.DELETE("/:fileId", s.requireDatumAuth(), s.datumFileDelete)
 
-	user := datumGroup.Group("/user")
-	user.GET("/rank", s.datumUserRank)
-	user.DELETE("/rank/cache", s.requireDatumAuth(), s.datumRankCachePurge)
+	// /datum/user 的 GET/DELETE 通配分发器由 registerDatumUserRoutes 挂载：
+	// rank 读取与 rank/cache 清理经 datumUserGet / datumUserDeleteDispatch 分发到这里。
 	datumGroup.DELETE("/file-tree/cache", s.requireDatumAuth(), s.datumTreeCachePurge)
 }
 
