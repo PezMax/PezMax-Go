@@ -41,15 +41,6 @@ export function getInfo() {
   })
 }
 
-// 解锁屏幕
-export function unlockScreen(password) {
-  return request({
-    url: '/unlockscreen',
-    method: 'post',
-    data: { password }
-  })
-}
-
 // 退出方法（桌面端会话：/datum/user/logout，由 datum 认证模块签发与吊销）
 export function logout() {
   return request({
