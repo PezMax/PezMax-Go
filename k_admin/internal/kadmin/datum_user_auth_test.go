@@ -138,6 +138,15 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 		return nil, nil
 	case strings.Contains(query, "goadmin_users") && strings.Contains(query, "id"):
 		return []map[string]interface{}{{"id": toDatumInt64(args[len(args)-1]), "status": "enable"}}, nil
+	case strings.Contains(query, "FROM goadmin_role_users"):
+		// requirePermission 链路：goadmin 用户 1 绑定超管角色 + 通配权限，
+		// 使 adminLoginForAudit 签发的令牌以 IsSuperAdmin 身份通过权限中间件
+		if len(args) > 0 && toDatumInt64(args[len(args)-1]) == 1 {
+			return []map[string]interface{}{{"id": int64(1), "role_id": int64(1), "name": "Super Admin", "slug": "super-admin"}}, nil
+		}
+		return nil, nil
+	case strings.Contains(query, "goadmin_role_permissions"):
+		return []map[string]interface{}{{"http_method": "", "http_path": "*"}}, nil
 	case strings.Contains(query, "FROM ptmj_security WHERE user_id"):
 		row, exists := f.security[toDatumInt64(args[0])]
 		if !exists {
@@ -845,6 +854,11 @@ func datumEngine(t *testing.T, store *Store) *gin.Engine {
 
 func datumJSON(t *testing.T, engine *gin.Engine, method, path string, token string, body interface{}) *httptest.ResponseRecorder {
 	t.Helper()
+	return datumJSONWithHeaders(t, engine, method, path, token, body, nil)
+}
+
+func datumJSONWithHeaders(t *testing.T, engine *gin.Engine, method, path string, token string, body interface{}, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
 	var reader *bytes.Reader
 	if body == nil {
 		reader = bytes.NewReader(nil)
@@ -859,6 +873,9 @@ func datumJSON(t *testing.T, engine *gin.Engine, method, path string, token stri
 	request.Header.Set("Content-Type", "application/json")
 	if token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	for key, value := range headers {
+		request.Header.Set(key, value)
 	}
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)

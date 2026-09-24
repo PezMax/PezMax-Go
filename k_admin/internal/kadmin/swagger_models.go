@@ -18,5 +18,15 @@ type SwaggerErrorResponse struct {
 	Data    interface{} `json:"data"`
 }
 
+// SwaggerTableDataResponse documents the legacy RuoYi TableDataInfo envelope
+// kept by the datum list endpoints (rows/total at the top level).
+type SwaggerTableDataResponse struct {
+	Code    int         `json:"code" example:"0"`
+	Message string      `json:"message" example:"ok"`
+	Msg     string      `json:"msg" example:"ok"`
+	Rows    interface{} `json:"rows"`
+	Total   int64       `json:"total"`
+}
+
 // SwaggerJobPayload exposes the scheduled task request model to the generator.
 type SwaggerJobPayload = jobs.JobPayload

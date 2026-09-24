@@ -52,6 +52,17 @@ const (
 	SystemConfigUpdatePermission   = "system:config:update"
 )
 
+// datum 管理侧权限：桌面端 datum 契约中的管理操作（平台用户管理、通知管理、
+// 树/排行缓存清理、举报审核）统一挂这些标识，走 kadmin 管理端 JWT + RequirePermission；
+// 属主语义的桌面端读写（资料/书签 CRUD、收藏下载、个人中心）仍走 datum 会话，不在此列。
+const (
+	DatumUserManagePermission          = "datum:user:manage"
+	DatumFileManagePermission          = "datum:file:manage"
+	DatumNotificationManagePermission  = "datum:notification:manage"
+	DatumReportAuditPermission         = "datum:report:audit"
+	DatumBookmarkReportAuditPermission = "datum:bookmarkReport:audit"
+)
+
 type PermissionScope string
 
 const (
@@ -324,6 +335,26 @@ func DefaultPermissions() []PermissionSeed {
 		{
 			Name: "清空已读通知", Slug: notifications.ClearReadPermission, HTTPMethod: "DELETE", HTTPPath: "/api/notification-batch/read",
 			PageURI: "/kadmin/notifications", PageTitle: "站内通知", Scope: PermissionScopeButton, Button: "notifications.clear-read",
+		},
+		{
+			Name: "平台用户管理", Slug: DatumUserManagePermission, HTTPMethod: "POST,PUT,DELETE", HTTPPath: "/datum/user*",
+			PageURI: "/platform-users", PageTitle: "平台用户", Scope: PermissionScopeButton, Button: "datum.user.manage",
+		},
+		{
+			Name: "试卷文件缓存管理", Slug: DatumFileManagePermission, HTTPMethod: "DELETE", HTTPPath: "/datum/file-tree/cache",
+			PageURI: "/exam-files", PageTitle: "试卷文件", Scope: PermissionScopeButton, Button: "datum.file.manage",
+		},
+		{
+			Name: "通知管理", Slug: DatumNotificationManagePermission, HTTPMethod: "POST,PUT,DELETE", HTTPPath: "/datum/notification*",
+			PageURI: "/ptmj-notifications", PageTitle: "通知", Scope: PermissionScopeButton, Button: "datum.notification.manage",
+		},
+		{
+			Name: "资料举报审核", Slug: DatumReportAuditPermission, HTTPMethod: "POST", HTTPPath: "/datum/report/audit/*",
+			PageURI: "/reports", PageTitle: "举报", Scope: PermissionScopeButton, Button: "datum.report.audit",
+		},
+		{
+			Name: "书签举报审核", Slug: DatumBookmarkReportAuditPermission, HTTPMethod: "POST", HTTPPath: "/datum/bookmarkReport/audit/*",
+			PageURI: "/bookmark-reports", PageTitle: "书签举报", Scope: PermissionScopeButton, Button: "datum.bookmark-report.audit",
 		},
 	}
 }

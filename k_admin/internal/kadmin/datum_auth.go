@@ -14,10 +14,13 @@ import (
 // KAdmin envelope; the desktop client normalizes error status codes and
 // pagination centrally in its request interceptor.
 func registerDatumRoutes(r *gin.Engine, s *Store) {
-	datum := r.Group("/datum", cors())
+	// 与 /api 组同构：管理写接口复用幂等保护与业务审计中间件（两者对未注册
+	// 的路径均为直通，不影响桌面端匿名/属主流量）。
+	datum := r.Group("/datum", cors(), s.idempotencyMiddleware(), s.businessAuditMiddleware())
 	datum.OPTIONS("/*path", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
+	registerDatumBusinessAuditResolver()
 	user := datum.Group("/user")
 	s.registerDatumUserRoutes(user)
 	s.registerDatumFileRoutes(datum)

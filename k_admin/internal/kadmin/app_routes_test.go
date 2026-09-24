@@ -46,11 +46,7 @@ func TestRegisterApplicationRoutesIncludesEveryModule(t *testing.T) {
 		"POST /api/codegen/configs/:id/preview":  false,
 		"POST /api/codegen/configs/:id/generate": false,
 		"GET /api/codegen/configs/:id/download":  false,
-		"GET /api/product":                       false,
-		"GET /api/product/:id":                   false,
-		"POST /api/product":                      false,
-		"PUT /api/product/:id":                   false,
-		"DELETE /api/product/:id":                false,
+		// product 为 go-admin 示例表，已随 fad4279 从 RegisterAll 移除，不注册路由
 	}
 	for _, route := range engine.Routes() {
 		key := route.Method + " " + route.Path

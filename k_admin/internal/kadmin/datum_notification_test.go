@@ -3,6 +3,7 @@ package kadmin
 import (
 	"github.com/gin-gonic/gin"
 	"net/http"
+	"net/http/httptest"
 
 	"testing"
 )
@@ -33,31 +34,45 @@ func notificationCreateBody(notifyType, displayMode string, extra map[string]int
 
 func TestDatumNotificationCrudAndFeeds(t *testing.T) {
 	store, db, engine, token, aliceID := seedNotificationFixture(t)
+	// 管理写（新增/修改/删除）走管理端 JWT + datum:notification:manage 权限；
+	// datum 会话只能读（列表/详情/弹窗/滚动）。
+	adminToken := adminLoginForAudit(t, store)
+	adminWriteSeq := 0
+	adminWrite := func(method, path string, body interface{}) *httptest.ResponseRecorder {
+		t.Helper()
+		adminWriteSeq++
+		return datumJSONWithHeaders(t, engine, method, path, adminToken, body,
+			map[string]string{"Idempotency-Key": "datum-notif-" + toDatumString(int64(adminWriteSeq))})
+	}
 
-	// 创建弹窗通知（类型 1）
+	// datum 会话调用管理写 → 401
 	recorder := datumJSON(t, engine, http.MethodPost, "/datum/notification", token,
 		notificationCreateBody("1", "0", nil))
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("datum-token create status = %d body %s", recorder.Code, recorder.Body.String())
+	}
+
+	// 创建弹窗通知（类型 1）
+	recorder = adminWrite(http.MethodPost, "/datum/notification", notificationCreateBody("1", "0", nil))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("create popup status = %d body %s", recorder.Code, recorder.Body.String())
 	}
 	popupNotifyID := toDatumInt64(db.notifications[0]["notify_id"])
 
 	// 创建滚动通知（类型 5，带展示开始时间）
-	recorder = datumJSON(t, engine, http.MethodPost, "/datum/notification", token,
+	recorder = adminWrite(http.MethodPost, "/datum/notification",
 		notificationCreateBody("5", "1", map[string]interface{}{"publishStart": "2026-09-22 00:00:00", "scrollTimeInterval": int64(45)}))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("create scroll status = %d body %s", recorder.Code, recorder.Body.String())
 	}
 
 	// 非法类型 → 400
-	recorder = datumJSON(t, engine, http.MethodPost, "/datum/notification", token,
-		notificationCreateBody("9", "0", nil))
+	recorder = adminWrite(http.MethodPost, "/datum/notification", notificationCreateBody("9", "0", nil))
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("bad type status = %d", recorder.Code)
 	}
 	// 类型 4 缺 materialId → 400
-	recorder = datumJSON(t, engine, http.MethodPost, "/datum/notification", token,
-		notificationCreateBody("4", "0", nil))
+	recorder = adminWrite(http.MethodPost, "/datum/notification", notificationCreateBody("4", "0", nil))
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("type4 without material status = %d", recorder.Code)
 	}
@@ -88,7 +103,7 @@ func TestDatumNotificationCrudAndFeeds(t *testing.T) {
 	}
 
 	// 更新（标题 + 状态禁用）
-	recorder = datumJSON(t, engine, http.MethodPut, "/datum/notification", token, map[string]interface{}{
+	recorder = adminWrite(http.MethodPut, "/datum/notification", map[string]interface{}{
 		"notifyId": popupNotifyID, "notifyType": "1", "title": "更新后的标题", "content": "新内容",
 		"status": "1", "sort": int64(1), "displayMode": "0",
 	})
@@ -112,7 +127,7 @@ func TestDatumNotificationCrudAndFeeds(t *testing.T) {
 	}
 
 	// 重新启用后再弹窗出现
-	recorder = datumJSON(t, engine, http.MethodPut, "/datum/notification", token, map[string]interface{}{
+	recorder = adminWrite(http.MethodPut, "/datum/notification", map[string]interface{}{
 		"notifyId": popupNotifyID, "notifyType": "1", "title": "更新后的标题", "content": "新内容",
 		"status": "0", "sort": int64(1), "displayMode": "0",
 	})
@@ -141,7 +156,7 @@ func TestDatumNotificationCrudAndFeeds(t *testing.T) {
 	}
 
 	// 删除
-	recorder = datumJSON(t, engine, http.MethodDelete, "/datum/notification/"+toDatumString(popupNotifyID), token, nil)
+	recorder = adminWrite(http.MethodDelete, "/datum/notification/"+toDatumString(popupNotifyID), nil)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("delete status = %d", recorder.Code)
 	}

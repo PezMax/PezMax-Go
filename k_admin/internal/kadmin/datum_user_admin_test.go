@@ -3,6 +3,7 @@ package kadmin
 import (
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -113,7 +114,15 @@ func TestDatumUserCreateRequiresAuthAndValidates(t *testing.T) {
 	store, db := newDatumAuthStore(t, nil)
 	seedDatumUser(t, db, "alice", "secret5", "1", false)
 	engine := datumEngine(t, store)
-	token := datumBookmarkLogin(t, engine, store, "alice", "secret5")
+	datumToken := datumBookmarkLogin(t, engine, store, "alice", "secret5")
+	adminToken := adminLoginForAudit(t, store)
+	createSeq := 0
+	adminCreate := func(payload map[string]interface{}) *httptest.ResponseRecorder {
+		t.Helper()
+		createSeq++
+		return datumJSONWithHeaders(t, engine, http.MethodPost, "/datum/user", adminToken, payload,
+			map[string]string{"Idempotency-Key": "datum-user-create-" + toDatumString(int64(createSeq))})
+	}
 
 	payload := map[string]interface{}{
 		"userName": "carol", "password": "initial-pass", "avatar": "/c.png",
@@ -123,7 +132,11 @@ func TestDatumUserCreateRequiresAuthAndValidates(t *testing.T) {
 	if recorder := datumJSON(t, engine, http.MethodPost, "/datum/user", "", payload); recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("no-token status = %d", recorder.Code)
 	}
-	recorder := datumJSON(t, engine, http.MethodPost, "/datum/user", token, payload)
+	// datum 会话无管理权限 → 401
+	if recorder := datumJSON(t, engine, http.MethodPost, "/datum/user", datumToken, payload); recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("datum-token create status = %d", recorder.Code)
+	}
+	recorder := adminCreate(payload)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("create status = %d body %s", recorder.Code, recorder.Body.String())
 	}
@@ -139,18 +152,18 @@ func TestDatumUserCreateRequiresAuthAndValidates(t *testing.T) {
 	}
 
 	// 重复用户名 → 409
-	recorder = datumJSON(t, engine, http.MethodPost, "/datum/user", token, payload)
+	recorder = adminCreate(payload)
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("duplicate status = %d body %s", recorder.Code, recorder.Body.String())
 	}
 	// 弱密码 → 400
 	weak := map[string]interface{}{"userName": "dave", "password": "123"}
-	if recorder = datumJSON(t, engine, http.MethodPost, "/datum/user", token, weak); recorder.Code != http.StatusBadRequest {
+	if recorder = adminCreate(weak); recorder.Code != http.StatusBadRequest {
 		t.Fatalf("weak password status = %d", recorder.Code)
 	}
 	// 非法状态 → 400
 	badStatus := map[string]interface{}{"userName": "dave", "password": "123456", "status": "2"}
-	if recorder = datumJSON(t, engine, http.MethodPost, "/datum/user", token, badStatus); recorder.Code != http.StatusBadRequest {
+	if recorder = adminCreate(badStatus); recorder.Code != http.StatusBadRequest {
 		t.Fatalf("bad status status = %d", recorder.Code)
 	}
 }
@@ -160,7 +173,7 @@ func TestDatumUserUpdateMergesAndBans(t *testing.T) {
 	engine := datumEngine(t, store)
 	seedDatumUser(t, db, "alice", "secret5", "1", false)
 	seedDatumUser(t, db, "bob", "secret5", "1", false)
-	token := datumBookmarkLogin(t, engine, store, "alice", "secret5")
+	adminToken := adminLoginForAudit(t, store)
 
 	// 预热排行缓存，封禁后应被失效
 	rankRec := datumJSON(t, engine, http.MethodGet, "/datum/user/rank", "", nil)
@@ -172,7 +185,7 @@ func TestDatumUserUpdateMergesAndBans(t *testing.T) {
 	}
 
 	// JSON 数字形态的 status（桌面端双形态）+ 局部合并
-	recorder := datumJSON(t, engine, http.MethodPut, "/datum/user", token, map[string]interface{}{
+	recorder := datumJSON(t, engine, http.MethodPut, "/datum/user", adminToken, map[string]interface{}{
 		"userId": 8, "status": 0, "remark": "违规封禁",
 	})
 	if recorder.Code != http.StatusOK {
@@ -189,7 +202,7 @@ func TestDatumUserUpdateMergesAndBans(t *testing.T) {
 	}
 
 	// 解封走同一端点
-	recorder = datumJSON(t, engine, http.MethodPut, "/datum/user", token, map[string]interface{}{
+	recorder = datumJSON(t, engine, http.MethodPut, "/datum/user", adminToken, map[string]interface{}{
 		"userId": "8", "status": "1",
 	})
 	if recorder.Code != http.StatusOK || db.users["bob"].Status != "1" {
@@ -197,7 +210,7 @@ func TestDatumUserUpdateMergesAndBans(t *testing.T) {
 	}
 
 	// 密码重置（管理端改密）
-	recorder = datumJSON(t, engine, http.MethodPut, "/datum/user", token, map[string]interface{}{
+	recorder = datumJSON(t, engine, http.MethodPut, "/datum/user", adminToken, map[string]interface{}{
 		"userId": 8, "password": "brand-new-pass",
 	})
 	if recorder.Code != http.StatusOK || !verifyDatumSecret(db.users["bob"].Password, "brand-new-pass") {
@@ -205,21 +218,21 @@ func TestDatumUserUpdateMergesAndBans(t *testing.T) {
 	}
 
 	// 重名为他人用户名 → 409；自身同名允许（无变化）
-	recorder = datumJSON(t, engine, http.MethodPut, "/datum/user", token, map[string]interface{}{
+	recorder = datumJSON(t, engine, http.MethodPut, "/datum/user", adminToken, map[string]interface{}{
 		"userId": 8, "userName": "alice",
 	})
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("rename clash status = %d", recorder.Code)
 	}
 	// 非法状态 → 400
-	recorder = datumJSON(t, engine, http.MethodPut, "/datum/user", token, map[string]interface{}{
+	recorder = datumJSON(t, engine, http.MethodPut, "/datum/user", adminToken, map[string]interface{}{
 		"userId": 8, "status": 2,
 	})
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("bad status status = %d", recorder.Code)
 	}
 	// 不存在的用户 → 404
-	recorder = datumJSON(t, engine, http.MethodPut, "/datum/user", token, map[string]interface{}{
+	recorder = datumJSON(t, engine, http.MethodPut, "/datum/user", adminToken, map[string]interface{}{
 		"userId": 999, "status": "0",
 	})
 	if recorder.Code != http.StatusNotFound {
@@ -237,18 +250,19 @@ func TestDatumUserDelete(t *testing.T) {
 	seedDatumUser(t, db, "alice", "secret5", "1", true)
 	seedDatumUser(t, db, "bob", "secret5", "1", true)
 	engine := datumEngine(t, store)
-	token := datumBookmarkLogin(t, engine, store, "alice", "secret5")
+	datumToken := datumBookmarkLogin(t, engine, store, "alice", "secret5")
+	adminToken := adminLoginForAudit(t, store)
 
 	// 未登录 → 401
 	if recorder := datumJSON(t, engine, http.MethodDelete, "/datum/user/8", "", nil); recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("no-token status = %d", recorder.Code)
 	}
-	// 自删保护
-	if recorder := datumJSON(t, engine, http.MethodDelete, "/datum/user/7", token, nil); recorder.Code != http.StatusBadRequest {
-		t.Fatalf("self-delete status = %d", recorder.Code)
+	// datum 会话无管理权限 → 401（原自删保护随管理门禁一并收敛）
+	if recorder := datumJSON(t, engine, http.MethodDelete, "/datum/user/7", datumToken, nil); recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("datum-token delete status = %d", recorder.Code)
 	}
 	// 正常删除：用户与密保一并清除
-	recorder := datumJSON(t, engine, http.MethodDelete, "/datum/user/8", token, nil)
+	recorder := datumJSON(t, engine, http.MethodDelete, "/datum/user/8", adminToken, nil)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("delete status = %d body %s", recorder.Code, recorder.Body.String())
 	}
@@ -259,7 +273,7 @@ func TestDatumUserDelete(t *testing.T) {
 		t.Fatal("security row survived delete")
 	}
 	// 重复删除 → 404
-	if recorder = datumJSON(t, engine, http.MethodDelete, "/datum/user/8", token, nil); recorder.Code != http.StatusNotFound {
+	if recorder = datumJSON(t, engine, http.MethodDelete, "/datum/user/8", adminToken, nil); recorder.Code != http.StatusNotFound {
 		t.Fatalf("re-delete status = %d", recorder.Code)
 	}
 }
@@ -272,10 +286,17 @@ func TestDatumUserResetSecurityAnswers(t *testing.T) {
 	store, db := newDatumAuthStore(t, nil)
 	seedDatumUser(t, db, "alice", "secret5", "1", true)
 	engine := datumEngine(t, store)
-	token := datumBookmarkLogin(t, engine, store, "alice", "secret5")
+	adminToken := adminLoginForAudit(t, store)
+	resetSeq := 0
+	adminReset := func(payload map[string]string) *httptest.ResponseRecorder {
+		t.Helper()
+		resetSeq++
+		return datumJSONWithHeaders(t, engine, http.MethodPost, "/datum/user/resetSecurityAnswers", adminToken, payload,
+			map[string]string{"Idempotency-Key": "datum-user-reset-" + toDatumString(int64(resetSeq))})
+	}
 
 	// 成套替换：新问答入库且答案重新哈希
-	recorder := datumJSON(t, engine, http.MethodPost, "/datum/user/resetSecurityAnswers", token, map[string]string{
+	recorder := adminReset(map[string]string{
 		"userName": "alice",
 		"securityQuestionOne":   "新问题一", "securityAnswerOne": "na1",
 		"securityQuestionTwo":   "新问题二", "securityAnswerTwo": "na2",
@@ -297,7 +318,7 @@ func TestDatumUserResetSecurityAnswers(t *testing.T) {
 	}
 
 	// 全空 → 清除密保
-	recorder = datumJSON(t, engine, http.MethodPost, "/datum/user/resetSecurityAnswers", token, map[string]string{"userName": "alice"})
+	recorder = adminReset(map[string]string{"userName": "alice"})
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("clear status = %d", recorder.Code)
 	}
@@ -306,14 +327,14 @@ func TestDatumUserResetSecurityAnswers(t *testing.T) {
 	}
 
 	// 部分提供 → 400
-	recorder = datumJSON(t, engine, http.MethodPost, "/datum/user/resetSecurityAnswers", token, map[string]string{
+	recorder = adminReset(map[string]string{
 		"userName": "alice", "securityQuestionOne": "只有一个",
 	})
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("partial status = %d", recorder.Code)
 	}
 	// 用户不存在 → 404；未登录 → 401
-	if recorder = datumJSON(t, engine, http.MethodPost, "/datum/user/resetSecurityAnswers", token, map[string]string{"userName": "ghost"}); recorder.Code != http.StatusNotFound {
+	if recorder = adminReset(map[string]string{"userName": "ghost"}); recorder.Code != http.StatusNotFound {
 		t.Fatalf("missing user status = %d", recorder.Code)
 	}
 	if recorder = datumJSON(t, engine, http.MethodPost, "/datum/user/resetSecurityAnswers", "", map[string]string{"userName": "alice"}); recorder.Code != http.StatusUnauthorized {

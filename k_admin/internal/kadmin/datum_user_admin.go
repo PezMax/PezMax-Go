@@ -5,14 +5,15 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/GoAdminGroup/go-admin/plugins/admin/models"
 	"github.com/gin-gonic/gin"
 )
 
 // Desktop platform-user management (legacy /datum/user admin contract):
 // paginated list, public detail, create/update/delete and the admin security
 // answer reset. Reads mirror the file module (anonymous; payloads never carry
-// the password hash); writes sit behind requireDatumAuth — the fine-grained
-// datum:user:* permission wiring is deferred to the permissions/audit task.
+// the password hash); writes are management operations gated by the kadmin
+// JWT + datum:user:manage permission (requirePermission).
 //
 // Status semantics are the ptmj_user ones: '1' normal, '0' banned (the
 // opposite of RuoYi's sys_user).
@@ -187,7 +188,6 @@ type datumUserUpdateRequest struct {
 }
 
 func (s *Store) datumUserUpdate(c *gin.Context) {
-	actorID, _ := datumUserIDFrom(c)
 	var req datumUserUpdateRequest
 	_ = c.ShouldBind(&req)
 	userID := req.UserID.value()
@@ -264,10 +264,8 @@ func (s *Store) datumUserUpdate(c *gin.Context) {
 		remark := strings.TrimSpace(*req.Remark)
 		update.Remark = &remark
 	}
-	// 操作人留痕：会话即普通 ptmj 用户，查不到就留空
-	if actor, err := repo.findByUserID(actorID); err == nil {
-		update.UpdateBy = actor.UserName
-	}
+	// 操作人留痕：管理写走管理端 JWT，优先记录管理员名，无则回退 datum 会话用户
+	update.UpdateBy = datumActorName(c, repo)
 	if _, err := repo.updateAdmin(userID, update); err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
 			fail(c, http.StatusConflict, "用户名已存在")
@@ -283,14 +281,28 @@ func (s *Store) datumUserUpdate(c *gin.Context) {
 	success(c, true)
 }
 
+// datumActorName resolves the operator name for audit trails: management
+// writes are kadmin-JWT gated, so prefer the admin identity and fall back to
+// the datum session user when present.
+func datumActorName(c *gin.Context, repo *datumUserRepo) string {
+	if value, ok := c.Get("vben_user"); ok {
+		if user, ok := value.(models.UserModel); ok {
+			if name := strings.TrimSpace(firstNonEmpty(user.Name, user.UserName)); name != "" {
+				return name
+			}
+		}
+	}
+	if actorID, ok := datumUserIDFrom(c); ok {
+		if actor, err := repo.findByUserID(actorID); err == nil {
+			return actor.UserName
+		}
+	}
+	return ""
+}
+
 func (s *Store) datumUserDelete(c *gin.Context) {
-	actorID, _ := datumUserIDFrom(c)
 	userID, ok := datumPathInt64(c, "userId")
 	if !ok {
-		return
-	}
-	if userID == actorID {
-		fail(c, http.StatusBadRequest, "不能删除当前登录账号")
 		return
 	}
 	deleted, err := (&datumUserRepo{conn: s.conn}).deleteByID(userID)

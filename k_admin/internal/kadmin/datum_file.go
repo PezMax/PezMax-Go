@@ -144,7 +144,8 @@ func (s *Store) registerDatumFileRoutes(datumGroup *gin.RouterGroup) {
 
 	// /datum/user 的 GET/DELETE 通配分发器由 registerDatumUserRoutes 挂载：
 	// rank 读取与 rank/cache 清理经 datumUserGet / datumUserDeleteDispatch 分发到这里。
-	datumGroup.DELETE("/file-tree/cache", s.requireDatumAuth(), s.datumTreeCachePurge)
+	// 缓存强制刷新是管理操作：管理端 JWT + datum 文件管理权限（原为 datum 会话）
+	datumGroup.DELETE("/file-tree/cache", s.requireAuth(), s.requirePermission(datumFileManagePermission), s.datumTreeCachePurge)
 }
 
 // datumFileGet dispatches the read-only file routes:

@@ -26,6 +26,12 @@ const (
 	menuManagePermission         = bootstrap.MenuManagePermission
 	dictionaryManagePermission   = bootstrap.DictionaryManagePermission
 	systemConfigManagePermission = bootstrap.SystemConfigManagePermission
+
+	datumUserManagePermission          = bootstrap.DatumUserManagePermission
+	datumFileManagePermission          = bootstrap.DatumFileManagePermission
+	datumNotificationManagePermission  = bootstrap.DatumNotificationManagePermission
+	datumReportAuditPermission         = bootstrap.DatumReportAuditPermission
+	datumBookmarkReportAuditPermission = bootstrap.DatumBookmarkReportAuditPermission
 )
 
 var defaultPermissionSeeds = bootstrap.DefaultPermissions()

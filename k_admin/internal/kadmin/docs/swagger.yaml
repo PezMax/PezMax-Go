@@ -2,6 +2,113 @@ basePath: /api
 consumes:
 - application/json
 definitions:
+  bookmark.BookmarkPayload:
+    properties:
+      collection:
+        type: string
+      coverImage:
+        type: string
+      createBy:
+        type: string
+      createTime:
+        type: string
+      delFlag:
+        type: integer
+      description:
+        type: string
+      remark:
+        type: string
+      resourceType:
+        type: string
+      status:
+        type: integer
+      subject:
+        type: string
+      title:
+        type: string
+      updateBy:
+        type: string
+      updateTime:
+        type: string
+      url:
+        type: string
+      userId:
+        type: integer
+    type: object
+  bookmark_favorite.BookmarkFavoritePayload:
+    properties:
+      userId:
+        type: integer
+    type: object
+  bookmark_report.BookmarkReportPayload:
+    properties:
+      bookmarkId:
+        type: integer
+      createBy:
+        type: string
+      createTime:
+        type: string
+      reason:
+        type: string
+      remark:
+        type: string
+      result:
+        type: string
+      updateBy:
+        type: string
+      updateTime:
+        type: string
+      userId:
+        type: integer
+    type: object
+  file.FilePayload:
+    properties:
+      createBy:
+        type: string
+      createTime:
+        type: string
+      delFlag:
+        type: integer
+      fileFormat:
+        type: string
+      fileName:
+        type: string
+      fileSchool:
+        type: string
+      fileSize:
+        type: integer
+      fileStatus:
+        type: integer
+      fileSubject:
+        type: string
+      fileType:
+        type: integer
+      fileUrl:
+        type: string
+      fileYear:
+        type: integer
+      remark:
+        type: string
+      reviewer:
+        type: string
+      updateBy:
+        type: string
+      updateTime:
+        type: string
+    type: object
+  file_download.FileDownloadPayload:
+    properties:
+      creatBy:
+        type: string
+      creatTime:
+        type: string
+      remark:
+        type: string
+      updateBy:
+        type: string
+      updateTime:
+        type: string
+    type: object
   kadmin.SwaggerErrorResponse:
     properties:
       code:
@@ -41,6 +148,81 @@ definitions:
         type: string
       msg:
         example: ok
+        type: string
+    type: object
+  kadmin.SwaggerTableDataResponse:
+    properties:
+      code:
+        example: 0
+        type: integer
+      message:
+        example: ok
+        type: string
+      msg:
+        example: ok
+        type: string
+      rows: {}
+      total:
+        type: integer
+    type: object
+  kadmin.datumAdminSecurityResetRequest:
+    properties:
+      securityAnswerOne:
+        type: string
+      securityAnswerThree:
+        type: string
+      securityAnswerTwo:
+        type: string
+      securityQuestionOne:
+        type: string
+      securityQuestionThree:
+        type: string
+      securityQuestionTwo:
+        type: string
+      userName:
+        type: string
+    type: object
+  kadmin.datumLoginRequest:
+    properties:
+      code:
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+      uuid:
+        type: string
+    type: object
+  kadmin.datumUserCreateRequest:
+    properties:
+      avatar:
+        type: string
+      count:
+        type: integer
+      password:
+        type: string
+      remark:
+        type: string
+      status:
+        type: string
+      userName:
+        type: string
+    type: object
+  kadmin.datumUserUpdateRequest:
+    properties:
+      avatar:
+        type: string
+      count:
+        type: integer
+      password:
+        type: string
+      remark:
+        type: string
+      status:
+        type: string
+      userId:
+        type: integer
+      userName:
         type: string
     type: object
   kadmin.deleteLogsPayload:
@@ -254,6 +436,76 @@ definitions:
       status:
         type: string
     type: object
+  notification.NotificationPayload:
+    properties:
+      content:
+        type: string
+      createBy:
+        type: string
+      createTime:
+        type: string
+      displayMode:
+        type: string
+      faultEndTime:
+        type: string
+      faultStartTime:
+        type: string
+      maintenanceEndTime:
+        type: string
+      maintenanceStartTime:
+        type: string
+      materialId:
+        type: integer
+      materialTitleSnapshot:
+        type: string
+      notifyType:
+        type: string
+      publishEnd:
+        type: string
+      publishStart:
+        type: string
+      remark:
+        type: string
+      remindBeforeMinutes:
+        type: integer
+      scrollTimeInterval:
+        type: integer
+      sort:
+        type: integer
+      status:
+        type: string
+      title:
+        type: string
+      updateBy:
+        type: string
+      updateTime:
+        type: string
+      uploadUserId:
+        type: integer
+    type: object
+  platform_user.PlatformUserPayload:
+    properties:
+      avatar:
+        type: string
+      count:
+        type: integer
+      creatBy:
+        type: string
+      createTime:
+        type: string
+      password:
+        type: string
+      remark:
+        type: string
+      status:
+        type: string
+      updateBy:
+        type: string
+      updateTime:
+        type: string
+      userName:
+        type: string
+    type: object
   product.ProductPayload:
     properties:
       active:
@@ -269,6 +521,46 @@ definitions:
       sku:
         type: string
       stock:
+        type: integer
+    type: object
+  report.ReportPayload:
+    properties:
+      createBy:
+        type: string
+      createTime:
+        type: string
+      fileId:
+        type: integer
+      reason:
+        type: string
+      remark:
+        type: string
+      result:
+        type: string
+      updateBy:
+        type: string
+      updateTime:
+        type: string
+      userId:
+        type: integer
+    type: object
+  user_security.UserSecurityPayload:
+    properties:
+      answer:
+        type: string
+      createBy:
+        type: string
+      createTime:
+        type: string
+      question:
+        type: string
+      remark:
+        type: string
+      updateBy:
+        type: string
+      updateTime:
+        type: string
+      userId:
         type: integer
     type: object
 info:
@@ -524,6 +816,516 @@ paths:
       summary: 刷新令牌
       tags:
       - 认证
+  /bookmark-favorites:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 关键词
+        in: query
+        name: keyword
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询书签收藏列表
+      tags:
+      - 生成业务
+    post:
+      parameters:
+      - description: 书签收藏信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/bookmark_favorite.BookmarkFavoritePayload'
+      - description: 幂等键（8-128 位）
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增书签收藏
+      tags:
+      - 生成业务
+  /bookmark-favorites/{id}:
+    delete:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除书签收藏
+      tags:
+      - 生成业务
+    get:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取书签收藏详情
+      tags:
+      - 生成业务
+    put:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 书签收藏信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/bookmark_favorite.BookmarkFavoritePayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 修改书签收藏
+      tags:
+      - 生成业务
+  /bookmark-reports:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 关键词
+        in: query
+        name: keyword
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询书签举报列表
+      tags:
+      - 生成业务
+    post:
+      parameters:
+      - description: 书签举报信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/bookmark_report.BookmarkReportPayload'
+      - description: 幂等键（8-128 位）
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增书签举报
+      tags:
+      - 生成业务
+  /bookmark-reports/{id}:
+    delete:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除书签举报
+      tags:
+      - 生成业务
+    get:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取书签举报详情
+      tags:
+      - 生成业务
+    put:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 书签举报信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/bookmark_report.BookmarkReportPayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 修改书签举报
+      tags:
+      - 生成业务
+  /bookmarks:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 关键词
+        in: query
+        name: keyword
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询书签列表
+      tags:
+      - 生成业务
+    post:
+      parameters:
+      - description: 书签信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/bookmark.BookmarkPayload'
+      - description: 幂等键（8-128 位）
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增书签
+      tags:
+      - 生成业务
+  /bookmarks/{id}:
+    delete:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除书签
+      tags:
+      - 生成业务
+    get:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取书签详情
+      tags:
+      - 生成业务
+    put:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 书签信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/bookmark.BookmarkPayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 修改书签
+      tags:
+      - 生成业务
   /codegen/candidates:
     get:
       parameters:
@@ -800,6 +1602,1861 @@ paths:
       summary: 导入数据库表
       tags:
       - 代码生成
+  /datum/bookmark:
+    post:
+      parameters:
+      - description: 书签信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 新增书签（属主）
+      tags:
+      - 桌面端书签
+    put:
+      parameters:
+      - description: 编辑字段
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 编辑书签（属主，部分字段合并，兼容字符串/数字 id）
+      tags:
+      - 桌面端书签
+  /datum/bookmark/{bookmarkId}:
+    delete:
+      parameters:
+      - description: 书签 ID
+        in: path
+        name: bookmarkId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 删除书签（属主）
+      tags:
+      - 桌面端书签
+    get:
+      parameters:
+      - description: 书签 ID
+        in: path
+        name: bookmarkId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 书签详情（待审仅属主可见）
+      tags:
+      - 桌面端书签
+  /datum/bookmark/favorite:
+    post:
+      parameters:
+      - description: 收藏信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 收藏书签
+      tags:
+      - 桌面端活动
+  /datum/bookmark/favorite/list:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 我的书签收藏列表
+      tags:
+      - 桌面端书签
+  /datum/bookmark/list:
+    get:
+      parameters:
+      - description: 用户 ID
+        in: query
+        name: userId
+        type: integer
+      - description: 标题模糊
+        in: query
+        name: title
+        type: string
+      - description: 关键词模糊
+        in: query
+        name: keyword
+        type: string
+      - description: URL 精确
+        in: query
+        name: url
+        type: string
+      - description: 资源类型
+        in: query
+        name: resourceType
+        type: string
+      - description: 专辑
+        in: query
+        name: collection
+        type: string
+      - description: 科目
+        in: query
+        name: subject
+        type: string
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      responses:
+        "200":
+          description: RuoYi TableDataInfo 形状
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerTableDataResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 书签列表（匿名仅出已审核，带 userId 出该用户全部状态）
+      tags:
+      - 桌面端书签
+  /datum/bookmark/uploadCover:
+    post:
+      parameters:
+      - description: 封面文件（JPG/PNG/GIF/WEBP）
+        in: formData
+        name: file
+        required: true
+        type: file
+      responses:
+        "200":
+          description: '{bookmarkId,url}'
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 上传书签封面（multipart ≤5MB，先验属主）
+      tags:
+      - 桌面端书签
+  /datum/bookmarkReport:
+    post:
+      parameters:
+      - description: 举报信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "409":
+          description: 已有待处理举报
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 提交书签举报
+      tags:
+      - 桌面端举报
+    put:
+      parameters:
+      - description: 编辑字段
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 编辑书签举报（属主，待处理状态）
+      tags:
+      - 桌面端举报
+  /datum/bookmarkReport/{ids}:
+    delete:
+      parameters:
+      - description: 举报 ID（逗号分隔）
+        in: path
+        name: ids
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 撤回书签举报（属主，支持批量）
+      tags:
+      - 桌面端举报
+  /datum/bookmarkReport/{reportId}:
+    get:
+      parameters:
+      - description: 举报 ID
+        in: path
+        name: reportId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 书签举报详情
+      tags:
+      - 桌面端举报
+  /datum/bookmarkReport/audit/{reportId}:
+    post:
+      parameters:
+      - description: 举报 ID
+        in: path
+        name: reportId
+        required: true
+        type: integer
+      - description: 审核结果与备注
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: 缺少 datum:bookmarkReport:audit 权限
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 审核书签举报
+      tags:
+      - 桌面端举报
+  /datum/bookmarkReport/list:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      responses:
+        "200":
+          description: RuoYi TableDataInfo 形状
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerTableDataResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 书签举报列表
+      tags:
+      - 桌面端举报
+  /datum/desktop/bookmark/favorite/{userId}/{bookmarkId}:
+    delete:
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      - description: 书签 ID
+        in: path
+        name: bookmarkId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 取消书签收藏
+      tags:
+      - 桌面端活动
+  /datum/desktop/bookmark/favorite/list/{userId}:
+    get:
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 我的书签收藏列表（桌面个人中心）
+      tags:
+      - 桌面端活动
+  /datum/desktop/download/{userId}/{fileId}:
+    delete:
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      - description: 文件 ID
+        in: path
+        name: fileId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 删除我的下载记录
+      tags:
+      - 桌面端活动
+  /datum/desktop/download/list/{userId}:
+    get:
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 我的下载列表
+      tags:
+      - 桌面端活动
+  /datum/desktop/favorite/{userId}/{fileId}:
+    delete:
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      - description: 文件 ID
+        in: path
+        name: fileId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 取消收藏
+      tags:
+      - 桌面端活动
+  /datum/desktop/favorite/list/{userId}:
+    get:
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 我的收藏列表
+      tags:
+      - 桌面端活动
+  /datum/desktop/user/profile:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 获取个人资料
+      tags:
+      - 桌面端用户
+  /datum/desktop/user/profile/avatar:
+    put:
+      parameters:
+      - description: 头像 URL
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 修改头像地址
+      tags:
+      - 桌面端用户
+  /datum/desktop/user/profile/avatar/upload:
+    post:
+      parameters:
+      - description: 头像文件
+        in: formData
+        name: file
+        required: true
+        type: file
+      responses:
+        "200":
+          description: 头像 URL
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 上传头像（multipart）
+      tags:
+      - 桌面端用户
+  /datum/desktop/user/profile/password:
+    put:
+      parameters:
+      - description: 旧密码与新密码
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 修改登录密码
+      tags:
+      - 桌面端用户
+  /datum/desktop/user/profile/password/by-security:
+    put:
+      parameters:
+      - description: 三问三答与新密码
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 通过密保答案重置密码
+      tags:
+      - 桌面端用户
+  /datum/desktop/user/profile/password/verify:
+    post:
+      parameters:
+      - description: 当前密码
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 校验登录密码（敏感操作前置确认）
+      tags:
+      - 桌面端用户
+  /datum/desktop/user/profile/security:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 获取密保问题（不含答案）
+      tags:
+      - 桌面端用户
+    put:
+      parameters:
+      - description: 三问三答
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 设置/更换密保三问三答（需验证当前答案或密码）
+      tags:
+      - 桌面端用户
+  /datum/desktop/user/profile/security/answer/verify:
+    post:
+      parameters:
+      - description: 问题与答案
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 校验密保答案
+      tags:
+      - 桌面端用户
+  /datum/desktop/user/profile/stats:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 获取个人统计（上传/下载/收藏计数）
+      tags:
+      - 桌面端用户
+  /datum/desktop/user/profile/username:
+    put:
+      parameters:
+      - description: 新用户名
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 修改用户名
+      tags:
+      - 桌面端用户
+  /datum/download:
+    post:
+      parameters:
+      - description: 下载信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 新增下载记录（属主）
+      tags:
+      - 桌面端活动
+    put:
+      parameters:
+      - description: 编辑字段
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 编辑下载记录（属主）
+      tags:
+      - 桌面端活动
+  /datum/download/{downloadId}:
+    get:
+      parameters:
+      - description: 下载记录 ID
+        in: path
+        name: downloadId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 下载记录详情（属主）
+      tags:
+      - 桌面端活动
+  /datum/download/{ids}:
+    delete:
+      parameters:
+      - description: 下载记录 ID（逗号分隔）
+        in: path
+        name: ids
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 删除下载记录（属主，支持批量）
+      tags:
+      - 桌面端活动
+  /datum/download/file:
+    get:
+      responses:
+        "200":
+          description: 文件流
+          schema:
+            type: string
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 下载文件流（属主）
+      tags:
+      - 桌面端活动
+  /datum/favorite:
+    post:
+      parameters:
+      - description: 收藏信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 收藏试卷
+      tags:
+      - 桌面端活动
+  /datum/favorite/{fileId}:
+    get:
+      parameters:
+      - description: 文件 ID
+        in: path
+        name: fileId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 查询试卷收藏状态
+      tags:
+      - 桌面端活动
+  /datum/file:
+    post:
+      parameters:
+      - description: 试卷文件（doc/docx/pdf/jpg/png/webp/txt/md/ppt/pptx，≤200MB）
+        in: formData
+        name: file
+        required: true
+        type: file
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 上传试卷（multipart，属主）
+      tags:
+      - 桌面端文件
+    put:
+      parameters:
+      - description: 编辑字段
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 编辑试卷元信息（属主，局部合并）
+      tags:
+      - 桌面端文件
+  /datum/file-tree/cache:
+    delete:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: 缺少 datum:file:manage 权限
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 强制刷新文件树哈希缓存
+      tags:
+      - 桌面端文件
+  /datum/file/{fileId}:
+    delete:
+      parameters:
+      - description: 文件 ID
+        in: path
+        name: fileId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 删除试卷（属主）
+      tags:
+      - 桌面端文件
+    get:
+      parameters:
+      - description: 文件 ID
+        in: path
+        name: fileId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 试卷详情（匿名仅出已审核，属主凭会话可见待审件）
+      tags:
+      - 桌面端文件
+  /datum/file/list:
+    get:
+      parameters:
+      - description: 文件名关键词
+        in: query
+        name: keyword
+        type: string
+      - description: 文件类型
+        in: query
+        name: fileType
+        type: string
+      - description: 科目
+        in: query
+        name: subject
+        type: string
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      responses:
+        "200":
+          description: RuoYi TableDataInfo 形状
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerTableDataResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 试卷文件列表（匿名）
+      tags:
+      - 桌面端文件
+  /datum/file/schools:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+      summary: 学校列表（匿名）
+      tags:
+      - 桌面端文件
+  /datum/file/schools/check:
+    get:
+      parameters:
+      - description: 学校名
+        in: query
+        name: name
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+      summary: 校验学校是否在册（匿名）
+      tags:
+      - 桌面端文件
+  /datum/file/search:
+    get:
+      parameters:
+      - description: 关键词
+        in: query
+        name: keyword
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 试卷搜索（匿名）
+      tags:
+      - 桌面端文件
+  /datum/file/subjects:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+      summary: 科目列表（匿名）
+      tags:
+      - 桌面端文件
+  /datum/file/tree:
+    get:
+      parameters:
+      - description: 客户端缓存哈希，未变化返回 unchanged:true
+        in: query
+        name: hash
+        type: string
+      responses:
+        "200":
+          description: 类型→科目→年份三层 folder 节点 + file 叶子
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 试卷文件树（匿名，哈希缓存协议）
+      tags:
+      - 桌面端文件
+  /datum/notification:
+    post:
+      parameters:
+      - description: 通知内容
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: 缺少 datum:notification:manage 权限
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 新增通知（5 类型：1 版本更新 2 系统故障 3 系统维护 4 资料下架 5 公告）
+      tags:
+      - 桌面端通知
+    put:
+      parameters:
+      - description: 编辑字段
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: 缺少 datum:notification:manage 权限
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 编辑通知
+      tags:
+      - 桌面端通知
+  /datum/notification/{ids}:
+    delete:
+      parameters:
+      - description: 通知 ID（逗号分隔）
+        in: path
+        name: ids
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: 缺少 datum:notification:manage 权限
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 删除通知（支持批量）
+      tags:
+      - 桌面端通知
+  /datum/notification/{notifyId}:
+    get:
+      parameters:
+      - description: 通知 ID
+        in: path
+        name: notifyId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 通知详情
+      tags:
+      - 桌面端通知
+  /datum/notification/list:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 通知列表
+      tags:
+      - 桌面端通知
+  /datum/report:
+    post:
+      parameters:
+      - description: 举报信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "409":
+          description: 已有待处理举报
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 提交资料举报
+      tags:
+      - 桌面端举报
+    put:
+      parameters:
+      - description: 编辑字段
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 编辑举报（属主，待处理状态）
+      tags:
+      - 桌面端举报
+  /datum/report/{ids}:
+    delete:
+      parameters:
+      - description: 举报 ID（逗号分隔）
+        in: path
+        name: ids
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 撤回举报（属主，支持批量）
+      tags:
+      - 桌面端举报
+  /datum/report/{reportId}:
+    get:
+      parameters:
+      - description: 举报 ID
+        in: path
+        name: reportId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 资料举报详情
+      tags:
+      - 桌面端举报
+  /datum/report/audit/{reportId}:
+    post:
+      parameters:
+      - description: 举报 ID
+        in: path
+        name: reportId
+        required: true
+        type: integer
+      - description: 审核结果与备注
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: 缺少 datum:report:audit 权限
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 审核资料举报
+      tags:
+      - 桌面端举报
+  /datum/report/list:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      responses:
+        "200":
+          description: RuoYi TableDataInfo 形状
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerTableDataResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 资料举报列表
+      tags:
+      - 桌面端举报
+  /datum/report/timeline/{fileId}:
+    get:
+      parameters:
+      - description: 文件 ID
+        in: path
+        name: fileId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 举报处理时间线
+      tags:
+      - 桌面端举报
+  /datum/user:
+    post:
+      parameters:
+      - description: 用户信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/kadmin.datumUserCreateRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: 缺少 datum:user:manage 权限
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 新建平台用户
+      tags:
+      - 桌面端用户
+    put:
+      parameters:
+      - description: 编辑字段
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/kadmin.datumUserUpdateRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: 缺少 datum:user:manage 权限
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 编辑平台用户（局部合并，封禁/解封走 status）
+      tags:
+      - 桌面端用户
+  /datum/user/{userId}:
+    delete:
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: 缺少 datum:user:manage 权限
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 删除平台用户（硬删并连带清理密保）
+      tags:
+      - 桌面端用户
+    get:
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: 公开投影，载荷不含密码哈希
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 平台用户公开详情（匿名）
+      tags:
+      - 桌面端用户
+  /datum/user/captchaImage:
+    get:
+      responses:
+        "200":
+          description: captchaEnabled/uuid/img（img 为裸 base64 JPEG）
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 获取桌面端登录验证码
+      tags:
+      - 桌面端认证
+  /datum/user/getInfo:
+    get:
+      responses:
+        "200":
+          description: data.user/roles/permissions
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 获取当前桌面端用户信息
+      tags:
+      - 桌面端认证
+  /datum/user/list:
+    get:
+      parameters:
+      - description: 用户名模糊
+        in: query
+        name: userName
+        type: string
+      - description: 状态：1 正常 / 0 封禁
+        in: query
+        name: status
+        type: string
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      responses:
+        "200":
+          description: RuoYi TableDataInfo 形状，载荷不含密码哈希
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerTableDataResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 平台用户列表（匿名）
+      tags:
+      - 桌面端用户
+  /datum/user/login:
+    post:
+      parameters:
+      - description: 登录信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/kadmin.datumLoginRequest'
+      responses:
+        "200":
+          description: data.token 为会话令牌
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 桌面端登录
+      tags:
+      - 桌面端认证
+  /datum/user/logout:
+    post:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 桌面端退出登录
+      tags:
+      - 桌面端认证
+  /datum/user/rank:
+    get:
+      parameters:
+      - description: 客户端缓存哈希，未变化返回 unchanged:true
+        in: query
+        name: hash
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 上传排行榜（匿名，哈希缓存协议）
+      tags:
+      - 桌面端用户
+  /datum/user/rank/cache:
+    delete:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: 缺少 datum:user:manage 权限
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 清理排行榜哈希缓存
+      tags:
+      - 桌面端用户
+  /datum/user/register:
+    post:
+      parameters:
+      - description: 注册信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/kadmin.datumLoginRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 桌面端注册
+      tags:
+      - 桌面端认证
+  /datum/user/resetPasswordBySecurity:
+    post:
+      parameters:
+      - description: 工单、三问三答与新密码
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 找回密码第二步：验重置工单与密保答案后重置密码
+      tags:
+      - 桌面端认证
+  /datum/user/resetSecurityAnswers:
+    post:
+      parameters:
+      - description: 密保三问三答
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/kadmin.datumAdminSecurityResetRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: 缺少 datum:user:manage 权限
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 按用户名重置密保三问三答（成套替换或全空清除）
+      tags:
+      - 桌面端用户
+  /datum/user/securityQuestions:
+    get:
+      parameters:
+      - description: 用户名
+        in: query
+        name: userName
+        required: true
+        type: string
+      - description: 验证码 uuid
+        in: query
+        name: uuid
+        required: true
+        type: string
+      - description: 验证码
+        in: query
+        name: code
+        required: true
+        type: string
+      responses:
+        "200":
+          description: 重置工单与密保问题
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 找回密码第一步：校验账号与验证码并返回密保问题
+      tags:
+      - 桌面端认证
   /dictionaries/data:
     get:
       parameters:
@@ -1062,6 +3719,346 @@ paths:
       summary: 修改字典类型
       tags:
       - 字典管理
+  /exam-files:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 关键词
+        in: query
+        name: keyword
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询试卷文件列表
+      tags:
+      - 生成业务
+    post:
+      parameters:
+      - description: 试卷文件信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/file.FilePayload'
+      - description: 幂等键（8-128 位）
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增试卷文件
+      tags:
+      - 生成业务
+  /exam-files/{id}:
+    delete:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除试卷文件
+      tags:
+      - 生成业务
+    get:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取试卷文件详情
+      tags:
+      - 生成业务
+    put:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 试卷文件信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/file.FilePayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 修改试卷文件
+      tags:
+      - 生成业务
+  /file-downloads:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 关键词
+        in: query
+        name: keyword
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询下载记录列表
+      tags:
+      - 生成业务
+    post:
+      parameters:
+      - description: 下载记录信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/file_download.FileDownloadPayload'
+      - description: 幂等键（8-128 位）
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增下载记录
+      tags:
+      - 生成业务
+  /file-downloads/{id}:
+    delete:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除下载记录
+      tags:
+      - 生成业务
+    get:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取下载记录详情
+      tags:
+      - 生成业务
+    put:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 下载记录信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/file_download.FileDownloadPayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 修改下载记录
+      tags:
+      - 生成业务
   /files:
     post:
       consumes:
@@ -1975,6 +4972,176 @@ paths:
       summary: 标记通知已读
       tags:
       - 站内通知
+  /platform-users:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 关键词
+        in: query
+        name: keyword
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询平台用户列表
+      tags:
+      - 生成业务
+    post:
+      parameters:
+      - description: 平台用户信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/platform_user.PlatformUserPayload'
+      - description: 幂等键（8-128 位）
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增平台用户
+      tags:
+      - 生成业务
+  /platform-users/{id}:
+    delete:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除平台用户
+      tags:
+      - 生成业务
+    get:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取平台用户详情
+      tags:
+      - 生成业务
+    put:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 平台用户信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/platform_user.PlatformUserPayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 修改平台用户
+      tags:
+      - 生成业务
   /product:
     get:
       parameters:
@@ -2143,6 +5310,176 @@ paths:
       security:
       - BearerAuth: []
       summary: 修改Products
+      tags:
+      - 生成业务
+  /ptmj-notifications:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 关键词
+        in: query
+        name: keyword
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询通知列表
+      tags:
+      - 生成业务
+    post:
+      parameters:
+      - description: 通知信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/notification.NotificationPayload'
+      - description: 幂等键（8-128 位）
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增通知
+      tags:
+      - 生成业务
+  /ptmj-notifications/{id}:
+    delete:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除通知
+      tags:
+      - 生成业务
+    get:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取通知详情
+      tags:
+      - 生成业务
+    put:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 通知信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/notification.NotificationPayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 修改通知
       tags:
       - 生成业务
   /rbac/departments:
@@ -2537,6 +5874,176 @@ paths:
       summary: 获取授权用户
       tags:
       - 权限管理
+  /reports:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 关键词
+        in: query
+        name: keyword
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询举报列表
+      tags:
+      - 生成业务
+    post:
+      parameters:
+      - description: 举报信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/report.ReportPayload'
+      - description: 幂等键（8-128 位）
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增举报
+      tags:
+      - 生成业务
+  /reports/{id}:
+    delete:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除举报
+      tags:
+      - 生成业务
+    get:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取举报详情
+      tags:
+      - 生成业务
+    put:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 举报信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/report.ReportPayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 修改举报
+      tags:
+      - 生成业务
   /system-monitor:
     get:
       responses:
@@ -2632,6 +6139,34 @@ paths:
       summary: 获取公开登录配置
       tags:
       - 系统配置
+  /system/notification/user/popup:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 用户弹窗通知（桌面端铃铛/首页弹窗）
+      tags:
+      - 桌面端通知
+  /system/notification/user/scroll:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 用户滚动提醒
+      tags:
+      - 桌面端通知
   /uploads/{path}:
     get:
       parameters:
@@ -2652,6 +6187,176 @@ paths:
       summary: 读取公开上传文件
       tags:
       - 文件管理
+  /user-security:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 关键词
+        in: query
+        name: keyword
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询用户密保列表
+      tags:
+      - 生成业务
+    post:
+      parameters:
+      - description: 用户密保信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/user_security.UserSecurityPayload'
+      - description: 幂等键（8-128 位）
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增用户密保
+      tags:
+      - 生成业务
+  /user-security/{id}:
+    delete:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除用户密保
+      tags:
+      - 生成业务
+    get:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取用户密保详情
+      tags:
+      - 生成业务
+    put:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 用户密保信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/user_security.UserSecurityPayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 修改用户密保
+      tags:
+      - 生成业务
   /user/info:
     get:
       responses:

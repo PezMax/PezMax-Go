@@ -346,10 +346,11 @@ func (s *Store) registerDatumUserRoutes(user *gin.RouterGroup) {
 	// 管理读接口（list/:userId，datum_user_admin.go）与排行榜（rank，datum_file.go）
 	// 统一走通配分发；POST/PUT 树无冲突，保持直接注册。
 	user.GET("/*rest", s.datumUserGet)
-	user.POST("", s.requireDatumAuth(), s.datumUserCreate)
-	user.PUT("", s.requireDatumAuth(), s.datumUserUpdate)
+	// 平台用户管理写接口：管理端 JWT + datum 用户管理权限（原为 datum 会话，见 datum_user_admin.go）
+	user.POST("", s.requireAuth(), s.requirePermission(datumUserManagePermission), s.datumUserCreate)
+	user.PUT("", s.requireAuth(), s.requirePermission(datumUserManagePermission), s.datumUserUpdate)
 	user.DELETE("/*rest", s.datumUserDeleteDispatch)
-	user.POST("/resetSecurityAnswers", s.requireDatumAuth(), s.datumAdminResetSecurityAnswers)
+	user.POST("/resetSecurityAnswers", s.requireAuth(), s.requirePermission(datumUserManagePermission), s.datumAdminResetSecurityAnswers)
 	user.POST("/resetPasswordBySecurity", s.datumResetPassword)
 	user.POST("/login", s.datumLogin)
 	user.POST("/register", s.datumRegister)
@@ -386,12 +387,17 @@ func (s *Store) datumUserGet(c *gin.Context) {
 }
 
 // datumUserDeleteDispatch splits DELETE /datum/user between the rank-cache
-// purge (datum_file.go) and the management delete /{userId}.
+// purge (datum_file.go) and the management delete /{userId}. Both branches are
+// management operations gated by the kadmin JWT + datum:user:manage permission.
 func (s *Store) datumUserDeleteDispatch(c *gin.Context) {
 	rest := strings.Trim(c.Param("rest"), "/")
 	switch {
 	case rest == "rank/cache":
-		s.requireDatumAuth()(c)
+		s.requireAuth()(c)
+		if c.IsAborted() {
+			return
+		}
+		s.requirePermission(datumUserManagePermission)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -399,7 +405,11 @@ func (s *Store) datumUserDeleteDispatch(c *gin.Context) {
 	default:
 		if userID, err := strconv.ParseInt(rest, 10, 64); err == nil && userID > 0 {
 			c.Params = append(c.Params, gin.Param{Key: "userId", Value: rest})
-			s.requireDatumAuth()(c)
+			s.requireAuth()(c)
+			if c.IsAborted() {
+				return
+			}
+			s.requirePermission(datumUserManagePermission)(c)
 			if c.IsAborted() {
 				return
 			}

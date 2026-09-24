@@ -25,8 +25,8 @@ func (s *Store) registerDatumReportRoutes(datumGroup *gin.RouterGroup) {
 	reports.PUT("", s.datumReportUpdate)
 	reports.DELETE("/:ids", s.datumReportDelete)
 
-	// 审核走管理端 JWT（requireAuth），不能挂在 datum 认证组下
-	datumGroup.Group("/report").POST("/audit/:reportId", s.requireAuth(), s.datumReportAudit)
+	// 审核走管理端 JWT + datum 举报审核权限（requirePermission），不能挂在 datum 认证组下
+	datumGroup.Group("/report").POST("/audit/:reportId", s.requireAuth(), s.requirePermission(datumReportAuditPermission), s.datumReportAudit)
 
 	bookmarkReports := datumGroup.Group("/bookmarkReport", s.requireDatumAuth())
 	bookmarkReports.GET("/*rest", s.datumBookmarkReportGet)
@@ -34,7 +34,7 @@ func (s *Store) registerDatumReportRoutes(datumGroup *gin.RouterGroup) {
 	bookmarkReports.PUT("", s.datumBookmarkReportUpdate)
 	bookmarkReports.DELETE("/:ids", s.datumBookmarkReportDelete)
 
-	datumGroup.Group("/bookmarkReport").POST("/audit/:reportId", s.requireAuth(), s.datumBookmarkReportAudit)
+	datumGroup.Group("/bookmarkReport").POST("/audit/:reportId", s.requireAuth(), s.requirePermission(datumBookmarkReportAuditPermission), s.datumBookmarkReportAudit)
 }
 
 // ---------------------------------------------------------------------------

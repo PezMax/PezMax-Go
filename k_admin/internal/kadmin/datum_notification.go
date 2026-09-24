@@ -20,12 +20,14 @@ import (
 var datumNotifyTypes = map[string]bool{"1": true, "2": true, "3": true, "4": true, "5": true}
 
 func (s *Store) registerDatumNotificationRoutes(r *gin.Engine, datumGroup *gin.RouterGroup) {
-	notifications := datumGroup.Group("/notification", s.requireDatumAuth())
+	// 读接口（列表/详情 + 弹窗/滚动喂给桌面端铃铛）保持 datum 会话；
+	// 管理写接口（新增/修改/删除）改走管理端 JWT + datum 通知管理权限。
+	notifications := datumGroup.Group("/notification")
 	// gin v1.3: 静态 "list" 与 :notifyId 并存冲突，GET 统一走通配分发器。
-	notifications.GET("/*rest", s.datumNotificationGet)
-	notifications.POST("", s.datumNotificationCreate)
-	notifications.PUT("", s.datumNotificationUpdate)
-	notifications.DELETE("/:ids", s.datumNotificationDelete)
+	notifications.GET("/*rest", s.requireDatumAuth(), s.datumNotificationGet)
+	notifications.POST("", s.requireAuth(), s.requirePermission(datumNotificationManagePermission), s.datumNotificationCreate)
+	notifications.PUT("", s.requireAuth(), s.requirePermission(datumNotificationManagePermission), s.datumNotificationUpdate)
+	notifications.DELETE("/:ids", s.requireAuth(), s.requirePermission(datumNotificationManagePermission), s.datumNotificationDelete)
 
 	// 旧 RuoYi 根路径（桌面端 home/NotificationCenter/TitleHeader 逐字调用），
 	// 契约就是 /system/... 根路径，必须挂在引擎根而非 /datum 组下

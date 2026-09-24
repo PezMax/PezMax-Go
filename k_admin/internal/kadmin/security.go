@@ -751,6 +751,10 @@ func requiresIdempotency(method, path string) bool {
 		return true
 	case len(segments) == 1 && segments[0] == "notifications":
 		return true
+	case len(segments) == 2 && segments[0] == "datum" && (segments[1] == "user" || segments[1] == "notification"):
+		// datum 管理侧创建（平台用户新建 / 通知新增）：与 /api 管理创建共用
+		// Idempotency-Key 防重；属主语义的桌面端创建不在此列。
+		return true
 	case len(segments) == 1:
 		idempotentRouteRegistryMu.RLock()
 		_, registered := idempotentRouteRegistry[segments[0]]
