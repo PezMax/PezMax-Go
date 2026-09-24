@@ -1,7 +1,6 @@
 import axios from 'axios'
-import { ElNotification , ElMessageBox, ElMessage, ElLoading } from 'element-plus'
+import { ElMessage, ElLoading } from 'element-plus'
 import { getToken } from '@/utils/auth'
-import errorCode from '@/utils/errorCode'
 import { tansParams, blobValidate } from '@/utils/ruoyi'
 import cache from '@/plugins/cache'
 import { saveAs } from 'file-saver'
@@ -15,10 +14,10 @@ let downloadLoadingInstance
 // 是否显示重新登录
 export let isRelogin = { show: false }
 
-// 已知特定错误原因保留原始报错，否则显示通用提示（RuoYi code=500 与 kadmin HTTP 错误共用）
+// 已知特定错误原因保留原始报错，否则显示通用提示（kadmin HTTP 错误）
 const specificPatterns = /上传失败|用户名或密码|用户不存在|账号已被停用|账号已被封禁|验证码错误|密码不一致|已锁定|密保答案|暂不支持|不能为空|格式错误|文件过大|没有权限|非法操作|已被停用|命名错误|大小超过|类型错误|已存在|不支持此文件|封面文件/
 
-// 会话失效统一处理：RuoYi 风格（HTTP 200 + code 401）与 kadmin 原生（HTTP 401）都走这里
+// 会话失效统一处理：kadmin 以 HTTP 401 承载会话失效
 function handleSessionExpired() {
   if (!isRelogin.show) {
     isRelogin.show = true
@@ -166,27 +165,8 @@ service.interceptors.response.use(res => {
     if (res.config.responseType === 'blob' || res.config.responseType === 'arraybuffer') {
       return res.data
     }
-    // 未设置状态码则默认成功状态
-    const code = res.data.code || 200
-    // 获取错误信息
-    const msg = errorCode[code] || res.data.msg || errorCode['default']
-    
-    if (code === 401) {
-      return handleSessionExpired()
-    } else if (code === 500) {
-      // 已知特定错误原因保留原始报错，否则显示通用维护提示
-      const displayMsg = specificPatterns.test(msg) ? msg : '系统正在维护，如有需求请联系管理员'
-      ElMessage({ message: displayMsg, type: 'error' })
-      return Promise.reject(new Error(msg))
-    } else if (code === 601) {
-      ElMessage({ message: msg, type: 'warning' })
-      return Promise.reject(new Error(msg))
-    } else if (code !== 200) {
-      ElNotification.error({ title: msg })
-      return Promise.reject('error')
-    } else {
-      return Promise.resolve(normalizeKAdminPage(res.data))
-    }
+    // kadmin 信封：HTTP 200 即业务成功（body.code 恒为 0），错误以真实 HTTP 状态码承载，走 error 分支
+    return Promise.resolve(normalizeKAdminPage(res.data))
   },
   error => {
     console.log('err' + error)
@@ -232,8 +212,7 @@ export function download(url, params, filename, config) {
     } else {
       const resText = await data.text()
       const rspObj = JSON.parse(resText)
-      const errMsg = errorCode[rspObj.code] || rspObj.msg || errorCode['default']
-      ElMessage.error(errMsg)
+      ElMessage.error(rspObj.msg || rspObj.message || '下载文件出现错误，请联系管理员！')
     }
     downloadLoadingInstance.close()
   }).catch((r) => {

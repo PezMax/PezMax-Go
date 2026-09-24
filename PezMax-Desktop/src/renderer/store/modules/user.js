@@ -29,8 +29,8 @@ const useUserStore = defineStore(
         const uuid = userInfo.uuid
         return new Promise((resolve, reject) => {
           login(username, password, code, uuid).then(res => {
-          //LYZ三次修改：增加对登录响应中token的兼容处理，优先使用res.token，如果res.token不存在，则使用res.data?.token
-          const token = res.token || res.data?.token
+          // kadmin 信封：token 在 data 内
+          const token = res.data?.token
           if (!token) {
             return reject(new Error('登录响应缺少 token'))
           }
