@@ -82,6 +82,13 @@ export const constantRoutes = [
     meta: { title: '我的下载' }
   },
   {
+    // 电子书栏目：占位空白页，功能后续补充
+    path: '/datum/ebook',
+    component: () => import('@/views/datum/ebook/index.vue'),
+    name: 'Ebook',
+    meta: { title: '电子书', icon: 'education' }
+  },
+  {
     path: '/rank',
     redirect: () => ({ path: '/index', query: { view: 'rank' } })
   },

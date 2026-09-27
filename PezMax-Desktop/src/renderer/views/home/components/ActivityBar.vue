@@ -16,6 +16,9 @@
       <div :class="['activity-item', { active: activeView === 'reportUser' }]" @click="$emit('change-view', 'reportUser')" title="举报用户">
         <svg-icon icon-class="bug" />
       </div>
+      <div :class="['activity-item', { active: activeView === 'ebook' }]" @click="$emit('change-view', 'ebook')" title="电子书">
+        <i class="activity-mask-icon" />
+      </div>
     </div>
     <div class="activity-items-bottom">
       <div class="activity-item" title="捐赠" @click="$emit('open-donate')">
@@ -55,6 +58,17 @@ defineEmits(['change-view', 'open-donate', 'open-settings'])
   flex-direction: column;
   gap: 10px;
   align-items: center;
+}
+/* 电子书 PNG 图标：mask + currentColor 渲染，跟随 .activity-item 的悬浮变蓝、选中变白 */
+.activity-mask-icon {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  background-color: currentColor;
+  -webkit-mask: url('@/assets/images/ebook.png') no-repeat center / contain;
+  mask: url('@/assets/images/ebook.png') no-repeat center / contain;
+  pointer-events: none;
+  user-select: none;
 }
 .activity-item {
   width: 40px;

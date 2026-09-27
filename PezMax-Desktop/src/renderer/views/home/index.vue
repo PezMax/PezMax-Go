@@ -13,6 +13,10 @@
           <RankView />
         </template>
 
+        <template v-else-if="activeView === 'ebook'">
+          <EbookView />
+        </template>
+
         <template v-else>
           <!-- 包装一个容器让 transition 能正确处理平级组件 -->
           <div ref="rootRef" class="ide-main-content-wrapper">
@@ -121,6 +125,7 @@ import FileInfoDrawer from './components/FileInfoDrawer.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import DonateModal from './components/DonateModal.vue'
 import RankView from '@/views/rank/index.vue'
+import EbookView from '@/views/datum/ebook/index.vue'
 import { getFileTree } from '@/api/datum/file'
 import { normalizeFileUrl } from '@/utils/url'
 import GlobalLoader from './components/GlobalLoader.vue'
@@ -149,6 +154,7 @@ const normalizeView = (v) => {
     v === 'rank' ||
     v === 'bookmark' ||
     v === 'reportUser' ||
+    v === 'ebook' ||
     v === 'none'
   ) return v
   return 'explorer'

@@ -47,6 +47,16 @@ const authenticatedUtilityRoutes: RouteRecordRaw[] = [
       title: '站内通知',
     },
   },
+  // 临时预览路由：文件审核页（方案确认后移入后台菜单，见 fileAudit.ts 头部注释）。
+  {
+    name: 'FileAuditPreview',
+    path: '/kadmin/file-audit-preview',
+    component: () => import('#/views/kadmin/components/FileAuditView.vue'),
+    meta: {
+      hideInMenu: true,
+      title: '文件审核（预览）',
+    },
+  },
 ];
 
 // 工具页随根布局静态注册，但不加入 coreRouteNames，仍会经过登录校验。
