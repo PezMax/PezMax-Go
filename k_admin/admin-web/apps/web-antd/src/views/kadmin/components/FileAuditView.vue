@@ -1,13 +1,12 @@
 <!--
-  文件审核工作台（预览阶段：数据来自 fileAudit.mock.ts）。
+  文件审核工作台（已实装：后端接口见 internal/kadmin/exam_file_audit.go）。
 
   功能：
   - 待审核 / 被举报复审双队列，独立筛选与分页；
-  - 文件分页预览（PDF 逐页翻页 / 图片 / 不支持格式降级下载）；
+  - 文件分页预览（pdfjs 按需渲染：翻到哪页加载哪页 / 图片 / 不支持格式降级下载），
+    预览底部提供快捷审核操作；
   - 多选一键通过、单个用户的全部待审核文件一键通过；
   - 被举报文件复审，审核结论必须附带原因并返回给上传用户。
-
-  同步 kadmin 后台：见 src/api/kadmin/fileAudit.ts 头部注释。
 -->
 <script setup lang="ts">
 import type { File as ExamFile } from '#/api/kadmin/generated/file';
@@ -332,6 +331,30 @@ async function openPreview(record: ExamFile) {
   }
 }
 
+/** 预览抽屉快捷操作：直接通过待审核文件。 */
+function approveFromPreview() {
+  if (!preview.file) return;
+  const record = preview.file;
+  preview.open = false;
+  void approveOne(record);
+}
+
+/** 预览抽屉快捷操作：拒绝待审核文件（跳转原因填写）。 */
+function rejectFromPreview() {
+  if (!preview.file) return;
+  const record = preview.file;
+  preview.open = false;
+  openRejectPending(record);
+}
+
+/** 预览抽屉快捷操作：复审被举报文件（跳转复审弹窗填写原因）。 */
+function reReviewFromPreview(decision: AuditDecision) {
+  if (!preview.file) return;
+  const record = preview.file as ReportedExamFile;
+  preview.open = false;
+  openReReview(record, decision);
+}
+
 // ---------------------------------------------------------------------------
 // 审核（拒绝 / 被举报复审）
 // ---------------------------------------------------------------------------
@@ -387,10 +410,10 @@ function openRejectPending(record: ExamFile) {
   void loadAuditPreview(record);
 }
 
-function openReReview(record: ReportedExamFile) {
+function openReReview(record: ReportedExamFile, decision: AuditDecision = 'approve') {
   audit.mode = 'reported';
   audit.file = record;
-  audit.decision = 'approve';
+  audit.decision = decision;
   audit.reason = '';
   audit.page = 1;
   audit.previewUrl = '';
@@ -463,7 +486,7 @@ const pendingColumns = [
   { title: '年份', dataIndex: 'fileYear', key: 'fileYear', width: 70 },
   { title: '大小', key: 'fileSize', width: 80 },
   { title: '上传时间', dataIndex: 'createTime', key: 'createTime', width: 150 },
-  { title: '操作', key: 'action', width: 250, fixed: 'right' },
+  { title: '操作', key: 'action', width: 310, fixed: 'right' },
 ];
 
 const reportedColumns = [
@@ -486,7 +509,7 @@ onMounted(() => {
     <section class="page-heading">
       <div>
         <h1>文件审核</h1>
-        <p>待审核与被举报文件的集中审核工作台 · 表 ptmj_file（当前为预览数据）</p>
+        <p>待审核与被举报文件的集中审核工作台 · 表 ptmj_file</p>
       </div>
       <a-space wrap>
         <a-button :loading="pending.loading || reported.loading" @click="refreshAll">
@@ -536,7 +559,7 @@ onMounted(() => {
     <a-tabs v-model:activeKey="activeTab" size="large">
       <a-tab-pane key="pending">
         <template #tab>
-          <a-badge :count="pending.total" size="small">待审核</a-badge>
+          <span>待审核<span class="tab-count">{{ pending.total }}</span></span>
         </template>
         <div class="audit-tab-stack">
           <section class="panel">
@@ -613,7 +636,7 @@ onMounted(() => {
               :loading="pending.loading"
               :pagination="pendingPagination"
               :row-selection="{ selectedRowKeys, onChange: onPendingSelect }"
-              :scroll="{ x: 1180 }"
+              :scroll="{ x: 1240 }"
               @change="handlePendingChange"
             >
               <template #bodyCell="{ column, record }">
@@ -686,9 +709,9 @@ onMounted(() => {
 
       <a-tab-pane key="reported">
         <template #tab>
-          <a-badge :count="reported.total" :offset="[12, -2]" size="small" color="#cf1322">
-            被举报复审
-          </a-badge>
+          <span>
+            被举报复审<span class="tab-count tab-count-danger">{{ reported.total }}</span>
+          </span>
         </template>
         <div class="audit-tab-stack">
           <section class="panel">
@@ -819,6 +842,36 @@ onMounted(() => {
           :page-count="preview.pageCount"
           :height="previewHeight"
         />
+        <a-space
+          v-if="canAudit && preview.file.fileStatus === 0"
+          wrap
+          class="preview-actions"
+        >
+          <a-button type="primary" @click="approveFromPreview">
+            <CheckOutlined />
+            通过
+          </a-button>
+          <a-button danger @click="rejectFromPreview">
+            <CloseOutlined />
+            拒绝
+          </a-button>
+          <span class="muted-text">通过后文件立即上架；拒绝需填写原因并返回给用户</span>
+        </a-space>
+        <a-space
+          v-else-if="canAudit && preview.file.fileStatus === 3"
+          wrap
+          class="preview-actions"
+        >
+          <a-button type="primary" @click="reReviewFromPreview('approve')">
+            <CheckOutlined />
+            复审通过（举报不属实）
+          </a-button>
+          <a-button danger @click="reReviewFromPreview('reject')">
+            <CloseOutlined />
+            复审拒绝（举报属实）
+          </a-button>
+          <span class="muted-text">下一步需填写审核原因，结论与原因将返回给上传用户</span>
+        </a-space>
       </a-spin>
     </a-drawer>
 
@@ -925,12 +978,36 @@ onMounted(() => {
   gap: 16px;
 }
 
+.tab-count {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: hsl(var(--primary) / 15%);
+  color: hsl(var(--primary));
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.tab-count-danger {
+  background: #cf132226;
+  color: #f5222d;
+}
+
 .report-reason {
   color: #cf1322;
 }
 
 .audit-desc {
   margin-bottom: 16px;
+}
+
+.preview-actions {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--kadmin-border, hsl(var(--border)));
 }
 
 .audit-modal-body {

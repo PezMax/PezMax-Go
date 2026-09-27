@@ -95,7 +95,7 @@ func (r *FileRepo) SetStatus(fileID, status int64, reviewer string) error {
 }
 
 // ApproveAllByUser batch-approves every pending upload of one user.
-func (r *FileRepo) ApproveAllByUser(userID, reviewer string) (int64, error) {
+func (r *FileRepo) ApproveAllByUser(userID int64, reviewer string) (int64, error) {
 	result, err := r.conn.Exec(`UPDATE ptmj_file SET file_status = 1, reviewer = ?, update_time = CURRENT_TIMESTAMP
 		WHERE user_id = ? AND file_status = 0 AND del_flag = 0`, reviewer, userID)
 	if err != nil {

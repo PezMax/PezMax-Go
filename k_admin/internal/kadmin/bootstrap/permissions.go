@@ -63,6 +63,12 @@ const (
 	DatumBookmarkReportAuditPermission = "datum:bookmarkReport:audit"
 )
 
+// 文件审核工作台：待审核/被举报试卷文件的集中审核（列表查看与审核操作分离）。
+const (
+	FileAuditViewPermission = "system:file:audit:view"
+	FileAuditPermission     = "system:file:audit"
+)
+
 type PermissionScope string
 
 const (
@@ -355,6 +361,14 @@ func DefaultPermissions() []PermissionSeed {
 		{
 			Name: "书签举报审核", Slug: DatumBookmarkReportAuditPermission, HTTPMethod: "POST", HTTPPath: "/datum/bookmarkReport/audit/*",
 			PageURI: "/bookmark-reports", PageTitle: "书签举报", Scope: PermissionScopeButton, Button: "datum.bookmark-report.audit",
+		},
+		{
+			Name: "查看文件审核", Slug: FileAuditViewPermission, HTTPMethod: "GET", HTTPPath: "/api/exam-file-audit*",
+			PageURI: "/exam-file-audit", PageTitle: "文件审核", Scope: PermissionScopePage,
+		},
+		{
+			Name: "文件审核操作", Slug: FileAuditPermission, HTTPMethod: "POST", HTTPPath: "/api/exam-file-audit*",
+			PageURI: "/exam-file-audit", PageTitle: "文件审核", Scope: PermissionScopeButton, Button: "file.audit",
 		},
 	}
 }

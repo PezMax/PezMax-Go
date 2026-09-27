@@ -1,47 +1,41 @@
 /**
- * 文件审核 API。
+ * 文件审核 API（已实装，后端实现见 internal/kadmin/exam_file_audit.go）。
  *
- * ★ 预览阶段：USE_MOCK = true，数据来自 fileAudit.mock.ts，不依赖后端。
+ * 接口清单（kadmin 管理端 JWT + RequirePermission）：
+ * - GET  /api/exam-file-audit/pending    待审核队列（file_status=0），支持 fileName/user/fileType 过滤
+ * - GET  /api/exam-file-audit/reported   被举报复审队列（file_status=3 联查最新待处理举报单）
+ * - POST /api/exam-file-audit/approve       { fileIds }  多选批量通过（0→1）
+ * - POST /api/exam-file-audit/approve-user  { userId }   单用户全部待审核一键通过
+ * - POST /api/exam-file-audit/reject        { fileId, reason } 待审核拒绝（0→2，原因随下架通知返回用户）
+ * - POST /api/exam-file-audit/audit         { fileId, decision, reason } 被举报复审
+ *        （approve=举报不属实恢复上架、举报单置不属实；reject=举报属实下架、举报单置属实并下发下架通知）
  *
- * 同步 kadmin 后台时的改造清单：
- * 1. 将下方 USE_MOCK 置为 false，并删除 fileAudit.mock.ts；
- * 2. 后端补齐以下接口（internal/kadmin，参考 datum_report.go 的审核实现）：
- *    - GET  /api/exam-files                    现有列表接口需追加 fileStatus、userId、fileType 过滤参数
- *    - GET  /api/exam-files/reported           被举报文件联查（ptmj_file + ptmj_report），分页
- *    - POST /api/exam-files/audit-approve      { fileIds }   多选批量通过（fileStatus 0→1，记录 reviewer）
- *    - POST /api/exam-files/audit-approve-user { userId }    单用户全部待审核一键通过
- *    - POST /api/exam-files/:id/audit          { decision: 'approve'|'reject', reason }
- *                                              被举报文件复审：approve→fileStatus 1（恢复上架、举报置不属实），
- *                                              reject→fileStatus 2（下架、举报置属实并下发下架通知），reason 必填并落库
- * 3. 文件列表返回可读的预览地址（参考 datumReadableFileURL）与可选的 pageCount 字段；
- * 4. 后台菜单新增“文件审核”，组件路径 /kadmin/components/FileAuditView，
- *    并在 bootstrap/permissions.go 注册按钮权限 system:file:audit。
+ * 权限：页面 system:file:audit:view（GET），审核操作 system:file:audit（POST），
+ * 已在 bootstrap/permissions.go 注册；后台菜单“文件审核”随启动自动补种。
+ *
+ * 预览：fileUrl 由后端转为可读 HTTP 直链（datumReadableFileURL），前端 pdfjs
+ * 按需逐页渲染（翻到哪页加载哪页）；pageCount 由 pdfjs 解析，后端无需返回。
  */
 import type { File as ExamFile } from './generated/file';
 
-import {
-  approveFiles as mockApproveFiles,
-  approveUserFiles as mockApproveUserFiles,
-  auditReportedFile as mockAuditReportedFile,
-  countPendingByUser as mockCountPendingByUser,
-  listPendingFiles as mockListPendingFiles,
-  listReportedFiles as mockListReportedFiles,
-  previewKindOf as mockPreviewKindOf,
-  rejectPendingFile as mockRejectPendingFile,
-  resolvePreview as mockResolvePreview,
-  type ReportedExamFile,
-} from './fileAudit.mock';
+import { request } from './client';
 
-const USE_MOCK = true;
+export type { ExamFile };
 
-export type { ExamFile, ReportedExamFile };
+export interface ReportedExamFile extends ExamFile {
+  reportId: number;
+  reportReason: string;
+  reportResult: string;
+  reporterName: string;
+  reportTime: string;
+}
 
 export interface PendingFileFilters {
   page: number;
   pageSize: number;
   /** 文件名关键词 */
   fileName?: string;
-  /** 上传用户：支持用户 ID 或昵称 */
+  /** 上传用户：支持用户 ID 或用户名 */
   user?: string;
   fileType?: number;
 }
@@ -56,52 +50,72 @@ export interface ReportedFileFilters {
 export interface FileAuditPageResult<T> {
   items: T[];
   total: number;
+  page: number;
+  pageSize: number;
+}
+
+function queryString(filters: object) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== '') {
+      params.set(key, String(value));
+    }
+  });
+  const query = params.toString();
+  return query ? `?${query}` : '';
 }
 
 /** 待审核队列（fileStatus = 0）。 */
 export function fetchPendingFiles(
   filters: PendingFileFilters,
 ): Promise<FileAuditPageResult<ExamFile>> {
-  if (USE_MOCK) {
-    return mockListPendingFiles(filters);
-  }
-  // 同步后启用：
-  // return request<PageResult<File>>('/api/exam-files', { ... });
-  throw new Error('真实接口尚未接入：请先完成后端同步（见 fileAudit.ts 头部注释）');
+  return request<FileAuditPageResult<ExamFile>>(
+    `/api/exam-file-audit/pending${queryString(filters)}`,
+  );
 }
 
-/** 被举报复审队列（fileStatus = 3，联查举报单）。 */
+/** 被举报复审队列（fileStatus = 3，联查最新待处理举报单）。 */
 export function fetchReportedFiles(
   filters: ReportedFileFilters,
 ): Promise<FileAuditPageResult<ReportedExamFile>> {
-  if (USE_MOCK) {
-    return mockListReportedFiles(filters);
-  }
-  throw new Error('真实接口尚未接入：请先完成后端同步（见 fileAudit.ts 头部注释）');
+  return request<FileAuditPageResult<ReportedExamFile>>(
+    `/api/exam-file-audit/reported${queryString(filters)}`,
+  );
 }
 
 /** 多选一键通过。 */
 export function approveFiles(fileIds: number[]): Promise<{ approved: number }> {
-  if (USE_MOCK) {
-    return mockApproveFiles(fileIds);
-  }
-  throw new Error('真实接口尚未接入：请先完成后端同步');
+  return request<{ approved: number }>(`/api/exam-file-audit/approve`, {
+    body: JSON.stringify({ fileIds }),
+    method: 'POST',
+  });
 }
 
 /** 单个用户的全部待审核文件一键通过。 */
 export function approveUserFiles(userId: number): Promise<{ approved: number }> {
-  if (USE_MOCK) {
-    return mockApproveUserFiles(userId);
-  }
-  throw new Error('真实接口尚未接入：请先完成后端同步');
+  return request<{ approved: number }>(`/api/exam-file-audit/approve-user`, {
+    body: JSON.stringify({ userId }),
+    method: 'POST',
+  });
 }
 
 /** 查询某用户当前待审核文件数量（用于二次确认文案）。 */
-export function countPendingByUser(userId: number): Promise<number> {
-  if (USE_MOCK) {
-    return mockCountPendingByUser(userId);
-  }
-  throw new Error('真实接口尚未接入：请先完成后端同步');
+export async function countPendingByUser(userId: number): Promise<number> {
+  const result = await request<FileAuditPageResult<ExamFile>>(
+    `/api/exam-file-audit/pending${queryString({ page: 1, pageSize: 1, userId })}`,
+  );
+  return result.total;
+}
+
+/** 待审核文件单条拒绝（fileStatus 0→2），原因必填并随通知返回给用户。 */
+export function rejectPendingFile(input: {
+  fileId: number;
+  reason: string;
+}): Promise<void> {
+  return request<unknown>(`/api/exam-file-audit/reject`, {
+    body: JSON.stringify(input),
+    method: 'POST',
+  }).then(() => undefined);
 }
 
 /** 被举报文件复审：通过（举报不属实，恢复上架）/ 拒绝（举报属实，下架）。 */
@@ -110,37 +124,32 @@ export function auditReportedFile(input: {
   decision: 'approve' | 'reject';
   reason: string;
 }): Promise<void> {
-  if (USE_MOCK) {
-    return mockAuditReportedFile(input).then(() => undefined);
-  }
-  throw new Error('真实接口尚未接入：请先完成后端同步');
-}
-
-/** 待审核文件单条拒绝（fileStatus 0→2），原因必填并返回给用户。 */
-export function rejectPendingFile(input: {
-  fileId: number;
-  reason: string;
-}): Promise<void> {
-  if (USE_MOCK) {
-    return mockRejectPendingFile(input).then(() => undefined);
-  }
-  throw new Error('真实接口尚未接入：请先完成后端同步');
+  return request<unknown>(`/api/exam-file-audit/audit`, {
+    body: JSON.stringify(input),
+    method: 'POST',
+  }).then(() => undefined);
 }
 
 export type PreviewKind = 'image' | 'pdf' | 'unsupported';
 
 /** 文件预览方式：PDF 分页预览 / 图片预览 / 暂不支持（提示下载）。 */
 export function previewKindOf(format: string): PreviewKind {
-  return mockPreviewKindOf(format);
+  const ext = format.toLowerCase();
+  if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
+    return 'image';
+  }
+  if (ext === 'pdf') {
+    return 'pdf';
+  }
+  return 'unsupported';
 }
 
-/** 解析文件预览地址与页数（同步后由后端返回可读 URL 与 pageCount）。 */
+/**
+ * 解析文件预览地址：真实数据直接使用后端返回的可读 fileUrl
+ * （datumReadableFileURL 已把 minio:// 转为 HTTP 直链），由 pdfjs 按需渲染。
+ */
 export function resolvePreview(
   file: ExamFile,
 ): Promise<{ url: string; pageCount?: number }> {
-  if (USE_MOCK) {
-    return mockResolvePreview(file);
-  }
-  // 同步后启用：url 取列表返回的可读 fileUrl，pageCount 由后端解析 PDF 页数。
-  throw new Error('真实接口尚未接入：请先完成后端同步');
+  return Promise.resolve({ url: file.fileUrl });
 }

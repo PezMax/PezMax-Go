@@ -199,6 +199,7 @@ func registerApplicationRoutes(api *gin.RouterGroup, s *Store) error {
 	}); err != nil {
 		return fmt.Errorf("初始化生成模块失败: %w", err)
 	}
+	s.registerExamFileAuditRoutes(api)
 	if err := notifications.Register(api, notifications.Dependencies{
 		Connection:        s.conn,
 		RequireAuth:       s.requireAuth(),

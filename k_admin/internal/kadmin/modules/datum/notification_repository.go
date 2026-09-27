@@ -101,6 +101,22 @@ func (r *NotificationRepo) CreateTakedownNotification(materialID, uploadUserID i
 	return err
 }
 
+// CreateFileAuditNotification 给上传用户下发审核结果通知（type 4 定向通知），
+// content 携带审核原因并返回给用户；material_id 冲突时忽略，避免同一文件的
+// 重复审核通知刷屏。
+func (r *NotificationRepo) CreateFileAuditNotification(materialID, uploadUserID int64, title, reason string) error {
+	if materialID <= 0 {
+		return nil
+	}
+	_, err := r.conn.Exec(`INSERT INTO ptmj_notification
+		(notify_type, title, content, status, display_mode, sort, upload_user_id, material_id, material_title_snapshot,
+		 create_by, create_time, update_by, update_time)
+		VALUES ('4', ?, ?, '0', '0', 0, ?, ?, ?, 'audit', CURRENT_TIMESTAMP, 'audit', CURRENT_TIMESTAMP)
+		ON CONFLICT (material_id) DO NOTHING`,
+		title, reason, uploadUserID, materialID, title)
+	return err
+}
+
 // NotificationPayload carries the writable columns; time/count fields are
 // interface{} so the handler can pass nil for "no value".
 type NotificationPayload struct {
