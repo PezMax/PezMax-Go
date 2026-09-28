@@ -68,6 +68,34 @@ func (f *fakeDatumDB) userRow(user *datumUser) map[string]interface{} {
 	}
 }
 
+// fakeFileTypeFilter 解析 ptmj_file 列表查询里的 file_type 条件。SQL 条件
+// 顺序与 fileFilterWhere 一致：file_type 是第一个占位符参数（其前只有静态
+// 条件 del_flag/file_status）。
+func fakeFileTypeFilter(query string, args []interface{}) int64 {
+	if !strings.Contains(query, "file_type = ?") {
+		return 0
+	}
+	if len(args) == 0 {
+		return 0
+	}
+	return toDatumInt64(args[0])
+}
+
+// fakeFileMatchesListFilter 让 fake 的文件列表分支遵守 OnlyApproved 与
+// file_type 过滤（与 fileFilterWhere 的语义对齐）。
+func fakeFileMatchesListFilter(query string, fileTypeFilter int64, file map[string]interface{}) bool {
+	if toDatumInt64(file["del_flag"]) != 0 {
+		return false
+	}
+	if strings.Contains(query, "file_status = 1") && toDatumInt64(file["file_status"]) != 1 {
+		return false
+	}
+	if fileTypeFilter > 0 && toDatumInt64(file["file_type"]) != fileTypeFilter {
+		return false
+	}
+	return true
+}
+
 func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]interface{}, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -455,10 +483,12 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 		return approved, nil
 	case strings.Contains(query, "count(*)") && strings.Contains(query, "FROM ptmj_file"):
 		total := int64(0)
+		fileTypeFilter := fakeFileTypeFilter(query, args)
 		for _, file := range f.files {
-			if toDatumInt64(file["del_flag"]) == 0 {
-				total++
+			if !fakeFileMatchesListFilter(query, fileTypeFilter, file) {
+				continue
 			}
+			total++
 		}
 		return []map[string]interface{}{{"count": total}}, nil
 	case strings.Contains(query, "FROM ptmj_file WHERE file_id"):
@@ -471,13 +501,12 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 		return rows, nil
 	case strings.Contains(query, "FROM ptmj_file"):
 		rows := []map[string]interface{}{}
+		fileTypeFilter := fakeFileTypeFilter(query, args)
 		for _, file := range f.files {
-			if toDatumInt64(file["del_flag"]) == 0 {
-				rows = append(rows, file)
+			if !fakeFileMatchesListFilter(query, fileTypeFilter, file) {
+				continue
 			}
-		}
-		if strings.Contains(query, "LIMIT ? OFFSET ?") {
-			return rows, nil
+			rows = append(rows, file)
 		}
 		return rows, nil
 	case strings.Contains(query, "DISTINCT file_school") || strings.Contains(query, "GROUP BY file_subject"):

@@ -137,7 +137,6 @@ import ReportBookmarkDialog from './components/ReportBookmarkDialog.vue'
 import NotificationDialog from '@/components/NotificationDialog/index.vue'
 import useUserStore from '@/store/modules/user'
 import { getUserPopupNotifications } from '@/api/datum/notification'
-import { blobValidate } from '@/utils/ruoyi'
 import { fetchAllPages } from '@/utils/pagination'
 import { listFavorite, addFavorite, delFavorite } from '@/api/datum/favorite'
 import { listBookmarkFavorite, addBookmarkFavorite, delBookmarkFavorite } from '@/api/datum/bookmarkFavorite'
@@ -306,43 +305,25 @@ const handleBatchDownload = async (paperFiles) => {
     downloadingFileName.value = `批量下载中... (${i + 1}/${paperFiles.length}) ${fileName}`
 
     try {
-      const fileUrl = file.url || file.fileUrl || (file.fileInfo && file.fileInfo.fileUrl) || ''
-      if (!fileUrl) {
+      const fIdForUrl = getFileId(file)
+      if (!fIdForUrl) {
         failCount++
         continue
       }
 
-      const finalUrl = normalizeFileUrl(fileUrl)
-      const response = await fetch(finalUrl, {
-        headers: { 'Authorization': 'Bearer ' + getToken() }
-      })
-
-      if (!response.ok) {
-        failCount++
-        continue
-      }
-
-      const blob = await response.blob()
-      const isBlob = blobValidate(blob)
-      if (!isBlob) {
-        failCount++
-        continue
-      }
-
-      const arrayBuffer = await blob.arrayBuffer()
-      const uint8Array = new Uint8Array(arrayBuffer)
-
-      const result = await window.electronAPI.saveFile({
-        content: uint8Array,
+      // 统一下载方法：主进程流式写盘到选定文件夹，URL 走 /datum/download/file
+      const result = await window.electronAPI.downloadFileDirectly({
+        url: `${baseURL}/datum/download/file?fileId=${fIdForUrl}`,
         fileName,
+        token: getToken(),
         folderPath,
-        skipDialog: true
+        silent: true
       })
 
-      if (result.success) {
+      if (result && result.success) {
         successCount++
         // 每下载成功一个文件，立即写入并刷盘（等同于多次单独下载）
-        const fId = getFileId(file)
+        const fId = fIdForUrl
         if (fId && window.electronAPI?.downloadRecords) {
           const src = file?.originalData || file
           try {
@@ -364,6 +345,8 @@ const handleBatchDownload = async (paperFiles) => {
             await window.electronAPI.downloadRecords.flush()
           } catch (e) { console.warn('[batch-download] 记录写入失败:', e) }
         }
+      } else if (result && result.reason === 'canceled') {
+        continue
       } else {
         failCount++
       }
@@ -928,7 +911,12 @@ const handleNodeClick = (data) => {
   }
 }
 
-// 处理下载文件逻辑 (调用后端接口并使用主进程保存)
+// 处理下载文件逻辑：统一下载方法——主进程 downloadFileDirectly 流式写盘
+// （不占渲染进程内存），URL 统一收敛到 /datum/download/file：服务端落
+// ptmj_file_download 记录、datum 会话鉴权、nginx 边缘限速对全部下载生效。
+const baseURL = import.meta.env.VITE_APP_BASE_API
+let activeDownloadFileName = ''
+
 const handleDownload = async (fileData) => {
   if (!fileData) {
     ElMessage.warning('未能获取到文件信息，无法下载')
@@ -943,61 +931,19 @@ const handleDownload = async (fileData) => {
     return
   }
 
+  isDownloading.value = true
+  downloadPercent.value = 0
+  downloadingFileName.value = fileName
+  activeDownloadFileName = fileName
+
   try {
-    isDownloading.value = true
-    downloadPercent.value = 0
-    downloadingFileName.value = fileName
-
-    // 1. 获取文件 URL 并直接下载 (避免在下载大文件时后端统计接口因超时或挂起导致失败)
-    // 兼容多种数据结构获取 URL
-    const fileUrl = fileData.fileUrl || fileData.url || (fileData.fileInfo && fileData.fileInfo.fileUrl) || ''
-    if (!fileUrl) {
-      ElMessage.error('未能获取到文件下载地址')
-      isDownloading.value = false
-      return
-    }
-
-    // 使用归一化工具处理 URL，自动修复相对路径和 localhost/内部 IP 问题
-    const finalUrl = normalizeFileUrl(fileUrl)
-
-    // 2. 发起文件流请求
-    const response = await fetch(finalUrl, {
-      headers: {
-        'Authorization': 'Bearer ' + getToken()
-      }
+    const result = await window.electronAPI.downloadFileDirectly({
+      url: `${baseURL}/datum/download/file?fileId=${fileId}`,
+      fileName,
+      token: getToken()
     })
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    const blob = await response.blob()
-
-    // 3. 检查是否为有效的二进制流
-    const isBlob = blobValidate(blob)
-    if (!isBlob) {
-      const resText = await blob.text()
-      try {
-        const rspObj = JSON.parse(resText)
-        ElMessage.error(rspObj.msg || '下载失败，服务器内部错误')
-      } catch (e) {
-        ElMessage.error('下载失败，返回格式错误')
-      }
-      isDownloading.value = false
-      return
-    }
-
-    // 4. 将 Blob 转为 Uint8Array 传给主进程保存
-    const arrayBuffer = await blob.arrayBuffer()
-    const uint8Array = new Uint8Array(arrayBuffer)
-
-    // 5. 调用主进程保存文件
-    const result = await window.electronAPI.saveFile({
-      content: uint8Array,
-      fileName: fileName
-    })
-
-    if (result.success) {
+    if (result && result.success) {
       downloadPercent.value = 100
       setTimeout(() => {
         isDownloading.value = false
@@ -1028,16 +974,24 @@ const handleDownload = async (fileData) => {
       }
     } else {
       isDownloading.value = false
-      if (result.reason !== 'canceled') {
-        ElMessage.error(`保存失败: ${result.message || '未知错误'}`)
+      if (!result || result.reason !== 'canceled') {
+        ElMessage.error(`保存失败: ${(result && result.message) || '未知错误'}`)
       }
     }
   } catch (error) {
     isDownloading.value = false
     console.error('下载出错:', error)
-    ElMessage.error('下载失败，请检查网络或联系管理员')
+    ElMessage.error(`下载失败：${error?.message || '请检查网络或联系管理员'}`)
   }
 }
+
+// 下载进度：主进程按 fileName 回推 download-progress，只刷新当前那个下载
+onMounted(() => {
+  window.electronAPI?.onDownloadProgress?.((data) => {
+    if (!isDownloading.value || !data || data.fileName !== activeDownloadFileName) return
+    downloadPercent.value = Number(data.progress) || 0
+  })
+})
 
 // 全局快捷键响应逻辑
 const handleGlobalKeydown = (e) => {

@@ -105,6 +105,26 @@ func (s *fileService) openRemote(ctx context.Context, objectKey string) (io.Read
 	return s.remote.Open(ctx, objectKey)
 }
 
+// OpenStoredObject streams a datum object for the download endpoints
+// (/datum/download/file and any future consumers). This is the single place
+// that assembles storage from the environment: MinIO first when enabled —
+// honoring the bucket encoded in the stored URL when it differs from the
+// configured one — with the local datum root as the fallback. Object streams
+// are seekable (Range/断点续传 by http.ServeContent).
+func OpenStoredObject(ctx context.Context, bucket, objectKey string) (io.ReadCloser, storage.ObjectInfo, error) {
+	settings := loadFileStorageSettings()
+	if settings.MinioEnabled {
+		minioConfig := settings.Minio
+		if bucket != "" {
+			minioConfig.Bucket = bucket
+		}
+		if body, info, err := storage.NewMinio(minioConfig).Open(ctx, objectKey); err == nil {
+			return body, info, nil
+		}
+	}
+	return storage.NewLocal(settings.ManagedLocalRoot).Open(ctx, objectKey)
+}
+
 func (s *fileService) createManagedFile(ctx context.Context, upload validatedManagedFile, userID int64) (fileRecord, error) {
 	if s.repository == nil {
 		return fileRecord{}, fmt.Errorf("%w: repository is not configured", errFileMetadata)

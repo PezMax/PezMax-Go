@@ -45,6 +45,7 @@ const (
 
 var datumFileTypeNames = map[int64]string{
 	1: "期末", 2: "期中", 3: "补考", 4: "资料", 5: "其他学校", 6: "神秘文件",
+	7: "电子书",
 }
 
 var datumConvertExts = map[string]bool{"doc": true, "docx": true, "ppt": true, "pptx": true}
@@ -508,6 +509,7 @@ func (s *Store) datumRankCachePurge(c *gin.Context) {
 var datumAllowedExts = map[string]bool{
 	"doc": true, "docx": true, "pdf": true, "jpg": true, "jpeg": true,
 	"png": true, "webp": true, "txt": true, "md": true, "ppt": true, "pptx": true,
+	"epub": true, "mobi": true, "azw3": true,
 }
 
 // datumFilePut stores bytes and returns the public URL; swappable in tests.
@@ -736,6 +738,10 @@ func mimeByExt(ext string) string {
 	switch ext {
 	case "pdf":
 		return "application/pdf"
+	case "epub":
+		return "application/epub+zip"
+	case "mobi", "azw3":
+		return "application/x-mobipocket-ebook"
 	case "jpg", "jpeg":
 		return "image/jpeg"
 	case "png":

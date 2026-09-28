@@ -89,13 +89,3 @@ export function searchFileList(keyword) {
     }
   })
 }
-
-// 下载试卷接口
-export function getPaperFile(fileId) {
-  return request({
-    url: '/datum/download/file',
-    method: 'get',
-    params: { fileId },
-    responseType: 'blob' // 必须设置，否则获取到的流会损坏       
-  })
-}

@@ -102,11 +102,10 @@ import { getInfo } from '@/api/login'
 import { listFavorite, delFavorite } from '@/api/datum/favorite'
 import { listFavoriteBookmark, delBookmarkFavorite } from '@/api/datum/bookmarkFavorite'
 import { getToken } from '@/utils/auth'
-import { normalizeFileUrl } from '@/utils/url'
-import { blobValidate } from '@/utils/ruoyi'
 import { fetchAllPages } from '@/utils/pagination'
 
 defineOptions({ name: 'FavoritePage' })
+const baseURL = import.meta.env.VITE_APP_BASE_API
 const props = defineProps({
   embedded: { type: Boolean, default: false }
 })
@@ -255,46 +254,23 @@ const removeItem = async (row) => {
 const downloadFile = async (row) => {
   const fileId = row.fileId
   const fileName = row.fileName || `文件-${fileId}`
-  const fileUrl = row.fileUrl
-
-  if (!fileUrl) {
-    ElMessage.error('该文件缺少下载地址')
-    return
-  }
 
   downloadingIds.add(fileId)
   try {
-    const finalUrl = normalizeFileUrl(fileUrl)
-    const response = await fetch(finalUrl, {
-      headers: { 'Authorization': 'Bearer ' + getToken() }
-    })
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-
-    const blob = await response.blob()
-    if (!blobValidate(blob)) {
-      const text = await blob.text()
-      try {
-        const rsp = JSON.parse(text)
-        ElMessage.error(rsp.msg || '下载失败')
-      } catch {
-        ElMessage.error('下载失败，返回格式错误')
-      }
-      return
-    }
-
-    const buf = await blob.arrayBuffer()
-    const result = await window.electronAPI.saveFile({
-      content: new Uint8Array(buf),
-      fileName
+    // 统一下载方法：主进程流式写盘 + /datum/download/file（服务端记录/鉴权/限速）
+    const result = await window.electronAPI.downloadFileDirectly({
+      url: `${baseURL}/datum/download/file?fileId=${fileId}`,
+      fileName,
+      token: getToken()
     })
 
-    if (result.success) {
+    if (result && result.success) {
       ElMessage.success(`下载完成: ${fileName}`)
       try {
         const record = {
           fileId: Number(fileId) || 0,
           fileName,
-          fileUrl,
+          fileUrl: row.fileUrl || '',
           fileSize: Number(row.fileSize) || 0,
           fileFormat: row.fileFormat || '',
           fileSchool: row.fileSchool || '',
@@ -309,12 +285,12 @@ const downloadFile = async (row) => {
       } catch (e) {
         console.warn('记录下载失败:', e)
       }
-    } else if (result.reason !== 'canceled') {
-      ElMessage.error(`保存失败: ${result.message || '未知错误'}`)
+    } else if (!result || result.reason !== 'canceled') {
+      ElMessage.error(`保存失败: ${(result && result.message) || '未知错误'}`)
     }
   } catch (e) {
     console.error('下载出错:', e)
-    ElMessage.error('下载失败，请检查网络')
+    ElMessage.error(`下载失败：${e?.message || '请检查网络'}`)
   } finally {
     downloadingIds.delete(fileId)
   }

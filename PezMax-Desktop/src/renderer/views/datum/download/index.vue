@@ -75,7 +75,6 @@
 import { reactive, ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Delete, Download as DownloadIcon, FolderOpened } from '@element-plus/icons-vue'
-import axios from 'axios'
 import useUserStore from '@/store/modules/user'
 import { getToken } from '@/utils/auth'
 
@@ -215,21 +214,13 @@ const openFile = async (row) => {
       const openError = await window.electronAPI.openPath(dirPath)
       if (!openError) return
     }
-    // 3. 本地文件不存在，提示后重新下载
+    // 3. 本地文件不存在，提示后重新下载（统一下载方法：主进程流式写盘）
     ElMessage.warning('本地文件已删除或移动，正在重新下载...')
-    const url = `${baseURL}/datum/download/file?fileId=${row.fileId}`
-    const res = await axios.get(url, {
-      responseType: 'blob',
-      headers: { Authorization: 'Bearer ' + getToken() }
-    })
-    const blob = new Blob([res.data])
-    const downloadFileName = decodeURIComponent(res.headers['download-filename'] || fileName)
-    const arrayBuffer = await blob.arrayBuffer()
-    const buffer = new Uint8Array(arrayBuffer)
-    const saveResult = await window.electronAPI.saveFile({
-      content: buffer,
-      fileName: downloadFileName,
-      skipDialog: true
+    const saveResult = await window.electronAPI.downloadFileDirectly({
+      url: `${baseURL}/datum/download/file?fileId=${row.fileId}`,
+      fileName,
+      token: getToken(),
+      silent: true
     })
     if (saveResult && saveResult.success && saveResult.filePath) {
       // 更新本地记录中的 localPath

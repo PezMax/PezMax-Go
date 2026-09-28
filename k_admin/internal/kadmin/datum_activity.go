@@ -3,6 +3,7 @@ package kadmin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"mime"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/datum"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/files"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/fileurl"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/storage"
 	"github.com/gin-gonic/gin"
@@ -514,6 +516,11 @@ func (s *Store) datumDownloadStream(c *gin.Context) {
 	}
 	c.Header("Content-Disposition", disposition)
 	c.Header("Content-Type", contentType)
+	// 强 ETag 支撑客户端 If-Range 断点续传：同一 fileId 的对象键含随机后缀、
+	// 内容写入后不变，id+size 足以标识字节表示。
+	if info.Size > 0 {
+		c.Header("ETag", fmt.Sprintf(`"datum-%d-%d"`, file.FileID, info.Size))
+	}
 
 	// 对象体（本地文件或 MinIO seekable 流）交给 ServeContent：自动获得
 	// Range 断点续传、Content-Length 与 416 处理，重试不重烧上行。
@@ -528,24 +535,10 @@ func (s *Store) datumDownloadStream(c *gin.Context) {
 	c.DataFromReader(http.StatusOK, info.Size, contentType, body, map[string]string{})
 }
 
-// openDatumObject reads an object via the server-configured storage: MinIO
-// first (the stored bucket is respected when it differs from config), local
-// upload root as the fallback.
+// openDatumObject reads an object via the server-configured storage. The
+// assembly itself lives in files.OpenStoredObject（统一存储装配：同一份
+// KADMIN_MINIO_*/KADMIN_FILE_LOCAL_ROOT 配置只读一处，MinIO 优先、本地兜底，
+// 并尊重存量 URL 里的 bucket）。
 func openDatumObject(ctx context.Context, bucket, objectKey string) (io.ReadCloser, storage.ObjectInfo, error) {
-	if datumEnvBool("KADMIN_MINIO_ENABLED") {
-		minio := storage.NewMinio(storage.MinioConfig{
-			Endpoints: []string{datumEnv("KADMIN_MINIO_ENDPOINT", "127.0.0.1:19000"), datumEnv("KADMIN_MINIO_INTERNAL_ENDPOINT", "minio:9000")},
-			AccessKey: datumEnv("KADMIN_MINIO_ACCESS_KEY", "kadmin_minio"),
-			SecretKey: datumEnv("KADMIN_MINIO_SECRET_KEY", "kadmin_minio_pwd"),
-			Bucket:    bucket,
-			UseSSL:    datumEnvBool("KADMIN_MINIO_USE_SSL"),
-			Region:    datumEnv("KADMIN_MINIO_REGION", "us-east-1"),
-			Timeout:   10 * time.Second,
-		})
-		if body, info, err := minio.Open(ctx, objectKey); err == nil {
-			return body, info, nil
-		}
-	}
-	local := storage.NewLocal(datumEnv("KADMIN_FILE_LOCAL_ROOT", "data/files"))
-	return local.Open(ctx, objectKey)
+	return files.OpenStoredObject(ctx, bucket, objectKey)
 }

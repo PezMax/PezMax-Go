@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, globalShortcut, dialog, net } from 'electron'
-import { join } from 'path'
+import { join, dirname } from 'path'
 import fs from 'fs'
 import { Blob } from 'buffer'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -505,17 +505,18 @@ app.whenReady().then(() => {
   })
 
   // ================= 核心：彻底接管下载（文件流直写方案） =================
-  ipcMain.handle('download-file-directly', async (event, { url, fileName, token }) => {
+  ipcMain.handle('download-file-directly', async (event, { url, fileName, token, folderPath, silent }) => {
     return new Promise((resolve, reject) => {
       try {
-        // 1. 读取最新设置
+        // 1. 读取最新设置（folderPath/silent 可由调用方显式覆盖，批量下载用）
         const settings = loadSettings()
-        const defaultPath = settings.downloadPath || app.getPath('downloads')
+        const defaultPath = folderPath || settings.downloadPath || app.getPath('downloads')
 
         let finalSavePath = join(defaultPath, fileName)
 
-        // 2. 如果没有开启静默下载，则弹出选择框
-        if (!settings.silentDownload) {
+        // 2. 非静默模式弹出保存框
+        const useSilent = silent !== undefined ? silent : settings.silentDownload
+        if (!useSilent) {
           const saveDialogResult = dialog.showSaveDialogSync(mainWindow, {
             defaultPath: finalSavePath,
             title: '保存文件'
@@ -535,51 +536,115 @@ app.whenReady().then(() => {
           request.setHeader('Authorization', `Bearer ${token}`)
         }
 
-        request.on('response', (response) => {
-          // 确保请求成功
-          if (response.statusCode !== 200) {
-            reject(new Error(`下载失败，服务器返回: ${response.statusCode}`))
-            return
+        // 确保目标目录存在（静默下载路径可能指向尚未创建的子目录）
+        try {
+          fs.mkdirSync(dirname(finalSavePath), { recursive: true })
+        } catch (mkdirErr) {
+          console.warn('创建下载目录失败（忽略，交由写盘报错）:', mkdirErr)
+        }
+
+        // 3. 断点续传：半成品写入 <final>.part；存在则携带 Range 从已收字节
+        // 继续（服务端 /datum/download/file 响应 206 + Content-Range，并给出
+        // 强 ETag 供 If-Range 校验）。下载完成后原子改名为目标文件。
+        const partPath = `${finalSavePath}.part`
+
+        const headerText = (value) => (Array.isArray(value) ? value[0] : value) || ''
+
+        const startRequest = (resumeFrom) => {
+          const request = net.request(url)
+          if (token) {
+            request.setHeader('Authorization', `Bearer ${token}`)
+          }
+          if (resumeFrom > 0) {
+            request.setHeader('Range', `bytes=${resumeFrom}-`)
           }
 
-          const totalSize = parseInt(response.headers['content-length'] || 0, 10)
-          let downloadedSize = 0
+          request.on('response', (response) => {
+            const status = response.statusCode
 
-          // 创建文件写入流
-          const fileStream = fs.createWriteStream(finalSavePath)
-
-          response.on('data', (chunk) => {
-            downloadedSize += chunk.length
-            fileStream.write(chunk)
-
-            // 计算进度并通过 IPC 发送给前端 (可选，留作后续展示进度条用)
-            if (totalSize > 0) {
-              const progress = ((downloadedSize / totalSize) * 100).toFixed(2)
-              event.sender.send('download-progress', { fileName, progress })
+            if (status === 416 && resumeFrom > 0) {
+              // 断点与服务端文件对不上（半成品可能已完整但未改名）：丢弃重下
+              try { fs.rmSync(partPath, { force: true }) } catch (_) {}
+              startRequest(0)
+              return
             }
+            if (status !== 200 && status !== 206) {
+              reject(new Error(`下载失败，服务器返回: ${status}`))
+              return
+            }
+
+            let base = 0
+            let append = false
+            let totalSize = 0
+            if (status === 206) {
+              const match = headerText(response.headers['content-range']).match(/bytes\s+(\d+)-(\d+)\/(\d+|\*)/i)
+              if (!match || parseInt(match[1], 10) !== resumeFrom) {
+                // 无法确认续传起点：丢弃半成品，从头重下
+                try { fs.rmSync(partPath, { force: true }) } catch (_) {}
+                startRequest(0)
+                return
+              }
+              base = resumeFrom
+              append = true
+              if (match[3] !== '*') totalSize = parseInt(match[3], 10)
+            } else {
+              totalSize = parseInt(headerText(response.headers['content-length']) || 0, 10)
+            }
+
+            let received = 0
+            const fileStream = fs.createWriteStream(partPath, { flags: append ? 'a' : 'w' })
+
+            response.on('data', (chunk) => {
+              received += chunk.length
+              fileStream.write(chunk)
+
+              // 计算进度并通过 IPC 发送给前端（含已续传部分）
+              if (totalSize > 0) {
+                const progress = (((base + received) / totalSize) * 100).toFixed(2)
+                event.sender.send('download-progress', { fileName, progress })
+              }
+            })
+
+            response.on('end', () => {
+              fileStream.end(() => {
+                try {
+                  // Windows 上 rename 不覆盖已存在文件，先清掉
+                  if (fs.existsSync(finalSavePath)) {
+                    fs.rmSync(finalSavePath, { force: true })
+                  }
+                  fs.renameSync(partPath, finalSavePath)
+                } catch (renameErr) {
+                  reject(renameErr)
+                  return
+                }
+                console.log('文件流直写完成:', finalSavePath, append ? `(续传自 ${base} 字节)` : '')
+                resolve({ success: true, savedPath: finalSavePath })
+              })
+            })
+
+            response.on('error', (err) => {
+              fileStream.destroy()
+              // 保留 .part 半成品，下次下载从断点继续
+              reject(err)
+            })
           })
 
-          response.on('end', () => {
-            fileStream.end()
-            console.log('文件流直写完成:', finalSavePath)
-            resolve({ success: true, savedPath: finalSavePath })
-          })
-
-          response.on('error', (err) => {
-            fileStream.destroy()
-            // 下载出错时，清理已创建的残余文件
-            if (fs.existsSync(finalSavePath)) {
-              fs.unlinkSync(finalSavePath)
-            }
+          request.on('error', (err) => {
             reject(err)
           })
-        })
 
-        request.on('error', (err) => {
-          reject(err)
-        })
+          request.end()
+        }
 
-        request.end()
+        let startByte = 0
+        try {
+          if (fs.existsSync(partPath)) {
+            startByte = fs.statSync(partPath).size
+          }
+        } catch (_) {
+          startByte = 0
+        }
+        startRequest(startByte)
       } catch (error) {
         console.error('底层下载任务异常:', error)
         reject(error)
