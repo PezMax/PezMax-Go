@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -67,6 +68,81 @@ func TestMinioMapsMissingObjectToNotExist(t *testing.T) {
 	}
 	if err := store.Delete(context.Background(), "missing.pdf"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("delete missing object: %v", err)
+	}
+}
+
+func TestMinioOpenReturnsSeekableObject(t *testing.T) {
+	payload := []byte("0123456789abcdef")
+	var seenRanges []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/minio/health/live":
+			writer.WriteHeader(http.StatusOK)
+		case request.Method == http.MethodGet && request.URL.Path == "/kadmin/attachments/blob.bin":
+			if rangeHeader := request.Header.Get("Range"); rangeHeader != "" {
+				seenRanges = append(seenRanges, rangeHeader)
+				var start int
+				if _, err := fmt.Sscanf(rangeHeader, "bytes=%d-", &start); err != nil {
+					t.Errorf("bad range header %q: %v", rangeHeader, err)
+					return
+				}
+				writer.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, len(payload)-1, len(payload)))
+				writer.Header().Set("Content-Type", "application/octet-stream")
+				writer.WriteHeader(http.StatusPartialContent)
+				_, _ = writer.Write(payload[start:])
+				return
+			}
+			writer.Header().Set("Content-Type", "application/octet-stream")
+			writer.WriteHeader(http.StatusOK)
+			_, _ = writer.Write(payload)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	store := NewMinio(MinioConfig{
+		Endpoints: []string{server.URL},
+		AccessKey: "access",
+		SecretKey: "secret",
+		Bucket:    "kadmin",
+		Region:    "us-east-1",
+	})
+
+	body, info, err := store.Open(context.Background(), "attachments/blob.bin")
+	if err != nil {
+		t.Fatalf("open object: %v", err)
+	}
+	defer body.Close()
+	seeker, ok := body.(io.ReadSeeker)
+	if !ok {
+		t.Fatalf("expected seekable object, got %T", body)
+	}
+	if info.Size != int64(len(payload)) {
+		t.Fatalf("size = %d, want %d", info.Size, len(payload))
+	}
+
+	// ServeContent 的典型探测路径：Seek 到末尾取尺寸，再回到起点读全量。
+	if size, err := seeker.Seek(0, io.SeekEnd); err != nil || size != int64(len(payload)) {
+		t.Fatalf("seek end: size=%d err=%v", size, err)
+	}
+	if _, err := seeker.Seek(0, io.SeekStart); err != nil {
+		t.Fatalf("seek start: %v", err)
+	}
+	full, err := io.ReadAll(seeker)
+	if err != nil || !bytes.Equal(full, payload) {
+		t.Fatalf("read full body: err=%v body=%q", err, full)
+	}
+
+	// 断点续传路径：Seek 到中间位置后应触发 ranged GET 并读到正确切片。
+	if _, err := seeker.Seek(10, io.SeekStart); err != nil {
+		t.Fatalf("seek middle: %v", err)
+	}
+	tail, err := io.ReadAll(seeker)
+	if err != nil || string(tail) != string(payload[10:]) {
+		t.Fatalf("read after seek: err=%v body=%q", err, tail)
+	}
+	if len(seenRanges) != 1 || seenRanges[0] != "bytes=10-" {
+		t.Fatalf("expected exactly one ranged GET bytes=10-, got %v", seenRanges)
 	}
 }
 

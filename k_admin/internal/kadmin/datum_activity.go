@@ -513,6 +513,15 @@ func (s *Store) datumDownloadStream(c *gin.Context) {
 		disposition = "attachment"
 	}
 	c.Header("Content-Disposition", disposition)
+	c.Header("Content-Type", contentType)
+
+	// 对象体（本地文件或 MinIO seekable 流）交给 ServeContent：自动获得
+	// Range 断点续传、Content-Length 与 416 处理，重试不重烧上行。
+	// Range 恢复会各记一条下载记录，属于可接受的业务口径。
+	if seeker, ok := body.(io.ReadSeeker); ok {
+		http.ServeContent(c.Writer, c.Request, fileName, time.Time{}, seeker)
+		return
+	}
 	if info.Size > 0 {
 		c.Header("Content-Length", strconv.FormatInt(info.Size, 10))
 	}

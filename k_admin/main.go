@@ -69,6 +69,9 @@ func run() error {
 	log.SetOutput(ginDebugErrorWriter{destination: os.Stderr})
 
 	r := gin.New()
+	// 出站压缩必须最先挂载（位于所有写响应的中间件之外），go-admin 控制台
+	// 资源、Swagger 与 JSON API 一并生效；详见 internal/kadmin/gzip.go。
+	r.Use(kadmin.GzipMiddleware())
 	e := engine.Default()
 	addr := ":" + getenv("KADMIN_APP_PORT", "9033")
 
@@ -113,14 +116,24 @@ func run() error {
 		c.Redirect(302, "/admin")
 	})
 
-	r.Static("/uploads", "./uploads")
+	// uploads 目录的对象键均为写入后不变的 UUID/哈希命名，可安全长缓存：
+	// 命中浏览器缓存的二次访问不再消耗上行带宽。
+	uploads := r.Group("/uploads", immutableUploadsCache)
+	uploads.Static("/", "./uploads")
 
 	listener, err := listenHTTP(addr)
 	if err != nil {
 		return err
 	}
 
-	server := &http.Server{Handler: r}
+	server := &http.Server{
+		Handler: r,
+		// 慢连接防护只限“建连+请求头”与空闲窗口。刻意不设 Read/WriteTimeout：
+		// 上行受限主机上大文件上传/下载的长传输会被整体超时误杀，带宽调度
+		// 交给边缘反代（deploy/nginx.conf.template）与后续的出口 QoS。
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 	serverErr := make(chan error, 1)
 	go func() {
 		serverErr <- server.Serve(listener)
@@ -205,6 +218,11 @@ func listenHTTP(addr string) (net.Listener, error) {
 		return nil, fmt.Errorf("HTTP 服务监听 %q 失败: %w", addr, err)
 	}
 	return listener, nil
+}
+
+func immutableUploadsCache(c *gin.Context) {
+	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	c.Next()
 }
 
 type ginDebugErrorWriter struct {

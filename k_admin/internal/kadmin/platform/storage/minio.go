@@ -167,9 +167,10 @@ func minioEndpointError(lastErr error) error {
 }
 
 type minioHTTPClient struct {
-	config  MinioConfig
-	baseURL string
-	client  *http.Client
+	config       MinioConfig
+	baseURL      string
+	client       *http.Client
+	streamClient *http.Client
 }
 
 func newMinioHTTPClient(config MinioConfig, endpoint string) *minioHTTPClient {
@@ -196,6 +197,9 @@ func newMinioHTTPClient(config MinioConfig, endpoint string) *minioHTTPClient {
 		config:  config,
 		baseURL: endpoint,
 		client:  &http.Client{Timeout: timeout},
+		// 流式读取对象体时不能带整体超时：大文件转发动辄数分钟，
+		// http.Client.Timeout 会把读 body 一起掐断；取消由请求 ctx 负责。
+		streamClient: &http.Client{},
 	}
 }
 
@@ -274,28 +278,47 @@ func minioErrorSnippet(body io.Reader) string {
 	return text
 }
 
-func (m *minioHTTPClient) getObject(ctx context.Context, objectKey string) (io.ReadCloser, ObjectInfo, error) {
-	resp, err := m.signedRequest(
-		ctx,
-		http.MethodGet,
-		"/"+EscapePath(m.config.Bucket)+"/"+EscapePath(objectKey),
-		nil,
-		"",
-	)
+func (m *minioHTTPClient) getObject(ctx context.Context, objectKey string) (*seekableObject, ObjectInfo, error) {
+	resp, err := m.getObjectResponse(ctx, objectKey, 0)
 	if err != nil {
 		return nil, ObjectInfo{}, err
+	}
+	return &seekableObject{
+		client:    m,
+		ctx:       ctx,
+		objectKey: objectKey,
+		body:      resp.Body,
+		size:      resp.ContentLength,
+	}, ObjectInfo{
+		ContentType: resp.Header.Get("Content-Type"),
+		Size:        resp.ContentLength,
+	}, nil
+}
+
+// getObjectResponse 发起签名 GET；rangeStart > 0 时附带 Range 头转发客户端的
+// 断点续传请求（S3 签名不强制覆盖 Range，MinIO 原生支持 ranged GET）。
+func (m *minioHTTPClient) getObjectResponse(ctx context.Context, objectKey string, rangeStart int64) (*http.Response, error) {
+	endpoint := m.baseURL + "/" + EscapePath(m.config.Bucket) + "/" + EscapePath(objectKey)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	if rangeStart > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", rangeStart))
+	}
+	m.sign(req, sha256Hex(nil), "range")
+	resp, err := m.streamClient.Do(req)
+	if err != nil {
+		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		resp.Body.Close()
 		if resp.StatusCode == http.StatusNotFound {
-			return nil, ObjectInfo{}, os.ErrNotExist
+			return nil, os.ErrNotExist
 		}
-		return nil, ObjectInfo{}, fmt.Errorf("minio get failed: %s", resp.Status)
+		return nil, fmt.Errorf("minio get failed: %s", resp.Status)
 	}
-	return resp.Body, ObjectInfo{
-		ContentType: resp.Header.Get("Content-Type"),
-		Size:        resp.ContentLength,
-	}, nil
+	return resp, nil
 }
 
 func (m *minioHTTPClient) deleteObject(ctx context.Context, objectKey string) error {
@@ -355,7 +378,7 @@ func (m *minioHTTPClient) signedPayloadRequest(ctx context.Context, method strin
 	return m.client.Do(req)
 }
 
-func (m *minioHTTPClient) sign(req *http.Request, payloadHash string) {
+func (m *minioHTTPClient) sign(req *http.Request, payloadHash string, extraSignedHeaders ...string) {
 	now := time.Now().UTC()
 	date := now.Format("20060102")
 	amzDate := now.Format("20060102T150405Z")
@@ -363,16 +386,24 @@ func (m *minioHTTPClient) sign(req *http.Request, payloadHash string) {
 	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
 
 	signedHeaders := []string{"host", "x-amz-content-sha256", "x-amz-date"}
+	for _, name := range extraSignedHeaders {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name != "" && req.Header.Get(name) != "" {
+			signedHeaders = append(signedHeaders, name)
+		}
+	}
+	sort.Strings(signedHeaders)
 	canonicalHeaders := strings.Builder{}
-	canonicalHeaders.WriteString("host:")
-	canonicalHeaders.WriteString(req.URL.Host)
-	canonicalHeaders.WriteByte('\n')
-	canonicalHeaders.WriteString("x-amz-content-sha256:")
-	canonicalHeaders.WriteString(payloadHash)
-	canonicalHeaders.WriteByte('\n')
-	canonicalHeaders.WriteString("x-amz-date:")
-	canonicalHeaders.WriteString(amzDate)
-	canonicalHeaders.WriteByte('\n')
+	for _, name := range signedHeaders {
+		canonicalHeaders.WriteString(name)
+		canonicalHeaders.WriteByte(':')
+		if name == "host" {
+			canonicalHeaders.WriteString(req.URL.Host)
+		} else {
+			canonicalHeaders.WriteString(req.Header.Get(name))
+		}
+		canonicalHeaders.WriteByte('\n')
+	}
 
 	canonicalQuery := canonicalQueryString(req.URL.Query())
 	scope := strings.Join([]string{date, m.config.Region, "s3", "aws4_request"}, "/")
@@ -433,4 +464,72 @@ func hmacSHA256(key []byte, value string) []byte {
 func sha256Hex(value []byte) string {
 	sum := sha256.Sum256(value)
 	return hex.EncodeToString(sum[:])
+}
+
+// seekableObject 把 MinIO 对象流包装成可 Seek 的读取器：偏移变化时按需发起
+// 新的签名 ranged GET（MinIO 原生支持），从而让 http.ServeContent 直接提供
+// Range 断点续传，而无需把整个对象读进内存。偏移回退不做预取——下一次
+// Read 才按新偏移重新取流，ServeContent 探测尺寸（Seek 到末尾再回 0）不会
+// 产生多余的往返。
+type seekableObject struct {
+	client    *minioHTTPClient
+	ctx       context.Context
+	objectKey string
+	body      io.ReadCloser
+	offset    int64
+	size      int64
+}
+
+func (o *seekableObject) Read(p []byte) (int, error) {
+	if o.body == nil {
+		if o.size >= 0 && o.offset >= o.size {
+			return 0, io.EOF
+		}
+		resp, err := o.client.getObjectResponse(o.ctx, o.objectKey, o.offset)
+		if err != nil {
+			return 0, err
+		}
+		o.body = resp.Body
+	}
+	n, err := o.body.Read(p)
+	o.offset += int64(n)
+	return n, err
+}
+
+func (o *seekableObject) Seek(offset int64, whence int) (int64, error) {
+	var target int64
+	switch whence {
+	case io.SeekStart:
+		target = offset
+	case io.SeekCurrent:
+		target = o.offset + offset
+	case io.SeekEnd:
+		if o.size < 0 {
+			return 0, fmt.Errorf("storage: seek from end requires known object size")
+		}
+		target = o.size + offset
+	default:
+		return 0, fmt.Errorf("storage: invalid seek whence %d", whence)
+	}
+	if target < 0 {
+		return 0, fmt.Errorf("storage: negative seek target %d", target)
+	}
+	if target == o.offset && o.body != nil {
+		return target, nil
+	}
+	if o.body != nil {
+		_ = o.body.Close()
+		o.body = nil
+	}
+	o.offset = target
+	return target, nil
+}
+
+func (o *seekableObject) Close() error {
+	if o.body == nil {
+		return nil
+	}
+	err := o.body.Close()
+	o.body = nil
+	return err
 }

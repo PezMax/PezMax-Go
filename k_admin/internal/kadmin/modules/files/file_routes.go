@@ -2,11 +2,14 @@ package files
 
 import (
 	"errors"
+	"io"
 	"mime"
 	"net/http"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/storage"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/transport/httpx"
@@ -118,11 +121,34 @@ func (h *handler) serveManagedFileContent(c *gin.Context) {
 	if !strings.HasPrefix(contentType, "image/") {
 		c.Header("Content-Disposition", contentDispositionAttachment(record.OriginalName))
 	}
+	// 对象键为 UUID 命名、写入后不变：私有长缓存安全；SHA256 强 ETag 同时
+	// 支撑 If-Range 断点续传。命中浏览器缓存的重复访问不再消耗上行带宽。
+	c.Header("Cache-Control", "private, max-age=31536000, immutable")
+	c.Header("Content-Type", contentType)
+	if etag := managedFileETag(record); etag != "" {
+		c.Header("ETag", etag)
+	}
+	if seeker, ok := body.(io.ReadSeeker); ok {
+		http.ServeContent(c.Writer, c.Request, record.OriginalName, record.UpdatedAt, seeker)
+		return
+	}
 	size := record.Size
 	if info.Size > 0 {
 		size = info.Size
 	}
-	c.DataFromReader(http.StatusOK, size, contentType, body, nil)
+	c.DataFromReader(http.StatusOK, size, contentType, body, map[string]string{})
+}
+
+// managedFileETag 用内容摘要构造强 ETag；摘要缺失时退化为“ID+尺寸”的弱
+// 一致性标识（记录不可变，仅作 If-Range 协商用）。
+func managedFileETag(record fileRecord) string {
+	if record.SHA256 != "" {
+		return `"` + record.SHA256 + `"`
+	}
+	if record.ID > 0 {
+		return `"file-` + strconv.FormatInt(record.ID, 10) + `-` + strconv.FormatInt(record.Size, 10) + `"`
+	}
+	return ""
 }
 
 func (h *handler) deleteManagedFile(c *gin.Context) {
@@ -221,6 +247,8 @@ func (h *handler) serveUploadedFile(c *gin.Context) {
 
 	service := newFileServiceFromEnv()
 	if localPath, ok := service.localPath(objectKey); ok {
+		// 头像/封面对象键为 UUID 命名、写入后不变，匿名可读，公开长缓存。
+		c.Header("Cache-Control", "public, max-age=31536000, immutable")
 		c.File(localPath)
 		return
 	}
@@ -235,7 +263,13 @@ func (h *handler) serveUploadedFile(c *gin.Context) {
 		if contentType == "" {
 			contentType = "application/octet-stream"
 		}
-		c.DataFromReader(http.StatusOK, -1, contentType, body, nil)
+		c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		c.Header("Content-Type", contentType)
+		if seeker, ok := body.(io.ReadSeeker); ok {
+			http.ServeContent(c.Writer, c.Request, path.Base(objectKey), time.Time{}, seeker)
+			return
+		}
+		c.DataFromReader(http.StatusOK, -1, contentType, body, map[string]string{})
 		return
 	}
 
