@@ -176,15 +176,21 @@ const goUserCenter = () => {
 }
 
 // lxq  滚动通知相关
+// hash 轮询：本地记上次内容的 hash，60s 轮询携带 ?hash=，后端内容未变时
+// 返回 unchanged=true 且不带 data——常规轮询几乎零下行流量（与文件树同款协议）
 const scrollNoticeList = ref([])
+let scrollHash = ''
 let scrollTimer = null
 
 const loadScrollNotifications = async () => {
   if (!hasToken.value|| isAuthPage.value) return
   try {
-    const res = await getUserScrollNotifications()
-    if (res.code === 200 && res.data) {
-      scrollNoticeList.value = res.data
+    const res = await getUserScrollNotifications(scrollHash ? { hash: scrollHash } : undefined)
+    // kadmin 信封 code 恒为 0（旧代码只判 200 导致滚动条从未被赋值，这里一并修正）
+    if ((res.code === 200 || res.code === 0)) {
+      if (res.unchanged) return
+      scrollNoticeList.value = res.data || []
+      if (res.hash) scrollHash = res.hash
     }
   } catch (error) {
     console.error('获取滚动通知失败:', error)

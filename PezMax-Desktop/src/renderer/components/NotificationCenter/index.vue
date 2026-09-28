@@ -50,6 +50,14 @@ const centerRef = ref(null)
 const showPanel = ref(false)
 const notificationList = ref([])
 const userStore = useUserStore()
+
+// hash 轮询协议（与文件树/滚动通知同款）：记住上次内容的 hash，内容未变
+// （unchanged=true）时沿用上次结果，面板反复打开不再重复传输整份列表
+let popupHash = ''
+let scrollHash = ''
+let lastPopupRows = []
+let lastScrollRows = []
+
 // 切换通知中心面板
 const togglePanel = async () => {
   showPanel.value = !showPanel.value
@@ -73,15 +81,26 @@ const loadNotifications = async () => {
     }
 
     // 获取弹窗通知
-    const popupRes = await getUserPopupNotifications(userId)
-    const popupNotifications = popupRes.code === 200 && popupRes.data ? popupRes.data : []
+    const popupRes = await getUserPopupNotifications(userId, popupHash ? { hash: popupHash } : undefined)
+    // kadmin 信封 code 恒为 0（旧代码只判 200 导致列表恒为空，这里一并修正）
+    if (popupRes.code === 200 || popupRes.code === 0) {
+      if (!popupRes.unchanged) {
+        lastPopupRows = popupRes.data || []
+        if (popupRes.hash) popupHash = popupRes.hash
+      }
+    }
 
     // 获取滚动通知
-    const scrollRes = await getUserScrollNotifications()
-    const scrollNotifications = scrollRes.code === 200 && scrollRes.data ? scrollRes.data : []
+    const scrollRes = await getUserScrollNotifications(scrollHash ? { hash: scrollHash } : undefined)
+    if (scrollRes.code === 200 || scrollRes.code === 0) {
+      if (!scrollRes.unchanged) {
+        lastScrollRows = scrollRes.data || []
+        if (scrollRes.hash) scrollHash = scrollRes.hash
+      }
+    }
 
     // 合并所有通知
-    const allNotifications = [...popupNotifications, ...scrollNotifications]
+    const allNotifications = [...lastPopupRows, ...lastScrollRows]
 
     // 按创建时间排序（最新的在前）
     allNotifications.sort((a, b) => {

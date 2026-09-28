@@ -1,6 +1,7 @@
 package kadmin
 
 import (
+	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"net/http/httptest"
@@ -165,4 +166,101 @@ func TestDatumNotificationCrudAndFeeds(t *testing.T) {
 		t.Fatalf("post-delete detail status = %d", recorder.Code)
 	}
 	_ = store
+}
+
+// respondNotificationFeed 的纯单测：协议形状不依赖 Redis/DB（e2e 见
+// TestDatumNotificationFeedHashProtocol，需本机 Redis）。
+func TestRespondNotificationFeedHash(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rows := []gin.H{{"notifyId": int64(7), "title": "hello"}}
+	requestFeed := func(target string) map[string]interface{} {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodGet, target, nil)
+		respondNotificationFeed(ctx, rows)
+		var envelope map[string]interface{}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+			t.Fatalf("decode envelope: %v", err)
+		}
+		return envelope
+	}
+
+	first := requestFeed("/system/notification/user/scroll")
+	hash, _ := first["hash"].(string)
+	if hash == "" || first["unchanged"] != false {
+		t.Fatalf("first feed = %v", first)
+	}
+	if _, ok := first["data"].([]interface{}); !ok {
+		t.Fatalf("data must stay a JSON array, got %T", first["data"])
+	}
+	if code := first["code"].(float64); code != 0 {
+		t.Fatalf("code = %v", first["code"])
+	}
+
+	unchanged := requestFeed("/system/notification/user/scroll?hash=" + hash)
+	if unchanged["unchanged"] != true || unchanged["data"] != nil || unchanged["hash"] != hash {
+		t.Fatalf("unchanged feed = %v", unchanged)
+	}
+
+	changed := requestFeed("/system/notification/user/scroll?hash=deadbeef")
+	if changed["unchanged"] != false {
+		t.Fatalf("changed feed = %v", changed)
+	}
+	if _, ok := changed["data"].([]interface{}); !ok {
+		t.Fatalf("changed feed must carry data, got %T", changed["data"])
+	}
+}
+
+// 通知喂给端复用 file tree 的 hash 轮询协议：携带上次 hash 时未变化则不带
+// data；内容变化（管理写接口落库）后 hash 必变，客户端拿到新列表。
+func TestDatumNotificationFeedHashProtocol(t *testing.T) {
+	store, db, engine, token, aliceID := seedNotificationFixture(t)
+	adminToken := adminLoginForAudit(t, store)
+	publishScroll := func() {
+		t.Helper()
+		recorder := datumJSONWithHeaders(t, engine, http.MethodPost, "/datum/notification", adminToken,
+			notificationCreateBody("5", "1", map[string]interface{}{"publishStart": "2026-09-22 00:00:00"}),
+			map[string]string{"Idempotency-Key": "datum-notif-hash-" + toDatumString(int64(len(db.notifications) + 1))})
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("create scroll status = %d body %s", recorder.Code, recorder.Body.String())
+		}
+	}
+
+	// 首次拉取：data + hash 齐备，unchanged=false
+	recorder := datumJSON(t, engine, http.MethodGet, "/system/notification/user/scroll", token, nil)
+	body := datumBody(t, recorder)
+	firstHash, _ := body["hash"].(string)
+	if firstHash == "" || body["unchanged"] != false || len(body["data"].([]interface{})) != 1 {
+		t.Fatalf("first scroll = %v", body)
+	}
+
+	// 携带相同 hash：unchanged=true 且不传 data
+	recorder = datumJSON(t, engine, http.MethodGet, "/system/notification/user/scroll?hash="+firstHash, token, nil)
+	body = datumBody(t, recorder)
+	if body["unchanged"] != true || body["data"] != nil || body["hash"] != firstHash {
+		t.Fatalf("unchanged scroll = %v", body)
+	}
+
+	// 内容变化后旧 hash 失效：回新列表与新 hash
+	publishScroll()
+	recorder = datumJSON(t, engine, http.MethodGet, "/system/notification/user/scroll?hash="+firstHash, token, nil)
+	body = datumBody(t, recorder)
+	secondHash, _ := body["hash"].(string)
+	if body["unchanged"] != false || secondHash == "" || secondHash == firstHash || len(body["data"].([]interface{})) != 2 {
+		t.Fatalf("changed scroll = %v", body)
+	}
+
+	// popup 端点同样支持（按用户内容哈希）
+	recorder = datumJSON(t, engine, http.MethodGet, "/system/notification/user/popup?userId="+toDatumString(aliceID), token, nil)
+	body = datumBody(t, recorder)
+	if body["unchanged"] != false || body["hash"] == nil {
+		t.Fatalf("first popup = %v", body)
+	}
+	popupHash, _ := body["hash"].(string)
+	recorder = datumJSON(t, engine, http.MethodGet,
+		"/system/notification/user/popup?userId="+toDatumString(aliceID)+"&hash="+popupHash, token, nil)
+	body = datumBody(t, recorder)
+	if body["unchanged"] != true {
+		t.Fatalf("unchanged popup = %v", body)
+	}
 }

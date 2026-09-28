@@ -138,6 +138,7 @@ import NotificationDialog from '@/components/NotificationDialog/index.vue'
 import useUserStore from '@/store/modules/user'
 import { getUserPopupNotifications } from '@/api/datum/notification'
 import { blobValidate } from '@/utils/ruoyi'
+import { fetchAllPages } from '@/utils/pagination'
 import { listFavorite, addFavorite, delFavorite } from '@/api/datum/favorite'
 import { listBookmarkFavorite, addBookmarkFavorite, delBookmarkFavorite } from '@/api/datum/bookmarkFavorite'
 
@@ -425,9 +426,10 @@ const refreshFavoriteIds = async () => {
   if (!userId) return
 
   try {
+    // 单页上限 100：按 total 逐页拉全量（与原 pageSize=1000 行为一致）
     const [fileRes, bookmarkRes] = await Promise.all([
-      listFavorite({ pageNum: 1, pageSize: 1000, userId }),
-      listBookmarkFavorite({ pageNum: 1, pageSize: 1000 })
+      fetchAllPages(listFavorite, { userId }),
+      fetchAllPages(listBookmarkFavorite)
     ])
     const fileRows = fileRes?.rows || []
     const bookmarkRows = bookmarkRes?.rows || []
@@ -440,7 +442,7 @@ const refreshFavoriteIds = async () => {
 
 const refreshBookmarkFavoriteIds = async () => {
   try {
-    const res = await listBookmarkFavorite({ pageNum: 1, pageSize: 1000 })
+    const res = await fetchAllPages(listBookmarkFavorite)
     const rows = res?.rows || []
     favoriteBookmarkIds.value = new Set(rows.map(getBookmarkId).filter(Boolean))
   } catch (error) {

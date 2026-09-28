@@ -206,8 +206,11 @@ func datumPageParams(c *gin.Context) (int, int) {
 			break
 		}
 	}
-	if size > 1000 {
-		size = 1000
+	// 单页上限 100：约束最坏情况下的响应体（配合 gzip 约 5–10KB），防止
+	// 超大 pageSize 把上行打满。需要“全量”的桌面端视图按 total 逐页拉取
+	// （见桌面端 utils/pagination.js 的 fetchAllPages）。
+	if size > 100 {
+		size = 100
 	}
 	return page, size
 }

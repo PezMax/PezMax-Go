@@ -498,10 +498,11 @@ const resolveCurrentUserId = async () => {
 
 const loadStats = async () => {
   const userId = await resolveCurrentUserId()
+  // 只取计数：total 与 pageSize 无关，pageSize=1 即可（后端单页上限已收紧到 100）
   const [favoriteResult, bookmarkFavoriteResult, downloadResult] = await Promise.allSettled([
-    listFavorite({ pageNum: 1, pageSize: 1000, userId }),
-    listFavoriteBookmark({ pageNum: 1, pageSize: 1000, userId }),
-    listDownload({ pageNum: 1, pageSize: 1000, userId })
+    listFavorite({ pageNum: 1, pageSize: 1, userId }),
+    listFavoriteBookmark({ pageNum: 1, pageSize: 1, userId }),
+    listDownload({ pageNum: 1, pageSize: 1, userId })
   ])
   const favoriteRes = favoriteResult.status === 'fulfilled' ? favoriteResult.value : null
   const bookmarkFavoriteRes = bookmarkFavoriteResult.status === 'fulfilled' ? bookmarkFavoriteResult.value : null

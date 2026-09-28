@@ -194,6 +194,7 @@ import useUserStore from '@/store/modules/user'
 import { getInfo } from '@/api/login'
 import { listFile, updateFile, delFile } from '@/api/datum/file'
 import { listBookmark, updateBookmark, delBookmark } from '@/api/datum/bookmark'
+import { fetchAllPages } from '@/utils/pagination'
 
 defineOptions({ name: 'UploadPage' })
 
@@ -275,7 +276,8 @@ const loadFiles = async () => {
   loadingFiles.value = true
   try {
     if (!currentUserId.value) await resolveCurrentUser()
-    const res = await listFile({ pageNum: 1, pageSize: 1000, userId: currentUserId.value })
+    // 单页上限 100：按 total 逐页拉全量后本地过滤/分页（与原 pageSize=1000 行为一致）
+    const res = await fetchAllPages(listFile, { userId: currentUserId.value })
     const rows = res?.rows || []
     files.value = rows.filter((item) => `${item.userId || ''}` === `${currentUserId.value}`)
     syncPagedList()
@@ -288,7 +290,7 @@ const loadBookmarks = async () => {
   loadingBookmarks.value = true
   try {
     if (!currentUserId.value) await resolveCurrentUser()
-    const res = await listBookmark({ pageNum: 1, pageSize: 1000, userId: currentUserId.value })
+    const res = await fetchAllPages(listBookmark, { userId: currentUserId.value })
     bookmarks.value = res?.rows || []
     syncPagedList()
   } finally {

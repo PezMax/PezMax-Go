@@ -1,6 +1,9 @@
 package kadmin
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -275,6 +278,36 @@ func (s *Store) datumNotificationDelete(c *gin.Context) {
 	success(c, gin.H{"deleted": deleted})
 }
 
+// respondNotificationFeed 把 file tree 的 hash 轮询协议（见 datum_file.go）
+// 落到通知喂给端：客户端携带上次的 ?hash=，内容未变时只回 envelope
+// （unchanged=true、data 为空），不再重复传输整份列表。
+// 与 tree/rank 的“随机 hash + 写时失效”不同：通知有发布/故障/维护时间窗口，
+// 没有写操作时结果集也会随时间推移变化，因此这里对每次现算的结果做内容
+// 哈希——窗口切换天然体现在 hash 上，写接口也无需失效联动。
+func respondNotificationFeed(c *gin.Context, rows []gin.H) {
+	payload, err := json.Marshal(rows)
+	if err != nil {
+		fail(c, http.StatusServiceUnavailable, "通知服务暂不可用，请稍后重试")
+		return
+	}
+	sum := sha256.Sum256(payload)
+	hash := hex.EncodeToString(sum[:])
+	clientHash := strings.TrimSpace(c.Query("hash"))
+	unchanged := clientHash != "" && clientHash == hash
+	var data interface{}
+	if unchanged {
+		data = nil
+	} else {
+		data = json.RawMessage(payload)
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0, "message": "ok", "msg": "ok",
+		"data":      data,
+		"hash":      hash,
+		"unchanged": unchanged,
+	})
+}
+
 func (s *Store) datumNotificationPopup(c *gin.Context) {
 	claimed := datumQueryInt(c, "userId")
 	userID, ok := datumSessionUser(c, claimed)
@@ -291,7 +324,7 @@ func (s *Store) datumNotificationPopup(c *gin.Context) {
 	for _, item := range notifications {
 		rows = append(rows, datumNotificationPayload(item))
 	}
-	success(c, rows)
+	respondNotificationFeed(c, rows)
 }
 
 func (s *Store) datumNotificationScroll(c *gin.Context) {
@@ -305,5 +338,5 @@ func (s *Store) datumNotificationScroll(c *gin.Context) {
 	for _, item := range notifications {
 		rows = append(rows, datumNotificationPayload(item))
 	}
-	success(c, rows)
+	respondNotificationFeed(c, rows)
 }

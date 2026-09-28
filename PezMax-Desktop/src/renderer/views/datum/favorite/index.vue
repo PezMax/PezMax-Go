@@ -104,6 +104,7 @@ import { listFavoriteBookmark, delBookmarkFavorite } from '@/api/datum/bookmarkF
 import { getToken } from '@/utils/auth'
 import { normalizeFileUrl } from '@/utils/url'
 import { blobValidate } from '@/utils/ruoyi'
+import { fetchAllPages } from '@/utils/pagination'
 
 defineOptions({ name: 'FavoritePage' })
 const props = defineProps({
@@ -195,9 +196,13 @@ const loadList = async () => {
     if (!currentUserId.value) {
       await resolveCurrentUser()
     }
-    const res = activeType.value === 'file'
-      ? await listFavorite({ pageNum: 1, pageSize: 1000, userId: currentUserId.value })
-      : await listFavoriteBookmark({ pageNum: 1, pageSize: 1000, userId: currentUserId.value })
+    // 单页上限 100：按 total 逐页拉全量后本地过滤/分页（与原 pageSize=1000 行为一致）
+    const res = await fetchAllPages(
+      (query) => activeType.value === 'file'
+        ? listFavorite(query)
+        : listFavoriteBookmark(query),
+      { userId: currentUserId.value }
+    )
     const source = res.rows || []
     const rows = activeType.value === 'file'
       ? await Promise.all(source.map(buildFileMeta))
