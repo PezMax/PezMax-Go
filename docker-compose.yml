@@ -135,6 +135,29 @@ services:
       minio-init:
         condition: service_completed_successfully
 
+  # Nginx 边缘反代（可选）：出站 gzip + 大文件下载限并发/限速。
+  # 上行受限的主机建议启用：docker compose --profile edge up -d edge
+  # 后端在宿主机直跑（Go 直跑）时，把 KADMIN_EDGE_UPSTREAM 改为
+  # host.docker.internal:9033；compose 内跑 kadmin 时默认值即可。
+  # 不设 depends_on：后端可能运行在宿主机而非 compose 内。
+  edge:
+    image: nginx:1.27-alpine
+    container_name: pezmax-go-edge
+    restart: unless-stopped
+    profiles:
+      - edge
+    environment:
+      KADMIN_UPSTREAM: ${KADMIN_EDGE_UPSTREAM:-kadmin:9033}
+    ports:
+      - "${PEZMAX_EDGE_PORT:-8080}:80"
+    volumes:
+      - ./deploy/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./deploy/kadmin-proxy-headers.conf:/etc/nginx/kadmin-proxy-headers.conf:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - backend
+
 networks:
   backend:
     name: pezmax-go-backend
