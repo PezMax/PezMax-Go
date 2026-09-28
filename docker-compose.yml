@@ -148,6 +148,11 @@ services:
       - edge
     environment:
       KADMIN_UPSTREAM: ${KADMIN_EDGE_UPSTREAM:-kadmin:9033}
+      # 弹性下载限速档位（按在写连接数分档，语义见 deploy/nginx.conf.template 头注）
+      KADMIN_EDGE_DL_RATE_FAST: ${KADMIN_EDGE_DL_RATE_FAST:-1m}
+      KADMIN_EDGE_DL_RATE_MID: ${KADMIN_EDGE_DL_RATE_MID:-512k}
+      KADMIN_EDGE_DL_RATE_LOW: ${KADMIN_EDGE_DL_RATE_LOW:-128k}
+      KADMIN_EDGE_DL_MAXCONN: ${KADMIN_EDGE_DL_MAXCONN:-16}
     ports:
       - "${PEZMAX_EDGE_PORT:-8080}:80"
     volumes:
