@@ -17,6 +17,20 @@ type generatedSwaggerDocument struct {
 	SecurityDefinitions map[string]json.RawMessage            `json:"securityDefinitions"`
 }
 
+func TestRegisterSwaggerDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	RegisterSwagger(engine, false)
+
+	for _, target := range []string{"/swagger", swaggerIndexPath, "/swagger/doc.json"} {
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("swagger should be unmounted when disabled: %s status=%d", target, recorder.Code)
+		}
+	}
+}
+
 func TestRegisterSwagger(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
@@ -38,18 +52,6 @@ func TestRegisterSwagger(t *testing.T) {
 	engine.ServeHTTP(document, httptest.NewRequest(http.MethodGet, "/swagger/doc.json", nil))
 	if document.Code != http.StatusOK || !json.Valid(document.Body.Bytes()) {
 		t.Fatalf("swagger document unavailable: status=%d body=%q", document.Code, document.Body.String())
-	}
-}
-
-func TestRegisterSwaggerCanBeDisabled(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	engine := gin.New()
-	RegisterSwagger(engine, false)
-
-	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, swaggerIndexPath, nil))
-	if response.Code != http.StatusNotFound {
-		t.Fatalf("disabled swagger status = %d, want %d", response.Code, http.StatusNotFound)
 	}
 }
 

@@ -59,7 +59,8 @@ func run() error {
 	}
 
 	debug := getenvBool("KADMIN_APP_DEBUG", true)
-	swaggerEnabled := getenvBool("KADMIN_SWAGGER_ENABLED", debug)
+	// Swagger 默认停用（接口文档不对外暴露），需要时显式 KADMIN_SWAGGER_ENABLED=true 开启。
+	swaggerEnabled := getenvBool("KADMIN_SWAGGER_ENABLED", false)
 	if debug {
 		gin.SetMode(gin.DebugMode)
 	} else {
@@ -148,6 +149,8 @@ func run() error {
 	log.Print("KAdmin API 前缀：/api；前端项目：admin-web（独立运行）")
 	if swaggerEnabled {
 		log.Print("Swagger API 文档：/swagger/index.html")
+	} else {
+		log.Print("Swagger API 文档已停用（设置 KADMIN_SWAGGER_ENABLED=true 开启）")
 	}
 
 	quit := make(chan os.Signal, 1)
