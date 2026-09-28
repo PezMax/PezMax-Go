@@ -98,7 +98,7 @@ func (s *scriptedConn) statementCount() int {
 // schema
 // ---------------------------------------------------------------------------
 
-func TestEnsureSchemaCreatesAllTenTablesIdempotently(t *testing.T) {
+func TestEnsureSchemaCreatesAllTablesIdempotently(t *testing.T) {
 	conn := newScriptedConn()
 	if err := EnsureSchema(conn); err != nil {
 		t.Fatalf("EnsureSchema: %v", err)
@@ -109,12 +109,13 @@ func TestEnsureSchemaCreatesAllTenTablesIdempotently(t *testing.T) {
 			created++
 		}
 	}
-	if created != 10 {
-		t.Fatalf("created %d tables, want 10", created)
+	if created != 14 {
+		t.Fatalf("created %d tables, want 14", created)
 	}
 	tables := []string{
 		"ptmj_user", "ptmj_security", "ptmj_file", "ptmj_file_download", "ptmj_file_favorite",
 		"ptmj_report", "ptmj_bookmark", "ptmj_bookmark_favorite", "ptmj_bookmark_report", "ptmj_notification",
+		"ptmj_ebook", "ptmj_ebook_download", "ptmj_ebook_favorite", "ptmj_ebook_report",
 	}
 	for _, table := range tables {
 		found := false

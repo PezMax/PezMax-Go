@@ -7,6 +7,7 @@ import (
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/bookmark"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/bookmark_favorite"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/bookmark_report"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/ebook_report"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/file"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/file_download"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/notification"
@@ -101,6 +102,15 @@ func RegisterAll(api *gin.RouterGroup, deps Dependencies) error {
 		return err
 	}
 	if err := platform_user.Register(api, platform_user.Dependencies{
+		Connection:              deps.Connection,
+		RequireAuth:             deps.RequireAuth,
+		RequirePermission:       deps.RequirePermission,
+		RegisterAuditResource:   deps.RegisterAuditResource,
+		RegisterIdempotentRoute: deps.RegisterIdempotentRoute,
+	}); err != nil {
+		return err
+	}
+	if err := ebook_report.Register(api, ebook_report.Dependencies{
 		Connection:              deps.Connection,
 		RequireAuth:             deps.RequireAuth,
 		RequirePermission:       deps.RequirePermission,

@@ -82,7 +82,7 @@ func Register(r *gin.Engine, conn db.Connection) (*Runtime, error) {
 	s.security = newSecurityService(s.auth)
 	s.datum = newDatumIdentity(s.auth.keyPrefix+":datum", s.auth.redis, datumSessionTTL())
 	// Business tables heal at startup so the datum handlers (and any
-	// migrated database) always find the ten ptmj_* tables ready.
+	// migrated database) always find the fourteen ptmj_* tables ready.
 	if err := datum.EnsureSchema(s.conn); err != nil {
 		return nil, fmt.Errorf("初始化 datum 业务表失败: %w", err)
 	}

@@ -61,6 +61,27 @@ definitions:
       userId:
         type: integer
     type: object
+  ebook_report.EbookReportPayload:
+    properties:
+      createBy:
+        type: string
+      createTime:
+        type: string
+      ebookId:
+        type: integer
+      reason:
+        type: string
+      remark:
+        type: string
+      result:
+        type: string
+      updateBy:
+        type: string
+      updateTime:
+        type: string
+      userId:
+        type: integer
+    type: object
   file.FilePayload:
     properties:
       createBy:
@@ -3719,6 +3740,382 @@ paths:
       summary: 修改字典类型
       tags:
       - 字典管理
+  /ebook-reports:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 关键词
+        in: query
+        name: keyword
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询电子书举报列表
+      tags:
+      - 生成业务
+    post:
+      parameters:
+      - description: 电子书举报信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/ebook_report.EbookReportPayload'
+      - description: 幂等键（8-128 位）
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增电子书举报
+      tags:
+      - 生成业务
+  /ebook-reports/{id}:
+    delete:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除电子书举报
+      tags:
+      - 生成业务
+    get:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取电子书举报详情
+      tags:
+      - 生成业务
+    put:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 电子书举报信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/ebook_report.EbookReportPayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 修改电子书举报
+      tags:
+      - 生成业务
+  /exam-file-audit/approve:
+    post:
+      parameters:
+      - description: '{\'
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 多选批量通过（仅待审核行，0→1）
+      tags:
+      - 文件审核
+  /exam-file-audit/approve-user:
+    post:
+      parameters:
+      - description: '{\'
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 单个用户的全部待审核文件一键通过
+      tags:
+      - 文件审核
+  /exam-file-audit/audit:
+    post:
+      parameters:
+      - description: '{\'
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 被举报文件复审（approve=举报不属实恢复上架，reject=举报属实下架）
+      tags:
+      - 文件审核
+  /exam-file-audit/pending:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 文件名关键词
+        in: query
+        name: fileName
+        type: string
+      - description: 上传用户（ID 或用户名）
+        in: query
+        name: user
+        type: string
+      - description: 文件类型
+        in: query
+        name: fileType
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 待审核文件队列
+      tags:
+      - 文件审核
+  /exam-file-audit/reject:
+    post:
+      parameters:
+      - description: '{\'
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 拒绝待审核文件（0→2，原因必填并通知用户）
+      tags:
+      - 文件审核
+  /exam-file-audit/reported:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 文件名或举报原因关键词
+        in: query
+        name: fileName
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 被举报文件复审队列（联查最新待处理举报）
+      tags:
+      - 文件审核
   /exam-files:
     get:
       parameters:
