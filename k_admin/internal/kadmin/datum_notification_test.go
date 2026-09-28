@@ -225,6 +225,10 @@ func TestDatumNotificationFeedHashProtocol(t *testing.T) {
 			t.Fatalf("create scroll status = %d body %s", recorder.Code, recorder.Body.String())
 		}
 	}
+	// 预置一条滚动通知：下方"首次拉取"断言 data 长度为 1、publishScroll 后为 2，
+	// 即隐含首轮前已有 1 条存量数据（本用例此前在 redis 不可达时提前 skip，
+	// 该缺口从未被执行暴露）。
+	publishScroll()
 
 	// 首次拉取：data + hash 齐备，unchanged=false
 	recorder := datumJSON(t, engine, http.MethodGet, "/system/notification/user/scroll", token, nil)

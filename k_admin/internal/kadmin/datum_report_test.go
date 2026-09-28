@@ -1,13 +1,15 @@
 package kadmin
 
 import (
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/datum"
+	"github.com/GoAdminGroup/go-admin/modules/config"
+	"github.com/gin-gonic/gin"
 )
 
 func seedReportFixture(t *testing.T) (*Store, *fakeDatumDB, *gin.Engine, string, string, int64, int64) {
@@ -26,10 +28,30 @@ func seedReportFixture(t *testing.T) (*Store, *fakeDatumDB, *gin.Engine, string,
 	return store, db, engine, bobToken, aliceToken, bobID, aliceID
 }
 
+// goAdminConfigOnce 保证测试进程只初始化一次 go-admin 全局配置。
+var goAdminConfigOnce sync.Once
+
+// ensureGoAdminConfigForTests 初始化 go-admin 全局配置：currentUser →
+// models.User() 的表名取自 config.GetAuthUserTable()，而测试进程没有
+// engine.AddConfig，全局配置为零值（表名空串），Find 查询无法命中
+// fakeDatumDB 的 goadmin_users 脚本化返回，requirePermission 恒 401
+// "invalid token"。Redis 不可达时这些用例会在更早的 issueTokenPair 处
+// skip，因此该问题只在 Redis 可达时暴露。
+func ensureGoAdminConfigForTests() {
+	goAdminConfigOnce.Do(func() {
+		// Initialize 二次调用会 panic；已被其他路径初始化时沿用现配置即可。
+		defer func() { _ = recover() }()
+		config.Initialize(&config.Config{
+			AuthUserTable: "goadmin_users",
+		})
+	})
+}
+
 // adminLoginForAudit 直接用 authService 签发管理端 JWT（走真实 docker redis），
 // 供 requireAuth 保护的审核端点使用；redis 不可达时跳过测试。
 func adminLoginForAudit(t *testing.T, store *Store) string {
 	t.Helper()
+	ensureGoAdminConfigForTests()
 	t.Setenv("KADMIN_REDIS_HOST", "127.0.0.1")
 	t.Setenv("KADMIN_REDIS_PORT", "26379")
 	t.Setenv("KADMIN_REDIS_PASSWORD", "pezmax_redis_pwd")

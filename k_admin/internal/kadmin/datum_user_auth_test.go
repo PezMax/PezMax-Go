@@ -138,7 +138,9 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 		return nil, nil
 	case strings.Contains(query, "goadmin_users") && strings.Contains(query, "id"):
 		return []map[string]interface{}{{"id": toDatumInt64(args[len(args)-1]), "status": "enable"}}, nil
-	case strings.Contains(query, "FROM goadmin_role_users"):
+	// go-admin 方言生成的模型层 SQL 为小写（select ... from "goadmin_role_users"），
+	// 因此这里匹配裸表名而非大写 "FROM ..." 前缀。
+	case strings.Contains(query, "goadmin_role_users"):
 		// requirePermission 链路：goadmin 用户 1 绑定超管角色 + 通配权限，
 		// 使 adminLoginForAudit 签发的令牌以 IsSuperAdmin 身份通过权限中间件
 		if len(args) > 0 && toDatumInt64(args[len(args)-1]) == 1 {
@@ -146,7 +148,8 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 		}
 		return nil, nil
 	case strings.Contains(query, "goadmin_role_permissions"):
-		return []map[string]interface{}{{"http_method": "", "http_path": "*"}}, nil
+		// id 必填：Permission().MapToModel 直接断言 m["id"].(int64)
+		return []map[string]interface{}{{"id": int64(1), "http_method": "", "http_path": "*"}}, nil
 	case strings.Contains(query, "FROM ptmj_security WHERE user_id"):
 		row, exists := f.security[toDatumInt64(args[0])]
 		if !exists {
