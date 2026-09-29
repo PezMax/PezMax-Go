@@ -33,6 +33,9 @@ type fakeDatumDB struct {
 	bookmarks       map[int64]map[string]interface{}
 	downloads       []map[string]interface{}
 	ebookDownloads  int
+	ebookFavs       [][2]int64
+	ebookReports    []map[string]interface{}
+	nextEbookReportID int64
 	fileFavs        [][2]int64
 	bookmarkFavs    map[int64]int64
 	notifications   []map[string]interface{}
@@ -525,6 +528,49 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 		return rows, nil
 	case strings.Contains(query, "DISTINCT file_school") || strings.Contains(query, "GROUP BY file_subject"):
 		return nil, nil
+	case strings.Contains(query, "GROUP BY ebook_subject"):
+		// 电子书学科聚合：仅统计已上架且未删除的行
+		counts := map[string]int64{}
+		order := []string{}
+		for _, ebook := range f.ebooks {
+			if toDatumInt64(ebook["del_flag"]) != 0 || toDatumInt64(ebook["ebook_status"]) != 1 {
+				continue
+			}
+			subject := toDatumString(ebook["ebook_subject"])
+			if _, seen := counts[subject]; !seen {
+				order = append(order, subject)
+			}
+			counts[subject]++
+		}
+		sort.Strings(order)
+		rows := []map[string]interface{}{}
+		for _, subject := range order {
+			rows = append(rows, map[string]interface{}{"ebook_subject": subject, "count": counts[subject]})
+		}
+		return rows, nil
+	case strings.Contains(query, "FROM ptmj_ebook_favorite"):
+		rows := []map[string]interface{}{}
+		for _, fav := range f.ebookFavs {
+			if len(args) == 2 && fav[0] == toDatumInt64(args[0]) && fav[1] == toDatumInt64(args[1]) {
+				rows = append(rows, map[string]interface{}{"one": int64(1)})
+			} else if len(args) == 1 && fav[1] == toDatumInt64(args[0]) {
+				rows = append(rows, map[string]interface{}{"ebook_id": fav[0]})
+			}
+		}
+		return rows, nil
+	case strings.Contains(query, "INSERT INTO ptmj_ebook_report"):
+		// 真表 uk_user_ebook 唯一约束：同用户同书重复举报返回 duplicate key
+		ebookID, userID := toDatumInt64(args[0]), toDatumInt64(args[1])
+		for _, report := range f.ebookReports {
+			if report["ebook_id"] == ebookID && report["user_id"] == userID {
+				return nil, errFakeDuplicateKey
+			}
+		}
+		f.nextEbookReportID++
+		f.ebookReports = append(f.ebookReports, map[string]interface{}{
+			"report_id": f.nextEbookReportID, "ebook_id": ebookID, "user_id": userID,
+		})
+		return []map[string]interface{}{{"report_id": f.nextEbookReportID}}, nil
 	case strings.Contains(query, "count(*)") && strings.Contains(query, "FROM ptmj_ebook"):
 		total := int64(0)
 		for _, ebook := range f.ebooks {
@@ -661,6 +707,22 @@ func (f *fakeDatumDB) Exec(query string, args ...interface{}) (sql.Result, error
 	case strings.Contains(query, "INSERT INTO ptmj_ebook_download"):
 		f.ebookDownloads++
 		return fakeDatumResult{rows: 1}, nil
+	case strings.Contains(query, "INSERT INTO ptmj_ebook_favorite"):
+		f.ebookFavs = append(f.ebookFavs, [2]int64{toDatumInt64(args[0]), toDatumInt64(args[1])})
+		return fakeDatumResult{rows: 1}, nil
+	case strings.Contains(query, "DELETE FROM ptmj_ebook_favorite"):
+		ebookID, userID := toDatumInt64(args[0]), toDatumInt64(args[1])
+		kept := f.ebookFavs[:0]
+		removed := int64(0)
+		for _, fav := range f.ebookFavs {
+			if fav[0] == ebookID && fav[1] == userID {
+				removed++
+				continue
+			}
+			kept = append(kept, fav)
+		}
+		f.ebookFavs = kept
+		return fakeDatumResult{rows: removed}, nil
 	case strings.Contains(query, "DELETE FROM ptmj_file_download WHERE download_id IN"):
 		kept := []map[string]interface{}{}
 		for _, record := range f.downloads {

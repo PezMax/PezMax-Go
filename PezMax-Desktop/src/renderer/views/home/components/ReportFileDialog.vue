@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="举报文件"
+    :title="dialogTitle"
     width="460px"
     class="report-dialog"
     :close-on-click-modal="!reportSubmitting"
@@ -14,10 +14,10 @@
         <el-icon><Document /></el-icon>
       </div>
       <div class="file-meta">
-        <div class="file-name" :title="fileInfo.fileName || fileInfo.name || '未知文件'">
-          {{ fileInfo.fileName || fileInfo.name || '未知文件' }}
+        <div class="file-name" :title="fileInfo.fileName || fileInfo.ebookName || fileInfo.name || '未知目标'">
+          {{ fileInfo.fileName || fileInfo.ebookName || fileInfo.name || '未知目标' }}
         </div>
-        <div class="file-id">ID: {{ fileInfo.fileId || fileInfo.id || reportForm.fileId }}</div>
+        <div class="file-id">{{ idLabel }}: {{ fileInfo.fileId || fileInfo.ebookId || fileInfo.rawId || fileInfo.id || reportForm.fileId }}</div>
       </div>
     </div>
 
@@ -63,6 +63,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Document } from '@element-plus/icons-vue'
 import { addReport } from '@/api/datum/report'
+import { addEbookReport } from '@/api/datum/ebook'
 import useUserStore from '@/store/modules/user'
 
 const props = defineProps({
@@ -73,10 +74,20 @@ const props = defineProps({
   fileInfo: {
     type: Object,
     default: null
+  },
+  // 举报目标类型：file → /datum/report，ebook → /datum/ebook/report
+  kind: {
+    type: String,
+    default: 'file'
   }
 })
 
 const emit = defineEmits(['update:modelValue', 'report-success'])
+
+const isEbookKind = computed(() => props.kind === 'ebook')
+
+const dialogTitle = computed(() => (isEbookKind.value ? '举报电子书' : '举报文件'))
+const idLabel = computed(() => (isEbookKind.value ? '电子书 ID' : '举报文件 ID'))
 
 const visible = computed({
   get: () => props.modelValue,
@@ -130,18 +141,27 @@ const handleReportSubmit = async () => {
 
   try {
     reportSubmitting.value = true
-    const payload = {
-      fileId: coercePositiveInt(reportForm.fileId, '举报文件 ID'),
-      userId: coercePositiveInt(reportForm.userId, '用户 ID'),
-      reason: reportForm.reason.trim(),
-      remark: reportForm.remark?.trim() || undefined
+    if (isEbookKind.value) {
+      const payload = {
+        ebookId: coercePositiveInt(reportForm.fileId, idLabel.value),
+        userId: coercePositiveInt(reportForm.userId, '用户 ID'),
+        reason: reportForm.reason.trim(),
+        remark: reportForm.remark?.trim() || undefined
+      }
+      await addEbookReport(payload)
+    } else {
+      const payload = {
+        fileId: coercePositiveInt(reportForm.fileId, idLabel.value),
+        userId: coercePositiveInt(reportForm.userId, '用户 ID'),
+        reason: reportForm.reason.trim(),
+        remark: reportForm.remark?.trim() || undefined
+      }
+      await addReport(payload)
     }
 
-    await addReport(payload)
-    
     // 成功后，通过事件抛出，由父组件（如 index.vue）调用类似下载成功的全局 toast
     emit('report-success')
-    
+
     visible.value = false
     resetForm()
   } catch (error) {
@@ -155,9 +175,9 @@ watch(
   () => props.modelValue,
   (open) => {
     if (open) {
-      // 自动读取文件ID
+      // 自动读取目标 ID（文件 fileId / 电子书 ebookId）
       if (props.fileInfo) {
-        reportForm.fileId = props.fileInfo.fileId || props.fileInfo.id || ''
+        reportForm.fileId = props.fileInfo.fileId || props.fileInfo.ebookId || props.fileInfo.rawId || props.fileInfo.id || ''
       }
       // 自动读取当前用户ID
       reportForm.userId = userStore.id ? String(userStore.id) : ''

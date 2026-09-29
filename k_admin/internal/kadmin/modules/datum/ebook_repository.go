@@ -1,6 +1,7 @@
 package datum
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/GoAdminGroup/go-admin/modules/db"
@@ -94,6 +95,26 @@ func ebookFilterWhere(filter EbookFilter) (string, []interface{}) {
 	return "WHERE " + strings.Join(conditions, " AND "), args
 }
 
+// EbookSubjectCount feeds the desktop ebook tree: subject → books.
+type EbookSubjectCount struct {
+	Subject string
+	Total   int64
+}
+
+// Subjects lists distinct subjects of approved ebooks with counts.
+func (r *EbookRepo) Subjects() ([]EbookSubjectCount, error) {
+	rows, err := r.conn.Query(`SELECT ebook_subject, count(*) AS count FROM ptmj_ebook
+		WHERE ebook_status = 1 AND del_flag = 0 GROUP BY ebook_subject ORDER BY ebook_subject`)
+	if err != nil {
+		return nil, err
+	}
+	subjects := make([]EbookSubjectCount, 0, len(rows))
+	for _, row := range rows {
+		subjects = append(subjects, EbookSubjectCount{Subject: ScanString(row["ebook_subject"]), Total: ScanInt64(row["count"])})
+	}
+	return subjects, nil
+}
+
 // EbookDownloadRepo writes ptmj_ebook_download rows: one per successful
 // ebook stream download（与 ptmj_file_download 同一口径）.
 type EbookDownloadRepo struct {
@@ -108,4 +129,74 @@ func (r *EbookDownloadRepo) Create(ebookID, userID int64) error {
 	_, err := r.conn.Exec(`INSERT INTO ptmj_ebook_download (ebook_id, user_id, create_by, create_time, update_by, update_time)
 		VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)`, ebookID, userID, userID, userID)
 	return err
+}
+
+// EbookFavoriteRepo owns ptmj_ebook_favorite access: a pure (ebook_id, user_id)
+// association like ptmj_file_favorite.
+type EbookFavoriteRepo struct {
+	conn db.Connection
+}
+
+func NewEbookFavoriteRepo(conn db.Connection) *EbookFavoriteRepo {
+	return &EbookFavoriteRepo{conn: conn}
+}
+
+func (r *EbookFavoriteRepo) Add(ebookID, userID int64) error {
+	_, err := r.conn.Exec(`INSERT INTO ptmj_ebook_favorite (ebook_id, user_id) VALUES (?, ?)`, ebookID, userID)
+	return err
+}
+
+func (r *EbookFavoriteRepo) Remove(ebookID, userID int64) error {
+	result, err := r.conn.Exec(`DELETE FROM ptmj_ebook_favorite WHERE ebook_id = ? AND user_id = ?`, ebookID, userID)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *EbookFavoriteRepo) Exists(ebookID, userID int64) (bool, error) {
+	rows, err := r.conn.Query(`SELECT 1 AS one FROM ptmj_ebook_favorite WHERE ebook_id = ? AND user_id = ?`, ebookID, userID)
+	if err != nil {
+		return false, err
+	}
+	return len(rows) > 0, nil
+}
+
+// ListByUser returns every ebook id the user favorited（收藏状态集合用）.
+func (r *EbookFavoriteRepo) ListByUser(userID int64) ([]int64, error) {
+	rows, err := r.conn.Query(`SELECT ebook_id FROM ptmj_ebook_favorite WHERE user_id = ? ORDER BY ebook_id DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, ScanInt64(row["ebook_id"]))
+	}
+	return ids, nil
+}
+
+// EbookReportRepo writes ptmj_ebook_report rows: one pending report per
+// (user, ebook) pair（uk_user_ebook 唯一约束由调用方以 duplicate key 兜底）.
+type EbookReportRepo struct {
+	conn db.Connection
+}
+
+func NewEbookReportRepo(conn db.Connection) *EbookReportRepo {
+	return &EbookReportRepo{conn: conn}
+}
+
+func (r *EbookReportRepo) Create(ebookID, userID int64, reason, remark string) (int64, error) {
+	rows, err := r.conn.Query(`INSERT INTO ptmj_ebook_report (ebook_id, user_id, reason, result, create_by, create_time, update_by, update_time, remark)
+		VALUES (?, ?, ?, '0', ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP, ?)
+		RETURNING report_id`, ebookID, userID, reason, userID, userID, remark)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, fmt.Errorf("ptmj_ebook_report insert returned no id")
+	}
+	return ScanInt64(rows[0]["report_id"]), nil
 }

@@ -3090,6 +3090,117 @@
                 }
             }
         },
+        "/datum/ebook/favorite": {
+            "get": {
+                "tags": [
+                    "桌面端电子书"
+                ],
+                "summary": "查询电子书收藏状态（匿名返回未收藏）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "电子书 ID",
+                        "name": "ebookId",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "桌面端电子书"
+                ],
+                "summary": "收藏电子书（属主）",
+                "parameters": [
+                    {
+                        "description": "收藏信息 {ebookId, userId}",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/datum/ebook/favorite/{ebookId}": {
+            "delete": {
+                "tags": [
+                    "桌面端电子书"
+                ],
+                "summary": "取消收藏电子书（属主）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "电子书 ID",
+                        "name": "ebookId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/datum/ebook/list": {
             "get": {
                 "tags": [
@@ -3127,6 +3238,82 @@
                         "description": "RuoYi TableDataInfo 形状",
                         "schema": {
                             "$ref": "#/definitions/kadmin.SwaggerTableDataResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/datum/ebook/report": {
+            "post": {
+                "tags": [
+                    "桌面端电子书"
+                ],
+                "summary": "举报电子书（属主；一用户一书一条待审举报）",
+                "parameters": [
+                    {
+                        "description": "举报信息 {ebookId, userId, reason, remark}",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/datum/ebook/subjects": {
+            "get": {
+                "tags": [
+                    "桌面端电子书"
+                ],
+                "summary": "电子书学科列表（匿名，仅已上架）",
+                "responses": {
+                    "200": {
+                        "description": "学科与计数",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/kadmin.SwaggerResponse"
+                            }
                         }
                     },
                     "500": {

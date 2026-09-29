@@ -4,6 +4,9 @@
       <div :class="['activity-item', { active: activeView === 'explorer' }]" @click="$emit('change-view', 'explorer')" title="资源管理">
         <svg-icon icon-class="tree" />
       </div>
+      <div :class="['activity-item', { active: activeView === 'ebook' }]" @click="$emit('change-view', 'ebook')" title="电子书">
+        <i class="activity-mask-icon" />
+      </div>
       <div :class="['activity-item', { active: activeView === 'bookmark' }]" @click="$emit('change-view', 'bookmark')" title="外部书签">
         <svg-icon icon-class="link" />
       </div>
@@ -15,9 +18,6 @@
       </div>
       <div :class="['activity-item', { active: activeView === 'reportUser' }]" @click="$emit('change-view', 'reportUser')" title="举报用户">
         <svg-icon icon-class="bug" />
-      </div>
-      <div :class="['activity-item', { active: activeView === 'ebook' }]" @click="$emit('change-view', 'ebook')" title="电子书">
-        <i class="activity-mask-icon" />
       </div>
     </div>
     <div class="activity-items-bottom">

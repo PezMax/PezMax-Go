@@ -118,7 +118,7 @@
           <ReportTimelinePanel />
         </div>
         <!-- 其他视图占位 -->
-        <div v-else-if="activeView !== 'none'" :key="activeView" class="panel-placeholder" :class="{ 'is-bookmark-view': activeView === 'bookmark' }">
+        <div v-else-if="activeView !== 'none'" :key="activeView" class="panel-placeholder" :class="{ 'is-bookmark-view': activeView === 'bookmark' || activeView === 'ebook' }">
           <!-- 贡献文件视图 (已抽离为独立组件) -->
           <div v-if="activeView === 'upload'" class="upload-wrapper">
             <UploadPanel @change-view="$emit('change-view', $event)" @refresh="handleRefresh" />
@@ -181,6 +181,58 @@
                         </span>
                       </div>
 
+                    </div>
+                  </template>
+                </el-tree>
+              </div>
+            </div>
+          </div>
+
+          <!-- 电子书视图：根目录直接平铺书目（无文件夹子目录） -->
+          <div v-if="activeView === 'ebook'" class="bookmark-wrapper ebook-wrapper">
+            <div class="bookmark-header">
+              <el-input
+                v-model="ebookSearchQuery"
+                placeholder="搜索书名 / 作者 / 出版社..."
+                prefix-icon="Search"
+                clearable
+                class="panel-search-input rounded-search"
+                @input="handleEbookSearch"
+              />
+            </div>
+
+            <div class="bookmark-list" v-loading="loadingEbooks">
+              <div v-if="ebookList.length === 0" class="empty-state">
+                <el-icon class="empty-icon"><Reading /></el-icon>
+                <p>暂无电子书</p>
+                <span class="empty-sub">书架上还没有已上架的电子书</span>
+              </div>
+
+              <!-- 书架卡片条目：封面约 70px，第一行书名、第二行大小+格式 -->
+              <div v-else class="bookmark-tree-container">
+                <el-tree
+                  ref="ebookTreeRef"
+                  :data="ebookTreeData"
+                  :props="defaultProps"
+                  @node-click="handleEbookNodeClick"
+                  class="ide-tree ebook-tree"
+                  highlight-current
+                  :default-expand-all="true"
+                  node-key="id"
+                >
+                  <template #default="{ node, data }">
+                    <div class="ebook-card-node">
+                      <div class="ebook-card-cover">
+                        <img v-if="data.cover" :src="normalizeFileUrl(data.cover)" draggable="false" />
+                        <el-icon v-else class="ebook-card-fallback"><Reading /></el-icon>
+                      </div>
+                      <div class="ebook-card-meta">
+                        <div class="ebook-card-title" :title="node.label">{{ node.label }}</div>
+                        <div class="ebook-card-sub">
+                          <span class="ebook-format-badge" :class="`fmt-${data.format}`">{{ data.format }}</span>
+                          <span class="ebook-size-text">{{ formatEbookSize(data.size) }}</span>
+                        </div>
+                      </div>
                     </div>
                   </template>
                 </el-tree>
@@ -352,6 +404,7 @@ import { Refresh, Plus, Link, Search, Delete, VideoCamera, Document, Reading, Bo
 import UploadPanel from './UploadPanel.vue'
 import { normalizeFileUrl } from '@/utils/url'
 import { listBookmark, addBookmark, updateBookmark } from '@/api/datum/bookmark'
+import { listEbook } from '@/api/datum/ebook'
 import useUserStore from '@/store/modules/user'
 import axios from 'axios'
 import { getToken } from '@/utils/auth'
@@ -583,6 +636,7 @@ const panelTitle = computed(() => {
   const titles = {
     explorer: '资源管理器',
     bookmark: '外部书签',
+    ebook: '电子书',
     rank: '排行榜',
     upload: '贡献文件',
     reportUser: '我的举报'
@@ -880,6 +934,87 @@ watch(() => props.activeView, (newView) => {
 const handleBookmarkSearch = () => {
   // 原先这里是调用接口 fetchBookmarks()，如果想纯前端搜索，保持为空即可。
   // 因为上面 bookmarkTreeData 是计算属性，输入框绑定了 bookmarkSearchQuery.value 变化时会自动重新计算过滤。
+}
+
+// ======== 电子书逻辑（根目录直接平铺书目，风格对齐书签/试卷页） ========
+const ebookSearchQuery = ref('')
+const loadingEbooks = ref(false)
+const ebookList = ref([])
+
+const formatEbookSize = (size) => {
+  const value = Number(size) || 0
+  if (value >= 1024 * 1024) return (value / 1024 / 1024).toFixed(1) + ' MB'
+  if (value >= 1024) return Math.round(value / 1024) + ' KB'
+  return value + ' B'
+}
+
+const fetchEbooks = async () => {
+  loadingEbooks.value = true
+  try {
+    const res = await listEbook({ pageNum: 1, pageSize: 100 })
+    if (res.code === 200 || res.code === 0) {
+      ebookList.value = res.rows || []
+    }
+  } catch (error) {
+    console.error('获取电子书失败', error)
+  } finally {
+    loadingEbooks.value = false
+  }
+}
+
+// 根目录平铺书目：搜索命中书名/作者/出版社/学科即可保留，按新书在前排序
+const ebookTreeData = computed(() => {
+  const query = (ebookSearchQuery.value || '').toLowerCase().trim()
+  return ebookList.value
+    .filter(item => {
+      if (!query) return true
+      const matchName = (item.ebookName || '').toLowerCase().includes(query)
+      const matchAuthor = (item.author || '').toLowerCase().includes(query)
+      const matchPublisher = (item.publisher || '').toLowerCase().includes(query)
+      const matchSubject = (item.ebookSubject || '').toLowerCase().includes(query)
+      return matchName || matchAuthor || matchPublisher || matchSubject
+    })
+    .map(item => ({
+      ...item,
+      id: `ebook-${item.ebookId}`,
+      rawId: item.ebookId,
+      label: item.ebookName,
+      type: 'ebook_item',
+      cover: item.coverUrl || item.cover,
+      format: String(item.ebookFormat || '其他').toLowerCase(),
+      size: item.ebookSize
+    }))
+})
+
+watch(() => props.activeView, (newView) => {
+  if (newView === 'ebook') {
+    fetchEbooks()
+  }
+}, { immediate: true })
+
+const handleEbookSearch = () => {
+  // 纯前端过滤：ebookTreeData 计算属性随 ebookSearchQuery 自动重算
+}
+
+const handleEbookNodeClick = (data) => {
+  if (data.type !== 'ebook_item') return
+  emit('node-click', {
+    type: 'ebook',
+    id: `ebook-${data.ebookId}`,
+    rawId: data.ebookId || data.rawId,
+    label: data.ebookName || data.label,
+    url: data.ebookUrl,
+    fileExt: String(data.ebookFormat || '').toLowerCase(),
+    cover: data.coverUrl || data.cover,
+    ebookSize: data.ebookSize,
+    ebookSubject: data.ebookSubject,
+    ebookType: data.ebookType,
+    userId: data.userId,
+    create_time: data.createTime,
+    status: data.ebookStatus,
+    remark: data.remark,
+    originalData: data
+  })
 }
 
 const resetBookmarkForm = () => {
@@ -1871,6 +2006,109 @@ onUnmounted(() => {
     &:hover {
       background: #fef0f0 !important;
     }
+  }
+}
+
+/* ======== 电子书书架卡片条目（沿用上一版书架视觉，封面约 70px） ======== */
+.ebook-wrapper {
+  .bookmark-list :deep(.el-tree-node__content) {
+    height: auto;
+    padding: 5px 8px;
+  }
+
+  /* 叶子节点无展开箭头占位，避免封面左侧留白 */
+  .bookmark-list :deep(.el-tree-node__expand-icon.is-leaf) {
+    display: none;
+  }
+
+  .bookmark-list :deep(.el-tree-node__children) {
+    padding-left: 0;
+  }
+}
+
+.bookmark-tree-container {
+  .ebook-card-node {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-width: 0;
+    padding: 4px 2px;
+  }
+
+  .ebook-card-cover {
+    width: 56px;
+    height: 70px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--ide-border);
+    background: rgba(var(--ide-accent-rgb, 64, 158, 255), 0.08);
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .ebook-card-fallback {
+      font-size: 22px;
+      color: var(--ide-accent);
+      opacity: 0.75;
+    }
+  }
+
+  .ebook-card-meta {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .ebook-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ide-text-active, #303133);
+    line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ebook-card-sub {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .ebook-format-badge {
+    flex-shrink: 0;
+    padding: 0 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 18px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #fff;
+    background: var(--ide-accent, #409eff);
+
+    &.fmt-epub {
+      background: #16a34a;
+    }
+    &.fmt-mobi,
+    &.fmt-azw3 {
+      background: #9333ea;
+    }
+  }
+
+  .ebook-size-text {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: var(--ide-text-light);
   }
 }
 

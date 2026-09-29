@@ -1,6 +1,7 @@
 package kadmin
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -33,12 +34,17 @@ const (
 )
 
 func (s *Store) registerDatumEbookRoutes(datumGroup *gin.RouterGroup) {
-	// gin v1.3 的 GET 路由树不允许静态子节点与 :param 并存，统一走通配分发器。
+	// gin v1.3 的 GET 路由树不允许静态子节点与 :param 并存，统一走通配分发器；
+	// POST/DELETE 树无通配冲突，直接注册专有路径。
 	ebooks := datumGroup.Group("/ebook")
 	ebooks.GET("/*rest", s.datumEbookGet)
+	ebooks.POST("/favorite", s.requireDatumAuth(), s.datumEbookFavoriteAdd)
+	ebooks.DELETE("/favorite/:ebookId", s.requireDatumAuth(), s.datumEbookFavoriteRemove)
+	ebooks.POST("/report", s.requireDatumAuth(), s.datumEbookReportCreate)
 }
 
-// datumEbookGet dispatches the read-only ebook routes: /list 与 /content。
+// datumEbookGet dispatches the read-only ebook routes:
+// /list、/content、/subjects、/favorite（收藏状态查询）。
 func (s *Store) datumEbookGet(c *gin.Context) {
 	rest := strings.Trim(c.Param("rest"), "/")
 	switch {
@@ -46,6 +52,12 @@ func (s *Store) datumEbookGet(c *gin.Context) {
 		s.datumEbookList(c)
 	case rest == "content":
 		s.datumEbookContent(c)
+	case rest == "subjects":
+		s.datumEbookSubjects(c)
+	case rest == "favorite":
+		s.datumEbookFavoriteStatus(c)
+	case rest == "favorite/list":
+		s.datumEbookFavoriteList(c)
 	default:
 		fail(c, http.StatusNotFound, "接口不存在")
 	}
@@ -106,6 +118,185 @@ func (s *Store) datumEbookList(c *gin.Context) {
 		"rows":    rows,
 		"total":   result.Total,
 	})
+}
+
+// datumEbookSubjects serves the distinct subjects of approved ebooks, feeding
+// the desktop ebook tree（学科 → 书，与 /datum/file/subjects 同语义）.
+func (s *Store) datumEbookSubjects(c *gin.Context) {
+	subjects, err := datum.NewEbookRepo(s.conn).Subjects()
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "电子书学科查询失败")
+		return
+	}
+	success(c, subjects)
+}
+
+type datumEbookFavoriteAddRequest struct {
+	EbookID int64 `json:"ebookId"`
+	UserID  int64 `json:"userId"`
+}
+
+// datumEbookFavoriteAdd implements POST /datum/ebook/favorite — mirrors the
+// file favorite contract: session identity, target must be visible to the
+// caller, duplicate association answers 409.
+func (s *Store) datumEbookFavoriteAdd(c *gin.Context) {
+	var req datumEbookFavoriteAddRequest
+	_ = c.ShouldBind(&req)
+	userID, ok := datumSessionUser(c, req.UserID)
+	if !ok {
+		return
+	}
+	if req.EbookID <= 0 {
+		fail(c, http.StatusBadRequest, "电子书 ID 不能为空")
+		return
+	}
+	ebook, found, err := datum.NewEbookRepo(s.conn).FindByID(req.EbookID)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "电子书查询失败")
+		return
+	}
+	if !found || (ebook.EbookStatus != 1 && ebook.UserID != userID) {
+		fail(c, http.StatusNotFound, "电子书不存在或未上架")
+		return
+	}
+	repo := datum.NewEbookFavoriteRepo(s.conn)
+	if exists, err := repo.Exists(req.EbookID, userID); err == nil && exists {
+		fail(c, http.StatusConflict, "收藏已存在")
+		return
+	}
+	if err := repo.Add(req.EbookID, userID); err != nil {
+		if strings.Contains(err.Error(), "duplicate key") {
+			fail(c, http.StatusConflict, "收藏已存在")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "收藏失败")
+		return
+	}
+	success(c, true)
+}
+
+// datumUserIDOptional resolves the datum session user without requiring it:
+// the shared GET wildcard dispatcher carries no auth middleware, so favorite
+// status lookups re-resolve the token themselves. Anonymous callers get 0.
+func (s *Store) datumUserIDOptional(c *gin.Context) (int64, bool) {
+	if userID, ok := datumUserIDFrom(c); ok {
+		return userID, true
+	}
+	token := tokenFromRequest(c)
+	if token == "" || s.datum == nil {
+		return 0, false
+	}
+	userID, err := s.datum.ResolveSession(token)
+	if err != nil {
+		return 0, false
+	}
+	return userID, true
+}
+
+// datumEbookFavoriteStatus implements GET /datum/ebook/favorite?ebookId= —
+// anonymous callers simply get favorited=false（与 /datum/favorite/:fileId 同语义）.
+func (s *Store) datumEbookFavoriteStatus(c *gin.Context) {
+	userID, _ := s.datumUserIDOptional(c)
+	ebookID := toDatumInt64(strings.TrimSpace(c.Query("ebookId")))
+	if ebookID <= 0 {
+		fail(c, http.StatusBadRequest, "电子书 ID 不能为空")
+		return
+	}
+	favorited := false
+	if userID > 0 {
+		if exists, err := datum.NewEbookFavoriteRepo(s.conn).Exists(ebookID, userID); err == nil && exists {
+			favorited = true
+		}
+	}
+	success(c, gin.H{"favorited": favorited})
+}
+
+// datumEbookFavoriteList implements GET /datum/ebook/favorite/list — the
+// session user's favorite ebook ids（桌面端收藏状态集合用；匿名返回空表）.
+func (s *Store) datumEbookFavoriteList(c *gin.Context) {
+	userID, _ := s.datumUserIDOptional(c)
+	ids := []int64{}
+	if userID > 0 {
+		var err error
+		ids, err = datum.NewEbookFavoriteRepo(s.conn).ListByUser(userID)
+		if err != nil {
+			fail(c, http.StatusInternalServerError, "收藏列表查询失败")
+			return
+		}
+	}
+	success(c, ids)
+}
+
+// datumEbookFavoriteRemove implements DELETE /datum/ebook/favorite/:ebookId —
+// session user only; removing an absent association answers 404 like the
+// file favorite removal does.
+func (s *Store) datumEbookFavoriteRemove(c *gin.Context) {
+	userID, ok := datumUserIDFrom(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "会话已过期，请重新登录")
+		return
+	}
+	ebookID, err := strconv.ParseInt(c.Param("ebookId"), 10, 64)
+	if err != nil || ebookID <= 0 {
+		fail(c, http.StatusBadRequest, "电子书 ID 不正确")
+		return
+	}
+	if err := datum.NewEbookFavoriteRepo(s.conn).Remove(ebookID, userID); err != nil {
+		if errors.Is(err, datum.ErrNotFound) {
+			fail(c, http.StatusNotFound, "收藏关系不存在")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "取消收藏失败")
+		return
+	}
+	success(c, true)
+}
+
+type datumEbookReportCreateRequest struct {
+	EbookID int64  `json:"ebookId"`
+	UserID  int64  `json:"userId"`
+	Reason  string `json:"reason"`
+	Remark  string `json:"remark"`
+}
+
+// datumEbookReportCreate implements POST /datum/ebook/report — same contract
+// as /datum/report: reason required, cannot report own ebook, one pending
+// report per (user, ebook)（uk_user_ebook 兜底 duplicate key）.
+func (s *Store) datumEbookReportCreate(c *gin.Context) {
+	var req datumEbookReportCreateRequest
+	_ = c.ShouldBind(&req)
+	userID, ok := datumSessionUser(c, req.UserID)
+	if !ok {
+		return
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" || len([]rune(reason)) > 500 {
+		fail(c, http.StatusBadRequest, "举报原因不能为空且不超过 500 字")
+		return
+	}
+	ebook, found, err := datum.NewEbookRepo(s.conn).FindByID(req.EbookID)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "电子书查询失败")
+		return
+	}
+	if !found || (ebook.EbookStatus != 1 && ebook.UserID != userID) {
+		fail(c, http.StatusNotFound, "电子书不存在或未上架")
+		return
+	}
+	if ebook.UserID == userID {
+		fail(c, http.StatusBadRequest, "不能举报自己的电子书")
+		return
+	}
+	reportID, err := datum.NewEbookReportRepo(s.conn).Create(req.EbookID, userID, reason, strings.TrimSpace(req.Remark))
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key") {
+			fail(c, http.StatusConflict, "该电子书已有你提交的举报，请等待审核")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "举报提交失败")
+		return
+	}
+	success(c, gin.H{"reportId": reportID})
 }
 
 // datumEbookContent implements GET /datum/ebook/content?ebookId= — the

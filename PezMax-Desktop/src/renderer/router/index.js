@@ -82,11 +82,9 @@ export const constantRoutes = [
     meta: { title: '我的下载' }
   },
   {
-    // 电子书栏目：占位空白页，功能后续补充
+    // 电子书栏目：与书签/试卷一致，作为首页 IDE 视图嵌入（SidePanel+MainEditor）
     path: '/datum/ebook',
-    component: () => import('@/views/datum/ebook/index.vue'),
-    name: 'Ebook',
-    meta: { title: '电子书', icon: 'education' }
+    redirect: () => ({ path: '/index', query: { view: 'ebook' } })
   },
   {
     path: '/rank',

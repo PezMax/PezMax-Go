@@ -183,6 +183,107 @@ func TestDatumEbookDownloadRangeResume(t *testing.T) {
 	}
 }
 
+// 学科聚合：subjects 接口只统计已上架电子书，按学科去重计数。
+func TestDatumEbookSubjects(t *testing.T) {
+	_, db, engine, _ := seedActivityFixture(t)
+	seedEbook(db, 2001, 7, "Go语言实战", "Kennedy", "epub", "编程", 1)
+	seedEbook(db, 2002, 7, "算法导论", "Cormen", "pdf", "编程", 1)
+	seedEbook(db, 2003, 7, "未上架的书", "某人", "pdf", "编程", 0)
+
+	recorder := datumJSON(t, engine, http.MethodGet, "/datum/ebook/subjects", "", nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("subjects status = %d body %s", recorder.Code, recorder.Body.String())
+	}
+	data := datumBody(t, recorder)["data"].([]interface{})
+	if len(data) != 1 {
+		t.Fatalf("subjects = %v（未上架不应计入）", data)
+	}
+	row := data[0].(map[string]interface{})
+	// 与 /datum/file/subjects 同构：EbookSubjectCount 无 json tag，键为 Go 字段名
+	if row["Subject"] != "编程" || row["Total"].(float64) != 2 {
+		t.Fatalf("subject row = %v", row)
+	}
+}
+
+// 收藏契约：与试卷收藏同语义（冒充 403 / 重复 409 / 状态查询 / 取消后 404）。
+func TestDatumEbookFavoriteToggle(t *testing.T) {
+	_, db, engine, token := seedActivityFixture(t)
+	seedEbook(db, 2001, 7, "Go语言实战", "Kennedy", "epub", "编程", 1)
+
+	// 冒充他人 → 403
+	recorder := datumJSON(t, engine, http.MethodPost, "/datum/ebook/favorite", token, map[string]int64{"ebookId": 2001, "userId": 999})
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("impersonate status = %d", recorder.Code)
+	}
+	// 正常收藏
+	recorder = datumJSON(t, engine, http.MethodPost, "/datum/ebook/favorite", token, map[string]int64{"ebookId": 2001, "userId": 7})
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("favorite status = %d body %s", recorder.Code, recorder.Body.String())
+	}
+	// 重复收藏 → 409
+	recorder = datumJSON(t, engine, http.MethodPost, "/datum/ebook/favorite", token, map[string]int64{"ebookId": 2001, "userId": 7})
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("duplicate status = %d body %s", recorder.Code, recorder.Body.String())
+	}
+	// 状态查询
+	recorder = datumJSON(t, engine, http.MethodGet, "/datum/ebook/favorite?ebookId=2001", token, nil)
+	if datumBody(t, recorder)["data"].(map[string]interface{})["favorited"] != true {
+		t.Fatal("favorited should be true")
+	}
+	// 收藏列表（收藏状态集合）
+	recorder = datumJSON(t, engine, http.MethodGet, "/datum/ebook/favorite/list", token, nil)
+	ids := datumBody(t, recorder)["data"].([]interface{})
+	if len(ids) != 1 || ids[0].(float64) != 2001 {
+		t.Fatalf("favorite list = %v", ids)
+	}
+	// 取消收藏
+	recorder = datumJSON(t, engine, http.MethodDelete, "/datum/ebook/favorite/2001", token, nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("remove status = %d", recorder.Code)
+	}
+	recorder = datumJSON(t, engine, http.MethodGet, "/datum/ebook/favorite?ebookId=2001", token, nil)
+	if datumBody(t, recorder)["data"].(map[string]interface{})["favorited"] != false {
+		t.Fatal("favorited should be false after removal")
+	}
+	// 再次取消 → 404
+	recorder = datumJSON(t, engine, http.MethodDelete, "/datum/ebook/favorite/2001", token, nil)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("remove-again status = %d", recorder.Code)
+	}
+	_ = db
+}
+
+// 举报契约：与文件举报同语义（原因必填 / 不能举报自己 / 唯一约束去重）。
+func TestDatumEbookReportCreate(t *testing.T) {
+	_, db, engine, token := seedActivityFixture(t)
+	seedEbook(db, 2001, 7, "Go语言实战", "Kennedy", "epub", "编程", 1)
+	seedEbook(db, 2002, 8, "别人的书", "某人", "pdf", "编程", 1)
+
+	// 原因为空 → 400
+	recorder := datumJSON(t, engine, http.MethodPost, "/datum/ebook/report", token, map[string]interface{}{"ebookId": 2001, "reason": "  "})
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("empty reason status = %d", recorder.Code)
+	}
+	// 举报自己的电子书 → 400
+	recorder = datumJSON(t, engine, http.MethodPost, "/datum/ebook/report", token, map[string]interface{}{"ebookId": 2001, "reason": "侵权"})
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("self report status = %d", recorder.Code)
+	}
+	// 正常举报
+	recorder = datumJSON(t, engine, http.MethodPost, "/datum/ebook/report", token, map[string]interface{}{"ebookId": 2002, "reason": "内容违规"})
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("report status = %d body %s", recorder.Code, recorder.Body.String())
+	}
+	// 同一用户重复举报同一本 → 409（uk_user_ebook）
+	recorder = datumJSON(t, engine, http.MethodPost, "/datum/ebook/report", token, map[string]interface{}{"ebookId": 2002, "reason": "再次举报"})
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("duplicate report status = %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if len(db.ebookReports) != 1 {
+		t.Fatalf("reports = %d, want 1", len(db.ebookReports))
+	}
+}
+
 // OpenStoredObject 装配契约：MinIO 关闭时回落本地 datum 根；bucket 以存量
 // URL 解析结果为准的语义由调用方保证，这里验证本地兜底可用。
 func TestOpenStoredObjectLocalFallback(t *testing.T) {

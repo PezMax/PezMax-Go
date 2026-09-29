@@ -13,10 +13,6 @@
           <RankView />
         </template>
 
-        <template v-else-if="activeView === 'ebook'">
-          <EbookView />
-        </template>
-
         <template v-else>
           <!-- 包装一个容器让 transition 能正确处理平级组件 -->
           <div ref="rootRef" class="ide-main-content-wrapper">
@@ -48,6 +44,7 @@
               :active-tab="activeTab"
               :favorite-file-ids="favoriteFileIdList"
               :favorite-bookmark-ids="favoriteBookmarkIdList"
+              :favorite-ebook-ids="favoriteEbookIdList"
               :favorite-loading-ids="favoriteLoadingFileIdList"
               @change-tab="activeTab = $event"
               @close-tab="closeTab"
@@ -73,6 +70,17 @@
       @download-file="handleDownload"
     />
 
+    <!-- 电子书详情侧边悬浮面板（与文件详情同构） -->
+    <EbookInfoDrawer
+      v-model="ebookInfoDrawerVisible"
+      :fileInfo="currentInfoEbook"
+      :is-favorite="isEbookFavorited(currentInfoEbook)"
+      :favorite-loading="isFavoriteLoading(currentInfoEbook)"
+      @report-file="openReportDialog"
+      @toggle-favorite="toggleFavorite"
+      @download-file="handleDownload"
+    />
+
     <!-- 全局设置模块弹窗 -->
     <SettingsModal v-model="settingsVisible" />
     <DonateModal v-model="donateVisible" />
@@ -82,6 +90,13 @@
     <ReportFileDialog
       v-model="reportDialogVisible"
       :file-info="reportFileInfo"
+      kind="file"
+      @report-success="ElMessage.success('举报已提交，我们将尽快处理！')"
+    />
+    <ReportFileDialog
+      v-model="reportEbookDialogVisible"
+      :file-info="reportEbookInfo"
+      kind="ebook"
       @report-success="ElMessage.success('举报已提交，我们将尽快处理！')"
     />
     <ReportBookmarkDialog
@@ -125,8 +140,8 @@ import FileInfoDrawer from './components/FileInfoDrawer.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import DonateModal from './components/DonateModal.vue'
 import RankView from '@/views/rank/index.vue'
-import EbookView from '@/views/datum/ebook/index.vue'
 import { getFileTree } from '@/api/datum/file'
+import { ebookDownloadUrl, ebookPreviewUrl, listEbookFavorite, addEbookFavorite, delEbookFavorite } from '@/api/datum/ebook'
 import { normalizeFileUrl } from '@/utils/url'
 import GlobalLoader from './components/GlobalLoader.vue'
 import { ElMessage } from 'element-plus'
@@ -134,6 +149,7 @@ import { getToken } from '@/utils/auth'
 import { getStorageItem, setStorageItem } from '@/utils/clientStorage'
 import ReportFileDialog from './components/ReportFileDialog.vue'
 import ReportBookmarkDialog from './components/ReportBookmarkDialog.vue'
+import EbookInfoDrawer from '@/components/EbookInfoDrawer/index.vue'
 import NotificationDialog from '@/components/NotificationDialog/index.vue'
 import useUserStore from '@/store/modules/user'
 import { getUserPopupNotifications } from '@/api/datum/notification'
@@ -179,9 +195,11 @@ const infoDrawerVisible = ref(false)
 const currentInfoFile = ref({})
 const favoriteFileIds = ref(new Set())
 const favoriteBookmarkIds = ref(new Set())
+const favoriteEbookIds = ref(new Set())
 const favoriteLoadingIds = ref(new Set())
 const favoriteFileIdList = computed(() => Array.from(favoriteFileIds.value))
 const favoriteBookmarkIdList = computed(() => Array.from(favoriteBookmarkIds.value))
+const favoriteEbookIdList = computed(() => Array.from(favoriteEbookIds.value))
 const favoriteLoadingFileIdList = computed(() => Array.from(favoriteLoadingIds.value))
 
 // fxy 下载进度条相关状态
@@ -252,6 +270,11 @@ const showNextNotification = () => {
 const reportDialogVisible = ref(false)
 const reportFileInfo = ref(null)
 
+const reportEbookDialogVisible = ref(false)
+const reportEbookInfo = ref(null)
+const ebookInfoDrawerVisible = ref(false)
+const currentInfoEbook = ref({})
+
 const reportBookmarkDialogVisible = ref(false)
 const reportBookmarkInfo = ref(null)
 const filePermissionWarned = ref(false)
@@ -263,6 +286,11 @@ const notifyFilePermissionDenied = () => {
 }
 
 const openReportDialog = (file) => {
+  if (isEbookItem(file)) {
+    reportEbookInfo.value = file || null
+    reportEbookDialogVisible.value = true
+    return
+  }
   reportFileInfo.value = file || null
   reportDialogVisible.value = true
 }
@@ -379,6 +407,18 @@ const getBookmarkId = (file) => {
   return `${id}`.replace(/^bookmark-/, '').replace(/^item-/, '')
 }
 
+const isEbookItem = (file) => {
+  const source = file?.originalData || file
+  return source?.type === 'ebook' || `${source?.id || ''}`.startsWith('ebook-')
+}
+
+const getEbookId = (file) => {
+  const source = file?.originalData || file
+  const id = source?.rawId ?? source?.ebookId ?? source?.id
+  if (id === undefined || id === null || id === '') return ''
+  return `${id}`.replace(/^ebook-/, '')
+}
+
 const getFileId = (file) => {
   if (isBookmarkItem(file)) return ''
   const source = file?.originalData || file
@@ -410,14 +450,18 @@ const refreshFavoriteIds = async () => {
 
   try {
     // 单页上限 100：按 total 逐页拉全量（与原 pageSize=1000 行为一致）
-    const [fileRes, bookmarkRes] = await Promise.all([
+    const [fileRes, bookmarkRes, ebookRes] = await Promise.all([
       fetchAllPages(listFavorite, { userId }),
-      fetchAllPages(listBookmarkFavorite)
+      fetchAllPages(listBookmarkFavorite),
+      listEbookFavorite()
     ])
     const fileRows = fileRes?.rows || []
     const bookmarkRows = bookmarkRes?.rows || []
     favoriteFileIds.value = new Set(fileRows.map(getFileId).filter(Boolean))
     favoriteBookmarkIds.value = new Set(bookmarkRows.map(getBookmarkId).filter(Boolean))
+    // 电子书收藏接口直接返回 id 数组
+    const ebookRows = ebookRes?.data || []
+    favoriteEbookIds.value = new Set((Array.isArray(ebookRows) ? ebookRows : []).map(String))
   } catch (error) {
     console.error('获取收藏列表失败:', error)
   }
@@ -436,6 +480,11 @@ const refreshBookmarkFavoriteIds = async () => {
 const isFileFavorited = (file) => {
   const fileId = getFileId(file)
   return Boolean(fileId && favoriteFileIds.value.has(fileId))
+}
+
+const isEbookFavorited = (ebook) => {
+  const ebookId = getEbookId(ebook)
+  return Boolean(ebookId && favoriteEbookIds.value.has(ebookId))
 }
 
 const isFavoriteLoading = (file) => {
@@ -464,6 +513,52 @@ const setFavoriteState = (fileId, favorited) => {
 }
 
 const toggleFavorite = async (file) => {
+  if (isEbookItem(file)) {
+    const ebookId = getEbookId(file)
+    if (!ebookId) {
+      ElMessage.warning('未获取到电子书标识，无法收藏')
+      return
+    }
+
+    const loadingId = `ebook-${ebookId}`
+    if (favoriteLoadingIds.value.has(loadingId)) return
+
+    const userId = await resolveCurrentUserId()
+    if (!userId) {
+      ElMessage.warning('未获取到当前用户信息，请重新登录后再试')
+      return
+    }
+
+    const favorited = favoriteEbookIds.value.has(ebookId)
+    setFavoriteLoading(loadingId, true)
+
+    try {
+      if (favorited) {
+        await delEbookFavorite(ebookId)
+        const next = new Set(favoriteEbookIds.value)
+        next.delete(ebookId)
+        favoriteEbookIds.value = next
+        ElMessage.success('已取消收藏')
+      } else {
+        await addEbookFavorite({ ebookId: Number(ebookId), userId: Number(userId) })
+        const next = new Set(favoriteEbookIds.value)
+        next.add(ebookId)
+        favoriteEbookIds.value = next
+        ElMessage.success('已收藏')
+      }
+      window.dispatchEvent(new CustomEvent('favorite-updated', {
+        detail: { ebookId, favorited: !favorited, type: 'ebook' }
+      }))
+    } catch (error) {
+      console.error('切换电子书收藏失败:', error)
+      await refreshFavoriteIds()
+      ElMessage.error(error?.msg || error?.message || '收藏操作失败，请稍后重试')
+    } finally {
+      setFavoriteLoading(loadingId, false)
+    }
+    return
+  }
+
   if (isBookmarkItem(file)) {
     const bookmarkId = getBookmarkId(file)
     if (!bookmarkId) {
@@ -826,19 +921,51 @@ watch(
   }
 )
 
-// 打开文件详情信息抽屉
+// 打开文件详情信息抽屉（电子书走同构的 EbookInfoDrawer）
 const openFileInfo = (node, data, event) => {
   if (event) {
     event.stopPropagation()
   }
   // 获取文件完整信息
   const fileInfo = data.fileInfo || data
+  if (isEbookItem(fileInfo)) {
+    currentInfoEbook.value = fileInfo
+    ebookInfoDrawerVisible.value = true
+    return
+  }
   currentInfoFile.value = fileInfo
   infoDrawerVisible.value = true
 }
 
-// 树节点点击(打开文件或书签)
+// 树节点点击(打开文件、书签或电子书)
 const handleNodeClick = (data) => {
+  // 0. 电子书：预览 URL 走 inline 内容流（带 token），按格式分流渲染
+  if (data.type === 'ebook') {
+    const ebookId = data.rawId ?? data.originalData?.ebookId
+    if (!ebookId) {
+      console.log('电子书缺少ID:', data)
+      return
+    }
+    const existingTab = openTabs.value.find(tab => tab.id === data.id)
+    if (!existingTab) {
+      openTabs.value.push({
+        id: data.id,
+        title: data.label,
+        url: ebookPreviewUrl(ebookId),
+        fileExt: String(data.fileExt || data.originalData?.ebookFormat || '').toLowerCase(),
+        type: 'ebook',
+        cover: data.cover,
+        originalData: data.originalData || data
+      })
+    }
+    // 强制触发响应式更新
+    activeTab.value = ''
+    setTimeout(() => {
+      activeTab.value = data.id
+    }, 0)
+    return
+  }
+
   // 1. 如果是书签类型
   if (data.type === 'bookmark') {
     const existingTab = openTabs.value.find(tab => tab.id === data.id)
@@ -920,6 +1047,46 @@ let activeDownloadFileName = ''
 const handleDownload = async (fileData) => {
   if (!fileData) {
     ElMessage.warning('未能获取到文件信息，无法下载')
+    return
+  }
+
+  // 电子书：专有下载端点（/datum/download/ebook，落 ptmj_ebook_download 记录）
+  if (isEbookItem(fileData)) {
+    const ebookId = getEbookId(fileData)
+    if (!ebookId) {
+      ElMessage.error('该电子书缺少有效ID，无法下载')
+      return
+    }
+    const source = fileData.originalData || fileData
+    const format = String(source.ebookFormat || '').toLowerCase()
+    const fileName = (source.ebookName || source.label || 'ebook') + (format ? `.${format}` : '')
+    isDownloading.value = true
+    downloadPercent.value = 0
+    downloadingFileName.value = fileName
+    activeDownloadFileName = fileName
+    try {
+      const result = await window.electronAPI.downloadFileDirectly({
+        url: ebookDownloadUrl(ebookId),
+        fileName,
+        token: getToken()
+      })
+      if (result && result.success) {
+        downloadPercent.value = 100
+        setTimeout(() => {
+          isDownloading.value = false
+          ElMessage.success(`下载完成: ${fileName}`)
+        }, 500)
+      } else {
+        isDownloading.value = false
+        if (!result || result.reason !== 'canceled') {
+          ElMessage.error(`保存失败: ${(result && result.message) || '未知错误'}`)
+        }
+      }
+    } catch (error) {
+      isDownloading.value = false
+      console.error('电子书下载出错:', error)
+      ElMessage.error(`下载失败：${error?.message || '请检查网络或联系管理员'}`)
+    }
     return
   }
 

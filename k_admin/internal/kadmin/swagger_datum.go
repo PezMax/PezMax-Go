@@ -332,6 +332,56 @@ func swaggerDatumEbookList() {}
 // @Router /datum/ebook/content [get]
 func swaggerDatumEbookContent() {}
 
+// swaggerDatumEbookSubjects documents GET /datum/ebook/subjects.
+// @Summary 电子书学科列表（匿名，仅已上架）
+// @Tags 桌面端电子书
+// @Success 200 {array} SwaggerResponse "学科与计数"
+// @Failure 500 {object} SwaggerErrorResponse
+// @Router /datum/ebook/subjects [get]
+func swaggerDatumEbookSubjects() {}
+
+// swaggerDatumEbookFavoriteAdd documents POST /datum/ebook/favorite.
+// @Summary 收藏电子书（属主）
+// @Tags 桌面端电子书
+// @Param payload body object true "收藏信息 {ebookId, userId}"
+// @Success 200 {object} SwaggerResponse
+// @Failure 401 {object} SwaggerErrorResponse
+// @Failure 403 {object} SwaggerErrorResponse
+// @Failure 404 {object} SwaggerErrorResponse
+// @Failure 409 {object} SwaggerErrorResponse
+// @Router /datum/ebook/favorite [post]
+func swaggerDatumEbookFavoriteAdd() {}
+
+// swaggerDatumEbookFavoriteStatus documents GET /datum/ebook/favorite.
+// @Summary 查询电子书收藏状态（匿名返回未收藏）
+// @Tags 桌面端电子书
+// @Param ebookId query int true "电子书 ID"
+// @Success 200 {object} SwaggerResponse
+// @Router /datum/ebook/favorite [get]
+func swaggerDatumEbookFavoriteStatus() {}
+
+// swaggerDatumEbookFavoriteRemove documents DELETE /datum/ebook/favorite/{ebookId}.
+// @Summary 取消收藏电子书（属主）
+// @Tags 桌面端电子书
+// @Param ebookId path int true "电子书 ID"
+// @Success 200 {object} SwaggerResponse
+// @Failure 401 {object} SwaggerErrorResponse
+// @Failure 404 {object} SwaggerErrorResponse
+// @Router /datum/ebook/favorite/{ebookId} [delete]
+func swaggerDatumEbookFavoriteRemove() {}
+
+// swaggerDatumEbookReportCreate documents POST /datum/ebook/report.
+// @Summary 举报电子书（属主；一用户一书一条待审举报）
+// @Tags 桌面端电子书
+// @Param payload body object true "举报信息 {ebookId, userId, reason, remark}"
+// @Success 200 {object} SwaggerResponse
+// @Failure 400 {object} SwaggerErrorResponse
+// @Failure 401 {object} SwaggerErrorResponse
+// @Failure 404 {object} SwaggerErrorResponse
+// @Failure 409 {object} SwaggerErrorResponse
+// @Router /datum/ebook/report [post]
+func swaggerDatumEbookReportCreate() {}
+
 // swaggerDatumFileTree documents GET /datum/file/tree.
 // @Summary 试卷文件树（匿名，哈希缓存协议）
 // @Tags 桌面端文件

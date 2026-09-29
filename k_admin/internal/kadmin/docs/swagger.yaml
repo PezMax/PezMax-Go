@@ -2605,6 +2605,78 @@ paths:
       summary: 电子书在线预览流（inline，不落下载记录）
       tags:
       - 桌面端电子书
+  /datum/ebook/favorite:
+    get:
+      parameters:
+      - description: 电子书 ID
+        in: query
+        name: ebookId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+      summary: 查询电子书收藏状态（匿名返回未收藏）
+      tags:
+      - 桌面端电子书
+    post:
+      parameters:
+      - description: 收藏信息 {ebookId, userId}
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 收藏电子书（属主）
+      tags:
+      - 桌面端电子书
+  /datum/ebook/favorite/{ebookId}:
+    delete:
+      parameters:
+      - description: 电子书 ID
+        in: path
+        name: ebookId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 取消收藏电子书（属主）
+      tags:
+      - 桌面端电子书
   /datum/ebook/list:
     get:
       parameters:
@@ -2634,6 +2706,55 @@ paths:
           schema:
             $ref: '#/definitions/kadmin.SwaggerErrorResponse'
       summary: 电子书列表（匿名，仅已上架）
+      tags:
+      - 桌面端电子书
+  /datum/ebook/report:
+    post:
+      parameters:
+      - description: 举报信息 {ebookId, userId, reason, remark}
+        in: body
+        name: payload
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 举报电子书（属主；一用户一书一条待审举报）
+      tags:
+      - 桌面端电子书
+  /datum/ebook/subjects:
+    get:
+      responses:
+        "200":
+          description: 学科与计数
+          schema:
+            items:
+              $ref: '#/definitions/kadmin.SwaggerResponse'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 电子书学科列表（匿名，仅已上架）
       tags:
       - 桌面端电子书
   /datum/favorite:

@@ -11,7 +11,9 @@
           @click="$emit('change-tab', tab.id)"
           @contextmenu.prevent="copyToClipboard(tab.title)"
         >
-          <svg-icon icon-class="documentation" class="tab-icon" />
+          <!-- 电子书标签用书本图标，试卷/文件保持原有文档图标 -->
+          <svg-icon v-if="tab.type === 'ebook'" icon-class="education" class="tab-icon" />
+          <svg-icon v-else icon-class="documentation" class="tab-icon" />
           <span class="tab-title">{{ tab.title }}</span>
           <span class="tab-close" @click.stop="$emit('close-tab', tab.id)" title="关闭">
             &#10005;
@@ -24,9 +26,9 @@
     <div class="editor-content" v-if="openTabs.length > 0">
       <!-- 悬浮操作区：Notion 风格毛玻璃“药丸”岛 (按钮组) -->
       <div class="editor-floating-pill-group" v-if="currentFileObj && currentFileObj.type !== 'bookmark' && currentFileObj.originalData">
-        <div v-if="currentFileObj.type !== 'bookmark'" class="pill-btn primary-action" @click="$emit('download-file', currentFileObj.originalData)" title="下载原件">
+        <div v-if="currentFileObj.type !== 'bookmark'" class="pill-btn primary-action" @click="$emit('download-file', currentFileObj.originalData)" :title="currentIsEbook ? '下载电子书' : '下载原件'">
           <el-icon class="pill-icon"><Download /></el-icon>
-          <span class="pill-text">下载原件</span>
+          <span class="pill-text">{{ currentIsEbook ? '下载电子书' : '下载原件' }}</span>
         </div>
         <div
           class="pill-btn favorite-action"
@@ -40,13 +42,13 @@
           </el-icon>
           <span class="pill-text">{{ favoriteButtonText }}</span>
         </div>
-        <div v-if="currentFileObj.type !== 'bookmark'" class="pill-btn" @click="$emit('open-info', null, currentFileObj.originalData, $event)" title="文件详情">
+        <div v-if="currentFileObj.type !== 'bookmark'" class="pill-btn" @click="$emit('open-info', null, currentFileObj.originalData, $event)" :title="currentIsEbook ? '电子书详情' : '文件详情'">
           <el-icon class="pill-icon"><Document /></el-icon>
-          <span class="pill-text">文件详情</span>
+          <span class="pill-text">{{ currentIsEbook ? '电子书详情' : '文件详情' }}</span>
         </div>
-        <div v-if="currentFileObj.type !== 'bookmark'" class="pill-btn danger-action" @click="$emit('report-file', currentFileObj.originalData)" title="举报文件">
+        <div v-if="currentFileObj.type !== 'bookmark'" class="pill-btn danger-action" @click="$emit('report-file', currentFileObj.originalData)" :title="currentIsEbook ? '举报电子书' : '举报文件'">
           <el-icon class="pill-icon"><WarningFilled /></el-icon>
-          <span class="pill-text">举报文件</span>
+          <span class="pill-text">{{ currentIsEbook ? '举报电子书' : '举报文件' }}</span>
         </div>
       </div>
 
@@ -281,6 +283,19 @@
             </div>
           </div>
           
+          <!-- 电子书 EPUB 预览（epub.js 渲染，与试卷 iframe 预览共用预览区） -->
+          <div
+            v-else-if="currentFileObj.type === 'ebook' && currentFileObj.fileExt === 'epub'"
+            class="epub-preview-container"
+          >
+            <div ref="epubContainer" class="epub-viewer" v-loading="isLoadingEpub" element-loading-text="正在加载内容..."></div>
+            <div class="epub-nav">
+              <el-button :icon="ArrowLeft" circle title="上一页" @click="epubPrev" />
+              <span class="epub-nav-hint">左右方向键翻页</span>
+              <el-button :icon="ArrowRight" circle title="下一页" @click="epubNext" />
+            </div>
+          </div>
+
           <!-- 暂不支持预览的格式 -->
           <div class="preview-placeholder" v-else>
             <svg-icon icon-class="documentation" class="large-icon" />
@@ -359,7 +374,7 @@ import { normalizeAvatar } from '@/utils/avatar' // fxy 引入头像处理工具
 import { getUser } from '@/api/datum/user' // 引入获取平台用户信息接口
 import { normalizeFileUrl } from '@/utils/url'
 /* 引入 Element Plus 图标 */
-import { Close, Download, Document, Link, TopRight, Position, CopyDocument, Collection, EditPen, Folder, User, WarningFilled, Star, StarFilled } from '@element-plus/icons-vue'
+import { Close, Download, Document, Link, TopRight, Position, CopyDocument, Collection, EditPen, Folder, User, WarningFilled, Star, StarFilled, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import useUserStore from '@/store/modules/user'
 import { addReportToPtmjReport } from '@/api/datum/report'
 import { resolveEditorVisibilityValue } from '@/utils/ideAppearance'
@@ -405,6 +420,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('settings-updated', handleSettingsUpdate)
+  teardownEpub()
 })
 
 const props = defineProps({
@@ -418,6 +434,10 @@ const props = defineProps({
     default: () => []
   },
   favoriteBookmarkIds: {
+    type: Array,
+    default: () => []
+  },
+  favoriteEbookIds: {
     type: Array,
     default: () => []
   },
@@ -451,6 +471,7 @@ const currentFileObj = computed(() => {
 })
 
 const currentIsBookmark = computed(() => currentFileObj.value?.type === 'bookmark')
+const currentIsEbook = computed(() => currentFileObj.value?.type === 'ebook')
 
 const getBookmarkId = (file) => {
   const source = file?.originalData || file
@@ -465,18 +486,31 @@ const getFileId = (file) => {
   return id === undefined || id === null || id === '' ? '' : String(id)
 }
 
+const getEbookId = (file) => {
+  const source = file?.originalData || file
+  const id = source?.rawId ?? source?.ebookId
+  if (id === undefined || id === null || id === '') return ''
+  return `${id}`.replace(/^ebook-/, '')
+}
+
 const currentFileId = computed(() => getFileId(currentFileObj.value))
 const currentBookmarkId = computed(() => getBookmarkId(currentFileObj.value))
+const currentEbookId = computed(() => getEbookId(currentFileObj.value))
 
 const currentFileIsFavorite = computed(() => {
   if (currentIsBookmark.value) {
     return Boolean(currentBookmarkId.value && props.favoriteBookmarkIds.map(String).includes(currentBookmarkId.value))
   }
+  if (currentIsEbook.value) {
+    return Boolean(currentEbookId.value && props.favoriteEbookIds.map(String).includes(currentEbookId.value))
+  }
   return Boolean(currentFileId.value && props.favoriteFileIds.map(String).includes(currentFileId.value))
 })
 
 const currentFileFavoriteLoading = computed(() => {
-  const loadingId = currentIsBookmark.value ? `bookmark-${currentBookmarkId.value}` : currentFileId.value
+  const loadingId = currentIsBookmark.value ? `bookmark-${currentBookmarkId.value}`
+    : currentIsEbook.value ? `ebook-${currentEbookId.value}`
+    : currentFileId.value
   return Boolean(loadingId && props.favoriteLoadingIds.map(String).includes(loadingId))
 })
 
@@ -486,6 +520,7 @@ const favoriteButtonText = computed(() => {
 
 const favoriteButtonTitle = computed(() => {
   if (currentIsBookmark.value) return currentFileIsFavorite.value ? '取消收藏书签' : '收藏书签'
+  if (currentIsEbook.value) return currentFileIsFavorite.value ? '取消收藏电子书' : '收藏电子书'
   return currentFileIsFavorite.value ? '取消收藏' : '收藏文件'
 })
 
@@ -493,6 +528,61 @@ const handleToggleFavorite = () => {
   if (!currentFileObj.value || currentFileFavoriteLoading.value) return
   emit('toggle-favorite', currentFileObj.value.originalData || currentFileObj.value)
 }
+
+// ======== 电子书 EPUB 预览（epub.js 动态加载，切页/关页即释放） ========
+const epubContainer = ref(null)
+const isLoadingEpub = ref(false)
+let epubBook = null
+let epubRendition = null
+let epubLoadSeq = 0
+
+const teardownEpub = () => {
+  epubLoadSeq++
+  try { epubRendition?.destroy() } catch (_) { /* 已销毁则忽略 */ }
+  try { epubBook?.destroy() } catch (_) { /* 已销毁则忽略 */ }
+  epubRendition = null
+  epubBook = null
+}
+
+const loadEpub = async () => {
+  const tab = currentFileObj.value
+  if (!tab || tab.type !== 'ebook' || tab.fileExt !== 'epub') return
+  const seq = ++epubLoadSeq
+  await nextTick()
+  if (seq !== epubLoadSeq || !epubContainer.value) return
+  isLoadingEpub.value = true
+  try {
+    const ePub = (await import('epubjs')).default
+    const book = ePub(tab.url)
+    const rendition = book.renderTo(epubContainer.value, { width: '100%', height: '100%', spread: 'none' })
+    await rendition.display()
+    // 快速切书时丢弃过期渲染
+    if (seq !== epubLoadSeq) {
+      try { rendition.destroy() } catch (_) {}
+      try { book.destroy() } catch (_) {}
+      return
+    }
+    epubBook = book
+    epubRendition = rendition
+  } catch (error) {
+    console.error('[MainEditor] EPUB 加载失败:', error)
+    ElMessage.error('EPUB 加载失败，可下载后本地阅读')
+  } finally {
+    if (seq === epubLoadSeq) isLoadingEpub.value = false
+  }
+}
+
+watch(
+  () => [currentFileObj.value?.id, currentFileObj.value?.type, currentFileObj.value?.fileExt],
+  () => {
+    teardownEpub()
+    loadEpub()
+  },
+  { immediate: true }
+)
+
+const epubPrev = () => epubRendition?.prev()
+const epubNext = () => epubRendition?.next()
 
 const bookmarkUploaderName = computed(() => {
   const obj = currentFileObj.value?.originalData || currentFileObj.value || {}
@@ -1479,6 +1569,44 @@ function resetImageTransform() {
   position: absolute;
   top: 0;
   left: 0;
+}
+
+/* 电子书 EPUB 预览容器 */
+.epub-preview-container {
+  position: absolute;
+  inset: 0;
+  display: flex;
+
+  .epub-viewer {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .epub-nav {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--ide-border, #ebeef5);
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(6px);
+    z-index: 5;
+
+    html.dark & {
+      background: rgba(30, 30, 30, 0.85);
+    }
+
+    .epub-nav-hint {
+      font-size: 11px;
+      color: var(--ide-text-light, #909399);
+    }
+  }
 }
 
 .preview-image-zoomable {
