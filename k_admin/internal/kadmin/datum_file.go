@@ -388,7 +388,7 @@ func datumMinioFallbackBase() string {
 }
 
 func (s *Store) datumFileSubjects(c *gin.Context) {
-	subjects, err := datum.NewFileRepo(s.conn).Subjects()
+	subjects, err := datum.NewFileRepo(s.conn).Subjects(c.Query("keyword"), int(datumQueryInt(c, "limit")))
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "科目查询失败")
 		return
@@ -397,7 +397,7 @@ func (s *Store) datumFileSubjects(c *gin.Context) {
 }
 
 func (s *Store) datumFileSchools(c *gin.Context) {
-	schools, err := datum.NewFileRepo(s.conn).Schools(c.Query("keyword"))
+	schools, err := datum.NewFileRepo(s.conn).Schools(c.Query("keyword"), int(datumQueryInt(c, "limit")))
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "学校查询失败")
 		return
@@ -411,7 +411,7 @@ func (s *Store) datumFileSchoolCheck(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "学校名称不能为空")
 		return
 	}
-	schools, err := datum.NewFileRepo(s.conn).Schools(school)
+	schools, err := datum.NewFileRepo(s.conn).Schools(school, 1)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "学校查询失败")
 		return

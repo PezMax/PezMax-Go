@@ -251,6 +251,22 @@ import useUploadStore from '@/store/modules/upload'
 
 const uploadStore = useUploadStore()
 
+// kadmin 信封的成功码是 0（见 utils/request.js），同时兼容 RuoYi 风格的 200
+const isOkCode = (code) => code === 200 || code === 0
+
+// /datum/file/schools 返回 []string，而 el-autocomplete 按 value 取值
+const toSchoolSuggestions = (data) => (Array.isArray(data) ? data : [])
+  .map((item) => (typeof item === 'string' ? { value: item } : item))
+  .filter((item) => item && item.value)
+
+// /datum/file/subjects 返回 [{ Subject, Total }]（Go 字段名，无 json tag），
+// 归一成 el-autocomplete 与提交前查重共用的 { value, count } 结构
+const toSubjectSuggestions = (data) => (Array.isArray(data) ? data : [])
+  .map((item) => (typeof item === 'string'
+    ? { value: item }
+    : { value: item.Subject ?? item.value ?? '', count: item.Total ?? item.count }))
+  .filter((item) => item.value)
+
 // ======== 学校联想补全逻辑 ========
 // 存储当前请求到的所有学校，以便在提交时进行校验
 const existingSchools = ref([])
@@ -262,8 +278,8 @@ const handleSchoolFocus = async () => {
 
   try {
     const res = await getSchools({ limit: 10 })
-    if (res.code === 200 && res.data) {
-      existingSchools.value = res.data
+    if (isOkCode(res.code) && res.data) {
+      existingSchools.value = toSchoolSuggestions(res.data)
     }
   } catch (error) {
     console.error('获取热门学校失败:', error)
@@ -279,10 +295,11 @@ const querySearchSchool = async (queryString, cb) => {
     }
 
     const res = await getSchools(params)
-    if (res.code === 200 && res.data && res.data.length > 0) {
+    const schools = isOkCode(res.code) ? toSchoolSuggestions(res.data) : []
+    if (schools.length > 0) {
       // 每次请求回来都更新 existingSchools，确保能判断当前输入是否是新学校
-      existingSchools.value = res.data
-      cb(res.data)
+      existingSchools.value = schools
+      cb(schools)
     } else {
       // 如果查询没有结果，则返回一个特定的"空提示"对象
       cb([{ value: queryString || '无匹配', isEmptyTip: true }])
@@ -309,7 +326,7 @@ const handleSchoolBlur = async (event) => {
   if (value && value.trim()) {
     try {
       const res = await checkSchoolExists(value.trim())
-      if (res.code === 200 && res.data) {
+      if (isOkCode(res.code) && res.data?.exists) {
         // 提示用户该学校已存在
         await ElMessageBox.confirm(
           '该学校已存在，是否使用已有学校？',
@@ -356,8 +373,8 @@ const handleSubjectFocus = async () => {
   
   try {
     const res = await getSubjects({ limit: 10 })
-    if (res.code === 200 && res.data) {
-      existingSubjects.value = res.data
+    if (isOkCode(res.code) && res.data) {
+      existingSubjects.value = toSubjectSuggestions(res.data)
     }
   } catch (error) {
     console.error('获取热门科目失败:', error)
@@ -373,10 +390,11 @@ const querySearchSubject = async (queryString, cb) => {
     }
     
     const res = await getSubjects(params)
-    if (res.code === 200 && res.data && res.data.length > 0) {
+    const subjects = isOkCode(res.code) ? toSubjectSuggestions(res.data) : []
+    if (subjects.length > 0) {
       // 每次请求回来都更新 existingSubjects，确保能判断当前输入是否是新科目
-      existingSubjects.value = res.data
-      cb(res.data)
+      existingSubjects.value = subjects
+      cb(subjects)
     } else {
       // 如果查询没有结果，则返回一个特定的“空提示”对象，通过自定义项模板进行渲染
       // 给 value 赋值以避免 Element Plus 报错，但并不影响视觉展示
@@ -659,7 +677,7 @@ const submitUpload = async () => {
 
   // ==== 检查科目是否是全新的 ====
   const isExisting = existingSubjects.value.some(
-    item => item.value.toLowerCase() === currentSubject.toLowerCase()
+    item => item.value?.toLowerCase() === currentSubject.toLowerCase()
   )
   
   if (!isExisting) {

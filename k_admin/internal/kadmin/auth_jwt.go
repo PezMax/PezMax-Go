@@ -222,7 +222,7 @@ func (a *authService) storeRefreshToken(
 }
 
 func (a *authService) consumeRefreshToken(refreshToken string) (int64, error) {
-	reply, err := a.redis.do("GETDEL", a.refreshTokenKey(refreshToken))
+	reply, err := redisGetDel(a.redis, a.refreshTokenKey(refreshToken))
 	if err == errRedisNil {
 		return 0, errInvalidRefreshToken
 	}

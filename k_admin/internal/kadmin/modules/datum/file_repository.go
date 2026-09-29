@@ -180,9 +180,22 @@ type SubjectCount struct {
 	Total   int64
 }
 
-func (r *FileRepo) Subjects() ([]SubjectCount, error) {
-	rows, err := r.conn.Query(`SELECT file_subject, count(*) AS count FROM ptmj_file
-		WHERE file_status = 1 AND del_flag = 0 GROUP BY file_subject ORDER BY file_subject`)
+// Subjects lists distinct subjects of approved files, optionally narrowed by
+// keyword. limit <= 0 means no limit.
+func (r *FileRepo) Subjects(keyword string, limit int) ([]SubjectCount, error) {
+	where := "WHERE file_status = 1 AND del_flag = 0"
+	args := []interface{}{}
+	if keyword = strings.TrimSpace(keyword); keyword != "" {
+		where += " AND file_subject ILIKE ?"
+		args = append(args, "%"+keyword+"%")
+	}
+	query := `SELECT file_subject, count(*) AS count FROM ptmj_file ` + where +
+		` GROUP BY file_subject ORDER BY file_subject`
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+	rows, err := r.conn.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -194,15 +207,20 @@ func (r *FileRepo) Subjects() ([]SubjectCount, error) {
 }
 
 // Schools lists distinct school names of approved files, optionally narrowed
-// by keyword (duplicate-name check for uploads).
-func (r *FileRepo) Schools(keyword string) ([]string, error) {
+// by keyword (duplicate-name check for uploads). limit <= 0 means no limit.
+func (r *FileRepo) Schools(keyword string, limit int) ([]string, error) {
 	where := "WHERE file_status = 1 AND del_flag = 0"
 	args := []interface{}{}
 	if keyword = strings.TrimSpace(keyword); keyword != "" {
 		where += " AND file_school ILIKE ?"
 		args = append(args, "%"+keyword+"%")
 	}
-	rows, err := r.conn.Query(`SELECT DISTINCT file_school FROM ptmj_file `+where+` ORDER BY file_school`, args...)
+	query := `SELECT DISTINCT file_school FROM ptmj_file ` + where + ` ORDER BY file_school`
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+	rows, err := r.conn.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

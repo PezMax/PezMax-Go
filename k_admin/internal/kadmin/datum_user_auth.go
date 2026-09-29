@@ -119,7 +119,7 @@ func (d *datumIdentity) IssueResetTicket(uuid, username string) error {
 }
 
 func (d *datumIdentity) ConsumeResetTicket(uuid, username string) (bool, error) {
-	result, err := d.redis.do("GETDEL", d.resetTicketKey(uuid, username))
+	result, err := redisGetDel(d.redis, d.resetTicketKey(uuid, username))
 	if errors.Is(err, errRedisNil) {
 		return false, nil
 	}

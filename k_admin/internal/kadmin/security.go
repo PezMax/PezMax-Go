@@ -375,7 +375,7 @@ func (s *securityService) verifyCaptcha(id, answer string) error {
 	if id == "" || answer == "" {
 		return errCaptchaInvalid
 	}
-	stored, err := s.redis.do("GETDEL", s.captchaKey(id))
+	stored, err := redisGetDel(s.redis, s.captchaKey(id))
 	if errors.Is(err, errRedisNil) {
 		return errCaptchaInvalid
 	}
@@ -482,6 +482,16 @@ func (s *securityService) unlockLogin(account, ip string) error {
 	args := append([]string{"DEL"}, keys...)
 	_, err := s.redis.do(args...)
 	return err
+}
+
+// redisGetDelScript 用 Lua 实现「取值并删除」的原子语义。
+// GETDEL 是 Redis 6.2+ 的命令，本项目需同时兼容 Redis 5（Windows 本机环境），
+// 故统一走 2.6+ 即可用的 EVAL；key 不存在时返回 nil，由客户端映射为 errRedisNil。
+const redisGetDelScript = "local v = redis.call('GET', KEYS[1]) if v then redis.call('DEL', KEYS[1]) end return v"
+
+// redisGetDel 读取并删除 key，语义等价于 Redis 6.2+ 的 GETDEL。
+func redisGetDel(client redisDoer, key string) (interface{}, error) {
+	return client.do("EVAL", redisGetDelScript, "1", key)
 }
 
 func (s *securityService) redisExists(key string) (bool, error) {

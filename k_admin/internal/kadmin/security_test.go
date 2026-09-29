@@ -90,6 +90,15 @@ func (f *fakeSecurityRedis) eval(args []string) (interface{}, error) {
 		}
 		return int64(0), nil
 	}
+	if len(args) == 4 {
+		key := args[3]
+		value, exists := f.values[key]
+		if !exists {
+			return nil, errRedisNil
+		}
+		delete(f.values, key)
+		return value, nil
+	}
 	key, expected := args[3], args[4]
 	if f.values[key] != expected {
 		return int64(0), nil
