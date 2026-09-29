@@ -306,6 +306,32 @@ func swaggerDatumVerifySecurityAnswer() {}
 // @Router /datum/file/list [get]
 func swaggerDatumFileList() {}
 
+// ---------------------------------------------------------------------------
+// 桌面端电子书（ptmj_ebook 目录）
+// ---------------------------------------------------------------------------
+
+// swaggerDatumEbookList documents GET /datum/ebook/list.
+// @Summary 电子书列表（匿名，仅已上架）
+// @Tags 桌面端电子书
+// @Param keyword query string false "书名/作者/出版社关键词"
+// @Param subject query string false "学科分类"
+// @Param page query int false "页码"
+// @Param pageSize query int false "每页数量"
+// @Success 200 {object} SwaggerTableDataResponse "RuoYi TableDataInfo 形状"
+// @Failure 500 {object} SwaggerErrorResponse
+// @Router /datum/ebook/list [get]
+func swaggerDatumEbookList() {}
+
+// swaggerDatumEbookContent documents GET /datum/ebook/content.
+// @Summary 电子书在线预览流（inline，不落下载记录）
+// @Tags 桌面端电子书
+// @Param ebookId query int true "电子书 ID"
+// @Success 200 {string} string "电子书内容流（pdf/epub 等）"
+// @Failure 400 {object} SwaggerErrorResponse
+// @Failure 404 {object} SwaggerErrorResponse
+// @Router /datum/ebook/content [get]
+func swaggerDatumEbookContent() {}
+
 // swaggerDatumFileTree documents GET /datum/file/tree.
 // @Summary 试卷文件树（匿名，哈希缓存协议）
 // @Tags 桌面端文件
@@ -503,6 +529,17 @@ func swaggerDatumDownloadDetail() {}
 // @Failure 404 {object} SwaggerErrorResponse
 // @Router /datum/download/file [get]
 func swaggerDatumDownloadStream() {}
+
+// swaggerDatumEbookDownloadStream documents GET /datum/download/ebook.
+// @Summary 下载电子书流（属主；落 ptmj_ebook_download 记录）
+// @Tags 桌面端电子书
+// @Param ebookId query int true "电子书 ID"
+// @Success 200 {string} string "电子书文件流（attachment）"
+// @Failure 400 {object} SwaggerErrorResponse
+// @Failure 401 {object} SwaggerErrorResponse
+// @Failure 404 {object} SwaggerErrorResponse
+// @Router /datum/download/ebook [get]
+func swaggerDatumEbookDownloadStream() {}
 
 // swaggerDatumDownloadCreate documents POST /datum/download.
 // @Summary 新增下载记录（属主）

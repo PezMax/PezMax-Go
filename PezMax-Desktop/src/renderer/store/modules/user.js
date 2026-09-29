@@ -101,8 +101,11 @@ const useUserStore = defineStore(
       },
       // 退出系统
       logOut() {
-        return new Promise((resolve, reject) => {
-          logout(this.token).then(() => {
+        return new Promise((resolve) => {
+          // 服务端吊销失败（如 token 已过期返回 401）不阻断本地清理：
+          // 过期会话在服务端本已失效，本地必须无条件清干净，
+          // 否则守卫/退出按钮的后续导航永不执行，应用卡死回不了登录页。
+          logout(this.token).catch(() => {}).then(() => {
             this.token = ''
             this.roles = []
             this.permissions = []
@@ -111,8 +114,6 @@ const useUserStore = defineStore(
             removeStorageItem('password')
             removeStorageItem('rememberMe')
             resolve()
-          }).catch(error => {
-            reject(error)
           })
         })
       }

@@ -71,12 +71,14 @@ func datumSessionUser(c *gin.Context, claimed int64) (int64, bool) {
 // streaming download + records
 // ---------------------------------------------------------------------------
 
-// datumDownloadGet dispatches GET /datum/download/{file|:downloadId}.
+// datumDownloadGet dispatches GET /datum/download/{file|ebook|:downloadId}.
 func (s *Store) datumDownloadGet(c *gin.Context) {
 	rest := strings.Trim(c.Param("rest"), "/")
 	switch {
 	case rest == "file":
 		s.datumDownloadStream(c)
+	case rest == "ebook":
+		s.datumEbookDownloadStream(c)
 	case rest == "":
 		fail(c, http.StatusBadRequest, "下载记录 ID 不能为空")
 	default:
@@ -541,4 +543,69 @@ func (s *Store) datumDownloadStream(c *gin.Context) {
 // 并尊重存量 URL 里的 bucket）。
 func openDatumObject(ctx context.Context, bucket, objectKey string) (io.ReadCloser, storage.ObjectInfo, error) {
 	return files.OpenStoredObject(ctx, bucket, objectKey)
+}
+
+// datumEbookDownloadStream implements GET /datum/download/ebook?ebookId= —
+// the desktop ebook blob download. 与 /datum/download/file 同一条 datum 会话
+// 鉴权、同一条边缘整形路径；差别只在记录表：电子书落 ptmj_ebook_download。
+func (s *Store) datumEbookDownloadStream(c *gin.Context) {
+	userID, _ := datumUserIDFrom(c)
+	ebookID := toDatumInt64(strings.TrimSpace(c.Query("ebookId")))
+	if ebookID <= 0 {
+		fail(c, http.StatusBadRequest, "电子书 ID 不能为空")
+		return
+	}
+	ebook, found, err := datum.NewEbookRepo(s.conn).FindByID(ebookID)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "电子书查询失败")
+		return
+	}
+	if !found || (ebook.EbookStatus != 1 && ebook.UserID != userID) {
+		fail(c, http.StatusNotFound, "电子书不存在或未上架")
+		return
+	}
+	bucket, objectKey, parseErr := fileurl.Parse(ebook.EbookURL)
+	if parseErr != nil {
+		fail(c, http.StatusNotFound, "电子书内容不可用")
+		return
+	}
+	body, info, err := openDatumObject(c.Request.Context(), bucket, objectKey)
+	if err != nil {
+		fail(c, http.StatusNotFound, "电子书内容不可用")
+		return
+	}
+	defer body.Close()
+
+	if err := datum.NewEbookDownloadRepo(s.conn).Create(ebookID, userID); err != nil {
+		// 记录写失败不阻断下载本身。
+		log.Printf("datum ebook download record write failed: %v", err)
+	}
+
+	contentType := mimeByExt(strings.ToLower(ebook.EbookFormat))
+	fileName := path.Base(strings.ReplaceAll(ebook.EbookName, "\\", "/"))
+	if dot := strings.LastIndex(fileName, "."); dot > 0 {
+		// 书名本身通常不带扩展名，补上格式后缀便于客户端落盘即读。
+		if !strings.EqualFold(fileName[dot+1:], ebook.EbookFormat) {
+			fileName += "." + strings.ToLower(ebook.EbookFormat)
+		}
+	} else if ebook.EbookFormat != "" {
+		fileName += "." + strings.ToLower(ebook.EbookFormat)
+	}
+	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": fileName})
+	if disposition == "" {
+		disposition = "attachment"
+	}
+	c.Header("Content-Disposition", disposition)
+	c.Header("Content-Type", contentType)
+	if info.Size > 0 {
+		c.Header("ETag", fmt.Sprintf(`"ebook-%d-%d"`, ebook.EbookID, info.Size))
+	}
+	if seeker, ok := body.(io.ReadSeeker); ok {
+		http.ServeContent(c.Writer, c.Request, fileName, time.Time{}, seeker)
+		return
+	}
+	if info.Size > 0 {
+		c.Header("Content-Length", strconv.FormatInt(info.Size, 10))
+	}
+	c.DataFromReader(http.StatusOK, info.Size, contentType, body, map[string]string{})
 }

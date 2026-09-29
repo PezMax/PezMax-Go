@@ -29,8 +29,10 @@ type fakeDatumDB struct {
 	users           map[string]*datumUser
 	security        map[int64][2]string
 	files           []map[string]interface{}
+	ebooks          []map[string]interface{}
 	bookmarks       map[int64]map[string]interface{}
 	downloads       []map[string]interface{}
+	ebookDownloads  int
 	fileFavs        [][2]int64
 	bookmarkFavs    map[int64]int64
 	notifications   []map[string]interface{}
@@ -91,6 +93,18 @@ func fakeFileMatchesListFilter(query string, fileTypeFilter int64, file map[stri
 		return false
 	}
 	if fileTypeFilter > 0 && toDatumInt64(file["file_type"]) != fileTypeFilter {
+		return false
+	}
+	return true
+}
+
+// fakeEbookMatchesListFilter 让 fake 的电子书分支遵守 OnlyApproved
+// （ebookFilterWhere 只有 del_flag/ebook_status 静态条件）。
+func fakeEbookMatchesListFilter(query string, ebook map[string]interface{}) bool {
+	if toDatumInt64(ebook["del_flag"]) != 0 {
+		return false
+	}
+	if strings.Contains(query, "ebook_status = 1") && toDatumInt64(ebook["ebook_status"]) != 1 {
 		return false
 	}
 	return true
@@ -511,6 +525,46 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 		return rows, nil
 	case strings.Contains(query, "DISTINCT file_school") || strings.Contains(query, "GROUP BY file_subject"):
 		return nil, nil
+	case strings.Contains(query, "count(*)") && strings.Contains(query, "FROM ptmj_ebook"):
+		total := int64(0)
+		for _, ebook := range f.ebooks {
+			if !fakeEbookMatchesListFilter(query, ebook) {
+				continue
+			}
+			total++
+		}
+		return []map[string]interface{}{{"count": total}}, nil
+	case strings.Contains(query, "FROM ptmj_ebook WHERE ebook_id"):
+		rows := []map[string]interface{}{}
+		for _, ebook := range f.ebooks {
+			if ebook["ebook_id"] == toDatumInt64(args[0]) && toDatumInt64(ebook["del_flag"]) == 0 {
+				rows = append(rows, ebook)
+			}
+		}
+		return rows, nil
+	case strings.Contains(query, "FROM ptmj_ebook"):
+		rows := []map[string]interface{}{}
+		for _, ebook := range f.ebooks {
+			if !fakeEbookMatchesListFilter(query, ebook) {
+				continue
+			}
+			rows = append(rows, ebook)
+		}
+		sort.Slice(rows, func(i, j int) bool {
+			return toDatumInt64(rows[i]["ebook_id"]) > toDatumInt64(rows[j]["ebook_id"])
+		})
+		if strings.Contains(query, "LIMIT ? OFFSET ?") && len(args) >= 2 {
+			size := toDatumInt64(args[len(args)-2])
+			offset := toDatumInt64(args[len(args)-1])
+			if offset >= int64(len(rows)) {
+				return nil, nil
+			}
+			rows = rows[offset:]
+			if size > 0 && size < int64(len(rows)) {
+				rows = rows[:size]
+			}
+		}
+		return rows, nil
 	}
 	return nil, fmt.Errorf("fakeDatumDB: unsupported query: %s", query)
 }
@@ -604,6 +658,9 @@ func (f *fakeDatumDB) Exec(query string, args ...interface{}) (sql.Result, error
 			"download_id": f.nextDownloadID, "file_id": toDatumInt64(args[0]), "user_id": toDatumInt64(args[1]),
 			"creat_time": "2026-09-22 10:00:00",
 		})
+	case strings.Contains(query, "INSERT INTO ptmj_ebook_download"):
+		f.ebookDownloads++
+		return fakeDatumResult{rows: 1}, nil
 	case strings.Contains(query, "DELETE FROM ptmj_file_download WHERE download_id IN"):
 		kept := []map[string]interface{}{}
 		for _, record := range f.downloads {

@@ -61,6 +61,67 @@ definitions:
       userId:
         type: integer
     type: object
+  ebook.EbookPayload:
+    properties:
+      author:
+        type: string
+      coverUrl:
+        type: string
+      createBy:
+        type: string
+      createTime:
+        type: string
+      delFlag:
+        type: integer
+      ebookFormat:
+        type: string
+      ebookName:
+        type: string
+      ebookSize:
+        type: integer
+      ebookStatus:
+        type: integer
+      ebookSubject:
+        type: string
+      ebookType:
+        type: integer
+      ebookUrl:
+        type: string
+      publisher:
+        type: string
+      remark:
+        type: string
+      reviewer:
+        type: string
+      updateBy:
+        type: string
+      updateTime:
+        type: string
+      userId:
+        type: integer
+    type: object
+  ebook_download.EbookDownloadPayload:
+    properties:
+      createBy:
+        type: string
+      createTime:
+        type: string
+      ebookId:
+        type: integer
+      remark:
+        type: string
+      updateBy:
+        type: string
+      updateTime:
+        type: string
+      userId:
+        type: integer
+    type: object
+  ebook_favorite.EbookFavoritePayload:
+    properties:
+      userId:
+        type: integer
+    type: object
   ebook_report.EbookReportPayload:
     properties:
       createBy:
@@ -2474,6 +2535,34 @@ paths:
       summary: 删除下载记录（属主，支持批量）
       tags:
       - 桌面端活动
+  /datum/download/ebook:
+    get:
+      parameters:
+      - description: 电子书 ID
+        in: query
+        name: ebookId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: 电子书文件流（attachment）
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 下载电子书流（属主；落 ptmj_ebook_download 记录）
+      tags:
+      - 桌面端电子书
   /datum/download/file:
     get:
       responses:
@@ -2492,6 +2581,61 @@ paths:
       summary: 下载文件流（属主）
       tags:
       - 桌面端活动
+  /datum/ebook/content:
+    get:
+      parameters:
+      - description: 电子书 ID
+        in: query
+        name: ebookId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: 电子书内容流（pdf/epub 等）
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 电子书在线预览流（inline，不落下载记录）
+      tags:
+      - 桌面端电子书
+  /datum/ebook/list:
+    get:
+      parameters:
+      - description: 书名/作者/出版社关键词
+        in: query
+        name: keyword
+        type: string
+      - description: 学科分类
+        in: query
+        name: subject
+        type: string
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      responses:
+        "200":
+          description: RuoYi TableDataInfo 形状
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerTableDataResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 电子书列表（匿名，仅已上架）
+      tags:
+      - 桌面端电子书
   /datum/favorite:
     post:
       parameters:
@@ -3740,6 +3884,346 @@ paths:
       summary: 修改字典类型
       tags:
       - 字典管理
+  /ebook-downloads:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 关键词
+        in: query
+        name: keyword
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询电子书下载记录列表
+      tags:
+      - 生成业务
+    post:
+      parameters:
+      - description: 电子书下载记录信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/ebook_download.EbookDownloadPayload'
+      - description: 幂等键（8-128 位）
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增电子书下载记录
+      tags:
+      - 生成业务
+  /ebook-downloads/{id}:
+    delete:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除电子书下载记录
+      tags:
+      - 生成业务
+    get:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取电子书下载记录详情
+      tags:
+      - 生成业务
+    put:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 电子书下载记录信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/ebook_download.EbookDownloadPayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 修改电子书下载记录
+      tags:
+      - 生成业务
+  /ebook-favorites:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 关键词
+        in: query
+        name: keyword
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询电子书收藏列表
+      tags:
+      - 生成业务
+    post:
+      parameters:
+      - description: 电子书收藏信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/ebook_favorite.EbookFavoritePayload'
+      - description: 幂等键（8-128 位）
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增电子书收藏
+      tags:
+      - 生成业务
+  /ebook-favorites/{id}:
+    delete:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除电子书收藏
+      tags:
+      - 生成业务
+    get:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取电子书收藏详情
+      tags:
+      - 生成业务
+    put:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 电子书收藏信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/ebook_favorite.EbookFavoritePayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 修改电子书收藏
+      tags:
+      - 生成业务
   /ebook-reports:
     get:
       parameters:
@@ -3908,6 +4392,176 @@ paths:
       security:
       - BearerAuth: []
       summary: 修改电子书举报
+      tags:
+      - 生成业务
+  /ebooks:
+    get:
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 关键词
+        in: query
+        name: keyword
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 查询电子书列表
+      tags:
+      - 生成业务
+    post:
+      parameters:
+      - description: 电子书信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/ebook.EbookPayload'
+      - description: 幂等键（8-128 位）
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 新增电子书
+      tags:
+      - 生成业务
+  /ebooks/{id}:
+    delete:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 删除电子书
+      tags:
+      - 生成业务
+    get:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 获取电子书详情
+      tags:
+      - 生成业务
+    put:
+      parameters:
+      - description: 记录 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 电子书信息
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/ebook.EbookPayload'
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            type: object
+      security:
+      - BearerAuth: []
+      summary: 修改电子书
       tags:
       - 生成业务
   /exam-file-audit/approve:

@@ -7,6 +7,9 @@ import (
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/bookmark"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/bookmark_favorite"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/bookmark_report"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/ebook"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/ebook_download"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/ebook_favorite"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/ebook_report"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/file"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated/file_download"
@@ -111,6 +114,33 @@ func RegisterAll(api *gin.RouterGroup, deps Dependencies) error {
 		return err
 	}
 	if err := ebook_report.Register(api, ebook_report.Dependencies{
+		Connection:              deps.Connection,
+		RequireAuth:             deps.RequireAuth,
+		RequirePermission:       deps.RequirePermission,
+		RegisterAuditResource:   deps.RegisterAuditResource,
+		RegisterIdempotentRoute: deps.RegisterIdempotentRoute,
+	}); err != nil {
+		return err
+	}
+	if err := ebook.Register(api, ebook.Dependencies{
+		Connection:              deps.Connection,
+		RequireAuth:             deps.RequireAuth,
+		RequirePermission:       deps.RequirePermission,
+		RegisterAuditResource:   deps.RegisterAuditResource,
+		RegisterIdempotentRoute: deps.RegisterIdempotentRoute,
+	}); err != nil {
+		return err
+	}
+	if err := ebook_download.Register(api, ebook_download.Dependencies{
+		Connection:              deps.Connection,
+		RequireAuth:             deps.RequireAuth,
+		RequirePermission:       deps.RequirePermission,
+		RegisterAuditResource:   deps.RegisterAuditResource,
+		RegisterIdempotentRoute: deps.RegisterIdempotentRoute,
+	}); err != nil {
+		return err
+	}
+	if err := ebook_favorite.Register(api, ebook_favorite.Dependencies{
 		Connection:              deps.Connection,
 		RequireAuth:             deps.RequireAuth,
 		RequirePermission:       deps.RequirePermission,

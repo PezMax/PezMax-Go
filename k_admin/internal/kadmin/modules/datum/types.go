@@ -43,6 +43,30 @@ type FileDownload struct {
 	Remark     string
 }
 
+// Ebook is one row of the ptmj_ebook catalog（电子书目录表，审核语义与
+// ptmj_file 对齐：0-未审核，1-通过，2-未通过，3-被举报）.
+type Ebook struct {
+	EbookID      int64
+	UserID       int64
+	EbookName    string
+	Author       string
+	Publisher    string
+	CoverURL     string
+	EbookURL     string
+	EbookSize    int64
+	EbookFormat  string
+	EbookSubject string
+	EbookType    int64
+	Reviewer     string
+	EbookStatus  int64
+	DelFlag      int64
+	CreateBy     string
+	CreateTime   string
+	UpdateBy     string
+	UpdateTime   string
+	Remark       string
+}
+
 type Report struct {
 	ReportID   int64
 	FileID     int64
@@ -180,6 +204,30 @@ func (f *BookmarkFilter) page() (int, int) {
 
 const fileColumns = `file_id, user_id, file_name, file_url, file_size, file_format, file_year, file_type,
 	file_school, file_subject, reviewer, file_status, del_flag, create_by, create_time, update_by, update_time, remark`
+
+func ScanEbook(row map[string]interface{}) Ebook {
+	return Ebook{
+		EbookID:      ScanInt64(row["ebook_id"]),
+		UserID:       ScanInt64(row["user_id"]),
+		EbookName:    ScanString(row["ebook_name"]),
+		Author:       ScanString(row["author"]),
+		Publisher:    ScanString(row["publisher"]),
+		CoverURL:     ScanString(row["cover_url"]),
+		EbookURL:     ScanString(row["ebook_url"]),
+		EbookSize:    ScanInt64(row["ebook_size"]),
+		EbookFormat:  ScanString(row["ebook_format"]),
+		EbookSubject: ScanString(row["ebook_subject"]),
+		EbookType:    ScanInt64(row["ebook_type"]),
+		Reviewer:     ScanString(row["reviewer"]),
+		EbookStatus:  ScanInt64(row["ebook_status"]),
+		DelFlag:      ScanInt64(row["del_flag"]),
+		CreateBy:     ScanString(row["create_by"]),
+		CreateTime:   ScanString(row["create_time"]),
+		UpdateBy:     ScanString(row["update_by"]),
+		UpdateTime:   ScanString(row["update_time"]),
+		Remark:       ScanString(row["remark"]),
+	}
+}
 
 const bookmarkColumns = `id, user_id, url, title, description, cover_image, subject, resource_type, collection,
 	status, del_flag, create_by, create_time, update_by, update_time, remark`

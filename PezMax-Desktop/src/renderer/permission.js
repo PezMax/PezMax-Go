@@ -63,10 +63,14 @@ router.beforeEach((to, from, next) => {
           // 拉取完用户信息后直接放行，不再向后端请求 /getRouters 动态路由
           next({ ...to, replace: true })
         }).catch(err => {
+          // 过期 token 在此 401：logOut 已保证清理后 resolve（服务端吊销失败不阻断），
+          // 必须复位 isRelogin 并把用户送回登录页；否则 next() 永不执行，导航挂死。
+          isRelogin.show = false
           useUserStore().logOut().then(() => {
             removeToken()//LYZ四次修改：被封号直接删除token
-            ElMessage.error(err)
-            next({ path: '/' })
+            ElMessage.error(err?.message || '登录状态已过期，请重新登录')
+            next({ path: PTMJ_AUTH_ROUTES.login, replace: true, query: { redirect: to.fullPath } })
+            NProgress.done()
           })
         })
       } else {
