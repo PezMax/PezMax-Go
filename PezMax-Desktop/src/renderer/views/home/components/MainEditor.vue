@@ -553,7 +553,9 @@ const loadEpub = async () => {
   isLoadingEpub.value = true
   try {
     const ePub = (await import('epubjs')).default
-    const book = ePub(tab.url)
+    // openAs: 'epub' 强制按压缩包加载——预览 URL（/datum/ebook/content?ebookId=…）
+    // 路径无扩展名，epub.js 会误判为目录模式去请求 META-INF/container.xml 而失败
+    const book = ePub(tab.url, { openAs: 'epub' })
     const rendition = book.renderTo(epubContainer.value, { width: '100%', height: '100%', spread: 'none' })
     await rendition.display()
     // 快速切书时丢弃过期渲染
@@ -607,7 +609,8 @@ watch(() => currentFileObj.value, async (newVal) => {
     // 如果 userId 看起来像个名字而不是 ID（比如没有数字），可能需要跳过
     // 但通常 ID 可能是字符串形式的数字
     try {
-      const res = await getUser(userId)
+      // 静默查询：上传账号可能已注销，失败时展示兜底昵称即可
+      const res = await getUser(userId, { silent: true })
       // kadmin 信封 code=0 与旧 RuoYi code=200 双兼容
       if (res.code === 200 || res.code === 0) {
         contributorInfo.value = res.data?.user || res.data
@@ -615,7 +618,7 @@ watch(() => currentFileObj.value, async (newVal) => {
         console.warn('获取上传者信息接口返回异常:', res)
       }
     } catch (e) {
-      console.error('获取上传者信息请求失败:', e)
+      console.warn('获取上传者信息请求失败（账号可能已注销）:', e?.message)
     }
   }
 }, { immediate: true })

@@ -10,11 +10,12 @@ export function listUser(query) {
     })
 }
 
-// 查询平台用户详细
-export function getUser(userId) {
+// 查询平台用户详细（options.silent：贡献者信息等辅助查询静默失败，不弹全局错误提示）
+export function getUser(userId, options = {}) {
     return request({
         url: buildDatumUserApiUrl(userId),
-        method: 'get'
+        method: 'get',
+        skipErrorMsg: Boolean(options.silent)
     })
 }
 

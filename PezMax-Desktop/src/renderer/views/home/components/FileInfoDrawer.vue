@@ -178,14 +178,15 @@ watch(() => props.modelValue, async (val) => {
           
           if (!user && userId) {
             try {
-              const userRes = await getUser(userId)
+              // 静默查询：上传账号可能已注销，失败时展示兜底昵称即可
+              const userRes = await getUser(userId, { silent: true })
               // kadmin 信封 code=0 与旧 RuoYi code=200 双兼容
               if ((userRes.code === 200 || userRes.code === 0) && userRes.data) {
                 // 如果后端直接返回 SysUser 对象
                 contributorInfo.value = userRes.data.user || userRes.data
               }
             } catch (userErr) {
-              console.warn('获取贡献者详情失败:', userErr)
+              console.warn('获取贡献者详情失败（账号可能已注销）:', userErr?.message)
             }
           }
         }

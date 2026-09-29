@@ -169,28 +169,35 @@ service.interceptors.response.use(res => {
   error => {
     console.log('err' + error)
     // kadmin 原生端点以 HTTP 状态码承载错误，body 的 msg/message 为业务文案：
-    // 401 走会话失效流程，其余优先展示匹配已知模式的业务提示
+    // 401 走会话失效流程，其余优先展示匹配已知模式的业务提示；
+    // skipErrorMsg 请求（贡献者信息等辅助查询）静默失败，由调用方自行兜底。
     const responseData = error.response && error.response.data
     const serverMsg = responseData && (responseData.msg || responseData.message)
-    if (error.response && error.response.status === 401) {
+    if (!error.config?.skipErrorMsg && error.response && error.response.status === 401) {
       return handleSessionExpired()
     }
-    let { message } = error
-    if (message == "Network Error") {
-      message = "后端接口连接异常"
-    } else if (message.includes("timeout")) {
-      message = "系统接口请求超时"
-    } else if (message.includes("Request failed with status code")) {
-      message = "系统接口" + message.slice(-3) + "异常"
+    if (!error.config?.skipErrorMsg) {
+      let { message } = error
+      if (message == "Network Error") {
+        message = "后端接口连接异常"
+      } else if (message.includes("timeout")) {
+        message = "系统接口请求超时"
+      } else if (message.includes("Request failed with status code")) {
+        message = "系统接口" + message.slice(-3) + "异常"
+      }
+      let displayMsg = message
+      if (serverMsg && specificPatterns.test(serverMsg)) {
+        displayMsg = serverMsg
+      }
+      ElMessage({ message: displayMsg, type: 'error', duration: 5 * 1000 })
+      const friendlyError = new Error(displayMsg)
+      friendlyError.response = error.response
+      return Promise.reject(friendlyError)
     }
-    let displayMsg = message
-    if (serverMsg && specificPatterns.test(serverMsg)) {
-      displayMsg = serverMsg
-    }
-    ElMessage({ message: displayMsg, type: 'error', duration: 5 * 1000 })
-    const friendlyError = new Error(displayMsg)
-    friendlyError.response = error.response
-    return Promise.reject(friendlyError)
+    const silentError = new Error(serverMsg || error.message || '请求失败')
+    silentError.response = error.response
+    silentError.silent = true
+    return Promise.reject(silentError)
   }
 )
 

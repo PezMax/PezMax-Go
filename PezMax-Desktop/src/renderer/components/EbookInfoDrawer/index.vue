@@ -159,7 +159,8 @@ watch(() => props.modelValue, async (val) => {
     const userId = props.fileInfo?.userId
     if (userId) {
       try {
-        const res = await getUser(userId)
+        // 静默查询：上传账号可能已注销，失败时展示兜底昵称即可
+        const res = await getUser(userId, { silent: true })
         if ((res.code === 200 || res.code === 0) && res.data) {
           contributorInfo.value = res.data.user || res.data
         }
