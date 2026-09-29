@@ -36,6 +36,7 @@ type fakeDatumDB struct {
 	ebookFavs       [][2]int64
 	ebookReports    []map[string]interface{}
 	nextEbookReportID int64
+	nextEbookID     int64
 	fileFavs        [][2]int64
 	bookmarkFavs    map[int64]int64
 	notifications   []map[string]interface{}
@@ -548,6 +549,110 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 			rows = append(rows, map[string]interface{}{"ebook_subject": subject, "count": counts[subject]})
 		}
 		return rows, nil
+	case strings.Contains(query, "INSERT INTO ptmj_ebook\n"):
+		// 上传插入：args=(user_id, ebook_name, author, publisher, ebook_url,
+		// ebook_size, ebook_format, ebook_subject, ebook_type, create_by, update_by, remark)
+		f.nextEbookID++
+		row := map[string]interface{}{
+			"ebook_id": f.nextEbookID, "user_id": toDatumInt64(args[0]), "ebook_name": toDatumString(args[1]),
+			"author": toDatumString(args[2]), "publisher": toDatumString(args[3]), "ebook_url": toDatumString(args[4]),
+			"ebook_size": toDatumInt64(args[5]), "ebook_format": toDatumString(args[6]), "ebook_subject": toDatumString(args[7]),
+			"ebook_type": toDatumInt64(args[8]), "reviewer": "", "ebook_status": int64(0), "del_flag": int64(0),
+			"remark": toDatumString(args[11]), "create_time": "2026-09-29 16:00:00",
+		}
+		f.ebooks = append(f.ebooks, row)
+		return []map[string]interface{}{{"ebook_id": f.nextEbookID}}, nil
+	case strings.Contains(query, "report_id FROM ptmj_ebook_report"):
+		// LatestPendingReport：args[0]=ebook_id
+		latest := int64(0)
+		for _, report := range f.ebookReports {
+			if report["ebook_id"] == toDatumInt64(args[0]) && report["result"] == "0" {
+				if id := toDatumInt64(report["report_id"]); id > latest {
+					latest = id
+				}
+			}
+		}
+		if latest == 0 {
+			return nil, nil
+		}
+		return []map[string]interface{}{{"report_id": latest}}, nil
+	case strings.Contains(query, "FROM ptmj_ebook_favorite fav"):
+		// 我的电子书收藏（联查书目详情）
+		if strings.Contains(query, "count(*)") {
+			total := int64(0)
+			for _, fav := range f.ebookFavs {
+				if fav[1] != toDatumInt64(args[0]) {
+					continue
+				}
+				for _, ebook := range f.ebooks {
+					if ebook["ebook_id"] == fav[0] && toDatumInt64(ebook["del_flag"]) == 0 {
+						total++
+					}
+				}
+			}
+			return []map[string]interface{}{{"count": total}}, nil
+		}
+		rows := []map[string]interface{}{}
+		for _, fav := range f.ebookFavs {
+			if fav[1] != toDatumInt64(args[0]) {
+				continue
+			}
+			for _, ebook := range f.ebooks {
+				if ebook["ebook_id"] == fav[0] && toDatumInt64(ebook["del_flag"]) == 0 {
+					rows = append(rows, ebook)
+				}
+			}
+		}
+		if strings.Contains(query, "LIMIT ? OFFSET ?") && len(args) >= 3 {
+			size := toDatumInt64(args[len(args)-2])
+			offset := toDatumInt64(args[len(args)-1])
+			if offset >= int64(len(rows)) {
+				return nil, nil
+			}
+			rows = rows[offset:]
+			if size > 0 && size < int64(len(rows)) {
+				rows = rows[:size]
+			}
+		}
+		return rows, nil
+	case strings.Contains(query, "FROM ptmj_ebook_report"):
+		if strings.Contains(query, "count(*)") {
+			total := int64(0)
+			for _, report := range f.ebookReports {
+				if report["user_id"] == toDatumInt64(args[0]) {
+					total++
+				}
+			}
+			return []map[string]interface{}{{"count": total}}, nil
+		}
+		rows := []map[string]interface{}{}
+		for _, report := range f.ebookReports {
+			if report["user_id"] != toDatumInt64(args[0]) {
+				continue
+			}
+			name := fmt.Sprintf("ebook-%d", report["ebook_id"])
+			for _, ebook := range f.ebooks {
+				if ebook["ebook_id"] == report["ebook_id"] {
+					name = toDatumString(ebook["ebook_name"])
+				}
+			}
+			rows = append(rows, map[string]interface{}{
+				"report_id": report["report_id"], "ebook_id": report["ebook_id"], "ebook_name": name,
+				"reason": report["reason"], "result": report["result"], "create_time": report["create_time"],
+			})
+		}
+		if strings.Contains(query, "LIMIT ? OFFSET ?") && len(args) >= 3 {
+			size := toDatumInt64(args[len(args)-2])
+			offset := toDatumInt64(args[len(args)-1])
+			if offset >= int64(len(rows)) {
+				return nil, nil
+			}
+			rows = rows[offset:]
+			if size > 0 && size < int64(len(rows)) {
+				rows = rows[:size]
+			}
+		}
+		return rows, nil
 	case strings.Contains(query, "FROM ptmj_ebook_favorite"):
 		rows := []map[string]interface{}{}
 		for _, fav := range f.ebookFavs {
@@ -569,6 +674,7 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 		f.nextEbookReportID++
 		f.ebookReports = append(f.ebookReports, map[string]interface{}{
 			"report_id": f.nextEbookReportID, "ebook_id": ebookID, "user_id": userID,
+			"reason": toDatumString(args[2]), "result": "0", "create_time": "2026-09-29 16:00:00",
 		})
 		return []map[string]interface{}{{"report_id": f.nextEbookReportID}}, nil
 	case strings.Contains(query, "count(*)") && strings.Contains(query, "FROM ptmj_ebook"):
@@ -704,6 +810,49 @@ func (f *fakeDatumDB) Exec(query string, args ...interface{}) (sql.Result, error
 			"download_id": f.nextDownloadID, "file_id": toDatumInt64(args[0]), "user_id": toDatumInt64(args[1]),
 			"creat_time": "2026-09-22 10:00:00",
 		})
+	case strings.Contains(query, "UPDATE ptmj_ebook SET del_flag"):
+		// 属主软删：args=(ebook_id, user_id)
+		affected := int64(0)
+		for _, ebook := range f.ebooks {
+			if ebook["ebook_id"] == toDatumInt64(args[0]) && ebook["user_id"] == toDatumInt64(args[1]) && toDatumInt64(ebook["del_flag"]) == 0 {
+				ebook["del_flag"] = int64(1)
+				affected++
+			}
+		}
+		return fakeDatumResult{rows: affected}, nil
+	case strings.Contains(query, "UPDATE ptmj_ebook SET ebook_status = 1"):
+		// 一键通过某用户全部待审：args=(reviewer, user_id)
+		affected := int64(0)
+		for _, ebook := range f.ebooks {
+			if ebook["user_id"] == toDatumInt64(args[1]) && toDatumInt64(ebook["ebook_status"]) == 0 && toDatumInt64(ebook["del_flag"]) == 0 {
+				ebook["ebook_status"] = int64(1)
+				ebook["reviewer"] = toDatumString(args[0])
+				affected++
+			}
+		}
+		return fakeDatumResult{rows: affected}, nil
+	case strings.Contains(query, "UPDATE ptmj_ebook SET ebook_status"):
+		// SetStatus：args=(status, reviewer, ebook_id)
+		affected := int64(0)
+		for _, ebook := range f.ebooks {
+			if ebook["ebook_id"] == toDatumInt64(args[2]) {
+				ebook["ebook_status"] = toDatumInt64(args[0])
+				ebook["reviewer"] = toDatumString(args[1])
+				affected++
+			}
+		}
+		return fakeDatumResult{rows: affected}, nil
+	case strings.Contains(query, "UPDATE ptmj_ebook_report SET result"):
+		// SetResult：args=(result, remark, reviewer, report_id)
+		affected := int64(0)
+		for _, report := range f.ebookReports {
+			if report["report_id"] == toDatumInt64(args[3]) {
+				report["result"] = toDatumString(args[0])
+				report["remark"] = toDatumString(args[1])
+				affected++
+			}
+		}
+		return fakeDatumResult{rows: affected}, nil
 	case strings.Contains(query, "INSERT INTO ptmj_ebook_download"):
 		f.ebookDownloads++
 		return fakeDatumResult{rows: 1}, nil

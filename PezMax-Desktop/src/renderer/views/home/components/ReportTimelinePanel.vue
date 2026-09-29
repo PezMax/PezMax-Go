@@ -26,6 +26,9 @@
         >
           <div class="report-item-header">
             <span class="report-file-id">{{ getReportFileName(report) }}</span>
+            <span class="report-kind-badge" :class="report._kind === 'ebook' ? 'kind-ebook' : 'kind-file'">
+              {{ report._kind === 'ebook' ? '电子书' : '试卷' }}
+            </span>
             <el-tag :type="getStatusType(report.result)" size="small">
               {{ getStatusLabel(report.result) }}
             </el-tag>
@@ -108,6 +111,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { listReport, getReportTimeline } from '@/api/datum/report'
+import { listMyEbookReports } from '@/api/datum/ebook'
 import { ElMessage } from 'element-plus'
 import { RefreshRight, Back } from '@element-plus/icons-vue'
 import useUserStore from '@/store/modules/user'
@@ -134,20 +138,24 @@ const fetchMyReports = async () => {
       loading.value = false
       return
     }
-    
-    const res = await listReport({
-      pageNum: 1,
-      pageSize: 100,
-      userId: userId
-    })
-    if (res.code === 200) {
-      myReports.value = Array.isArray(res.rows) ? res.rows : Array.isArray(res.data) ? res.data : []
-    } else if (Array.isArray(res.rows)) {
-      myReports.value = res.rows
-    } else {
-      ElMessage.error(res.msg || '获取举报列表失败')
-      myReports.value = []
-    }
+
+    // 合并试卷举报与电子书举报（同一条举报时间线，_kind 标记来源）
+    const [fileRes, ebookRes] = await Promise.allSettled([
+      listReport({ pageNum: 1, pageSize: 100, userId }),
+      listMyEbookReports({ pageNum: 1, pageSize: 100, userId })
+    ])
+
+    const fileRows = fileRes.status === 'fulfilled'
+      ? (Array.isArray(fileRes.value?.rows) ? fileRes.value.rows : Array.isArray(fileRes.value?.data) ? fileRes.value.data : [])
+      : []
+    const ebookRows = ebookRes.status === 'fulfilled'
+      ? (Array.isArray(ebookRes.value?.rows) ? ebookRes.value.rows : Array.isArray(ebookRes.value?.data) ? ebookRes.value.data : [])
+      : []
+
+    myReports.value = [
+      ...fileRows.map(row => ({ ...row, _kind: 'file' })),
+      ...ebookRows.map(row => ({ ...row, _kind: 'ebook', fileName: row.ebookName || row.fileName }))
+    ].sort((a, b) => `${b.createTime || ''}`.localeCompare(`${a.createTime || ''}`))
   } catch (error) {
     console.error('获取举报列表异常:', error)
     ElMessage.error('加载举报列表失败')
@@ -160,6 +168,17 @@ const fetchMyReports = async () => {
 const selectReport = async (report) => {
   selectedReport.value = report
   timeline.value = null
+  // 电子书举报没有独立的时间线接口：从举报单自身合成进度数据
+  if (report._kind === 'ebook') {
+    timeline.value = {
+      createTime: report.createTime,
+      updateTime: report.updateTime,
+      reason: report.reason,
+      remark: report.remark
+    }
+    timelineLoading.value = false
+    return
+  }
   timelineLoading.value = true
   try {
     const reportId = report.reportId || report.id
@@ -306,14 +325,34 @@ onMounted(() => {
 .report-item-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 6px;
 }
 
 .report-file-id {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
   color: var(--ide-text-active);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.report-kind-badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 16px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--ide-accent, #409eff);
+
+  &.kind-ebook {
+    background: #16a34a;
+  }
 }
 
 .report-item-reason {

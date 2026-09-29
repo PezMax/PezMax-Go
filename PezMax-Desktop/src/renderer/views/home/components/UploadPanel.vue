@@ -31,7 +31,17 @@
             <p>支持 PDF, Word, 图片等格式</p>
           </div>
         </div>
-        
+
+        <div class="action-card" @click="triggerEbookSelect">
+          <div class="icon-wrapper folder-icon-bg">
+            <svg-icon icon-class="education" class="card-icon" />
+          </div>
+          <div class="card-text">
+            <h4>上传电子书</h4>
+            <p>支持 PDF, EPUB, MOBI, AZW3 格式</p>
+          </div>
+        </div>
+
         <div class="action-card" @click="triggerFolderSelect">
           <div class="icon-wrapper folder-icon-bg">
             <svg-icon icon-class="nested" class="card-icon" />
@@ -85,10 +95,10 @@
                 class="upload-error-alert"
               />
             </transition>
-            <el-form-item label="资源名称">
-              <el-input v-model="uploadForm.fileName" placeholder="给这份资料起个清晰的名字" class="modern-input" />
+            <el-form-item :label="isEbookKind ? '书名' : '资源名称'">
+              <el-input v-model="uploadForm.fileName" :placeholder="isEbookKind ? '给这本书起个清晰的名字' : '给这份资料起个清晰的名字'" class="modern-input" />
             </el-form-item>
-            <el-form-item label="学校名称">
+            <el-form-item v-if="!isEbookKind" label="学校名称">
               <el-autocomplete
                 v-model="uploadForm.fileSchool"
                 :fetch-suggestions="querySearchSchool"
@@ -121,11 +131,11 @@
                 </template>
               </el-autocomplete>
             </el-form-item>
-            <el-form-item label="所属学科">
+            <el-form-item :label="isEbookKind ? '学科分类' : '所属学科'">
               <el-autocomplete
                 v-model="uploadForm.fileSubject"
                 :fetch-suggestions="querySearchSubject"
-                placeholder="如: 高等数学"
+                :placeholder="isEbookKind ? '如: 高等数学' : '如: 高等数学'"
                 class="modern-input w-full"
                 clearable
                 @select="handleSubjectSelect"
@@ -153,7 +163,15 @@
                 </template>
               </el-autocomplete>
             </el-form-item>
-            <div class="form-row">
+            <div class="form-row" v-if="isEbookKind">
+              <el-form-item label="作者" class="flex-1">
+                <el-input v-model="uploadForm.author" placeholder="选填" class="modern-input" />
+              </el-form-item>
+              <el-form-item label="出版社" class="flex-1">
+                <el-input v-model="uploadForm.publisher" placeholder="选填" class="modern-input" />
+              </el-form-item>
+            </div>
+            <div class="form-row" v-if="!isEbookKind">
               <el-form-item label="文件年份" class="flex-1">
                 <el-input v-model="uploadForm.fileYear" placeholder="如: 2023" class="modern-input" />
               </el-form-item>
@@ -168,6 +186,14 @@
                 </el-select>
               </el-form-item>
             </div>
+            <el-form-item v-else label="电子书类型">
+              <el-select v-model="uploadForm.ebookType" placeholder="选择类型" class="modern-select w-full" :teleported="false">
+                <el-option label="教材" :value="1" />
+                <el-option label="教辅/参考书" :value="2" />
+                <el-option label="课外读物" :value="3" />
+                <el-option label="其他" :value="4" />
+              </el-select>
+            </el-form-item>
             <div class="form-actions">
               <template v-if="!isUploading">
                 <el-button class="action-btn cancel-btn" @click="resetUpload">
@@ -320,6 +346,8 @@ const uploadErrorMsg = computed({
   set: (val) => { uploadStore.uploadErrorMsg = val }
 })
 const uploadForm = uploadStore.uploadForm
+// 上传内容类型：exam-试卷资料，ebook-电子书（表单字段与提交端点随类型切换）
+const isEbookKind = computed(() => uploadStore.uploadKind === 'ebook')
 
 // focus 时请求热门学科
 const handleSubjectFocus = async () => {
@@ -471,6 +499,7 @@ const handleDrop = async (e) => {
 
   console.log('拖拽文件详情:', { name: file.name, path: filePath, size: file.size })
 
+  uploadStore.uploadKind = 'exam'
   setFile({
     path: filePath,
     name: file.name,
@@ -494,6 +523,38 @@ const triggerFileSelect = async () => {
         return
       }
 
+      uploadStore.uploadKind = 'exam'
+      setFile(fileInfo)
+    }
+  } catch (error) {
+    console.error('选择文件失败:', error)
+    ElMessage.error('选择文件失败')
+  }
+}
+
+// 电子书上传：仅支持 pdf/epub/mobi/azw3，落库即待审并计入排行榜计数器
+const EBOOK_EXTENSIONS = ['pdf', 'epub', 'mobi', 'azw3']
+
+const triggerEbookSelect = async () => {
+  if (!window.electronAPI?.selectFile) {
+    ElMessage.error('Electron 接口未加载，无法选择文件')
+    return
+  }
+
+  try {
+    const fileInfo = await window.electronAPI.selectFile()
+    if (fileInfo) {
+      const ext = (fileInfo.name.split('.').pop() || '').toLowerCase()
+      if (!EBOOK_EXTENSIONS.includes(ext)) {
+        ElMessage.warning('不支持的电子书格式：仅支持 PDF/EPUB/MOBI/AZW3')
+        return
+      }
+      if (fileInfo.size > 52428800) {
+        ElMessage.warning(`单文件大小不能超过 50MB (当前文件: ${formatSize(fileInfo.size)})`)
+        return
+      }
+
+      uploadStore.uploadKind = 'ebook'
       setFile(fileInfo)
     }
   } catch (error) {
@@ -559,7 +620,25 @@ const submitUpload = async () => {
     ElMessage.warning('请先选择需要上传的文件')
     return
   }
-  
+
+  // 电子书上传：学科 + 类型必填，无学校/年份概念
+  if (uploadStore.uploadKind === 'ebook') {
+    const currentSubject = uploadForm.fileSubject.trim()
+    if (!currentSubject) {
+      ElMessage.warning('请填写学科分类')
+      return
+    }
+    if (!uploadForm.ebookType) {
+      ElMessage.warning('请选择电子书类型')
+      return
+    }
+    const result = await uploadStore.performUpload()
+    if (result.success && result.autoJump) {
+      emit('change-view', 'explorer')
+    }
+    return
+  }
+
   const currentSchool = uploadForm.fileSchool.trim()
   if (!currentSchool) {
     ElMessage.warning('请填写学校名称')

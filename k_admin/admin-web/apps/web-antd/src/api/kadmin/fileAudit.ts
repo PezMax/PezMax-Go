@@ -65,44 +65,53 @@ function queryString(filters: object) {
   return query ? `?${query}` : '';
 }
 
-/** 待审核队列（fileStatus = 0）。 */
+/** 待审核队列（fileStatus = 0）。kind=ebook 时走电子书待审队列。 */
 export function fetchPendingFiles(
-  filters: PendingFileFilters,
+  filters: PendingFileFilters & { kind?: 'exam' | 'ebook' },
 ): Promise<FileAuditPageResult<ExamFile>> {
   return request<FileAuditPageResult<ExamFile>>(
     `/api/exam-file-audit/pending${queryString(filters)}`,
   );
 }
 
-/** 被举报复审队列（fileStatus = 3，联查最新待处理举报单）。 */
+/** 被举报复审队列（fileStatus = 3，联查最新待处理举报单）。kind=ebook 走电子书队列。 */
 export function fetchReportedFiles(
-  filters: ReportedFileFilters,
+  filters: ReportedFileFilters & { kind?: 'exam' | 'ebook' },
 ): Promise<FileAuditPageResult<ReportedExamFile>> {
   return request<FileAuditPageResult<ReportedExamFile>>(
     `/api/exam-file-audit/reported${queryString(filters)}`,
   );
 }
 
-/** 多选一键通过。 */
-export function approveFiles(fileIds: number[]): Promise<{ approved: number }> {
+/** 多选一键通过。kind=ebook 时通过电子书待审。 */
+export function approveFiles(
+  fileIds: number[],
+  kind: 'exam' | 'ebook' = 'exam',
+): Promise<{ approved: number }> {
   return request<{ approved: number }>(`/api/exam-file-audit/approve`, {
-    body: JSON.stringify({ fileIds }),
+    body: JSON.stringify({ fileIds, kind }),
     method: 'POST',
   });
 }
 
-/** 单个用户的全部待审核文件一键通过。 */
-export function approveUserFiles(userId: number): Promise<{ approved: number }> {
+/** 单个用户的全部待审核文件一键通过。kind=ebook 时通过电子书待审。 */
+export function approveUserFiles(
+  userId: number,
+  kind: 'exam' | 'ebook' = 'exam',
+): Promise<{ approved: number }> {
   return request<{ approved: number }>(`/api/exam-file-audit/approve-user`, {
-    body: JSON.stringify({ userId }),
+    body: JSON.stringify({ userId, kind }),
     method: 'POST',
   });
 }
 
 /** 查询某用户当前待审核文件数量（用于二次确认文案）。 */
-export async function countPendingByUser(userId: number): Promise<number> {
+export async function countPendingByUser(
+  userId: number,
+  kind: 'exam' | 'ebook' = 'exam',
+): Promise<number> {
   const result = await request<FileAuditPageResult<ExamFile>>(
-    `/api/exam-file-audit/pending${queryString({ page: 1, pageSize: 1, userId })}`,
+    `/api/exam-file-audit/pending${queryString({ page: 1, pageSize: 1, userId, kind })}`,
   );
   return result.total;
 }
@@ -111,6 +120,7 @@ export async function countPendingByUser(userId: number): Promise<number> {
 export function rejectPendingFile(input: {
   fileId: number;
   reason: string;
+  kind?: 'exam' | 'ebook';
 }): Promise<void> {
   return request<unknown>(`/api/exam-file-audit/reject`, {
     body: JSON.stringify(input),
@@ -123,6 +133,7 @@ export function auditReportedFile(input: {
   fileId: number;
   decision: 'approve' | 'reject';
   reason: string;
+  kind?: 'exam' | 'ebook';
 }): Promise<void> {
   return request<unknown>(`/api/exam-file-audit/audit`, {
     body: JSON.stringify(input),

@@ -32,6 +32,13 @@
           </el-tooltip>
         </template>
       </el-table-column>
+      <el-table-column label="类别" width="90">
+        <template #default="{ row }">
+          <span class="record-kind-badge" :class="{ 'kind-ebook': isEbookRecord(row) }">
+            {{ isEbookRecord(row) ? '电子书' : '试卷' }}
+          </span>
+        </template>
+      </el-table-column>
       <el-table-column label="文件类型" prop="fileFormat" min-width="120" />
       <el-table-column label="文件大小" min-width="120">
         <template #default="{ row }">
@@ -113,6 +120,9 @@ function truncateFileName(name) {
   if (!name) return '-'
   return name.length > 10 ? name.slice(0, 10) + '...' : name
 }
+
+// 电子书下载记录以负数 fileId 落库（避免与试卷 fileId 混淆）
+const isEbookRecord = (row) => Number(row.fileId) < 0
 
 const resolveCurrentUser = () => {
   const id = userStore.id ? Number(userStore.id) : 0
@@ -440,6 +450,20 @@ defineExpose({ refresh: loadList, total })
 .row-action .el-icon {
   color: currentColor;
   margin-right: 5px;
+}
+.record-kind-badge {
+  display: inline-block;
+  padding: 0 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 18px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--ide-accent, #409eff);
+
+  &.kind-ebook {
+    background: #16a34a;
+  }
 }
 @media (max-width: 768px) {
   .top-bar {

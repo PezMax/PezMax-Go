@@ -9,12 +9,17 @@ const useUploadStore = defineStore('upload', {
     selectedFile: null, // { path: '...', name: '...', size: 1024, isFolder: false, files: [] }
     uploadProgress: { current: 0, total: 0 },
     uploadErrorMsg: '',
+    // 上传内容类型：exam-试卷资料（走 /datum/file），ebook-电子书（走 /datum/ebook/upload）
+    uploadKind: 'exam',
     uploadForm: {
       fileName: '',
       fileSchool: '',
       fileSubject: '',
       fileYear: '',
-      fileType: null
+      fileType: null,
+      author: '',
+      publisher: '',
+      ebookType: null
     },
     isCancelled: false
   }),
@@ -39,6 +44,10 @@ const useUploadStore = defineStore('upload', {
       this.uploadForm.fileSubject = ''
       this.uploadForm.fileYear = ''
       this.uploadForm.fileType = null
+      this.uploadForm.author = ''
+      this.uploadForm.publisher = ''
+      this.uploadForm.ebookType = null
+      this.uploadKind = 'exam'
       this.isUploading = false
       this.isCancelled = false
 
@@ -79,6 +88,33 @@ const useUploadStore = defineStore('upload', {
         const baseUrl = import.meta.env.VITE_APP_TARGET_URL || 'http://127.0.0.1:9033'
 
         if (!this.selectedFile.isFolder) {
+          // 电子书上传：专有端点 /datum/ebook/upload，落库即待审并计入排行榜计数器
+          if (this.uploadKind === 'ebook') {
+            const metadata = {
+              ebookName: this.uploadForm.fileName,
+              author: this.uploadForm.author || '',
+              publisher: this.uploadForm.publisher || '',
+              ebookSubject: this.uploadForm.fileSubject,
+              ebookType: this.uploadForm.ebookType,
+              fileSize: this.selectedFile.size || 0
+            }
+            const res = await window.electronAPI.uploadFile({
+              filePath: this.selectedFile.path,
+              metadata,
+              token,
+              baseUrl,
+              customApiUrl: `${baseUrl}/datum/ebook/upload`
+            })
+            if (res.code === 200 || res.code === 0) {
+              const userStore = useUserStore()
+              userStore.count += 1
+              this.uploadStep = 2
+              return { success: true, autoJump: false }
+            }
+            this.uploadErrorMsg = this.formatErrorMessage(res.msg)
+            return { success: false, msg: this.uploadErrorMsg }
+          }
+
           const metadata = {
             fileName: this.uploadForm.fileName,
             fileSchool: this.uploadForm.fileSchool || '',

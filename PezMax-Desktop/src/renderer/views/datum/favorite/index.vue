@@ -12,11 +12,14 @@
         <button :class="{ active: activeType === 'file' }" @click="activeType = 'file'">
           <span>文件</span>
         </button>
+        <button :class="{ active: activeType === 'ebook' }" @click="activeType = 'ebook'">
+          <span>电子书</span>
+        </button>
         <button :class="{ active: activeType === 'bookmark' }" @click="activeType = 'bookmark'">
           <span>书签</span>
         </button>
       </div>
-      <el-input v-model.trim="query.keyword" :placeholder="activeType === 'file' ? '按科目筛选' : '按书签标题、链接或专栏筛选'" clearable @keyup.enter="loadList">
+      <el-input v-model.trim="query.keyword" :placeholder="favoriteSearchPlaceholder" clearable @keyup.enter="loadList">
         <template #prefix>
           <el-icon><Search /></el-icon>
         </template>
@@ -52,6 +55,37 @@
           <el-icon class="empty-icon"><Star /></el-icon>
           <div class="empty-title">暂无收藏</div>
           <div class="empty-desc">收藏的试卷和资料会显示在这里</div>
+        </div>
+      </template>
+    </el-table>
+
+    <el-table v-else-if="activeType === 'ebook'" v-loading="loading" :data="pagedList" class="panel-table" empty-text="暂无收藏电子书">
+      <el-table-column label="书名" prop="fileName" min-width="220" show-overflow-tooltip />
+      <el-table-column label="学科分类" prop="subject" min-width="110" />
+      <el-table-column label="格式" prop="fileFormat" width="90" />
+      <el-table-column label="大小" prop="fileSize" min-width="110" />
+      <el-table-column label="操作" width="260" align="center" class-name="action-column" header-class-name="action-column">
+        <template #default="{ row }">
+          <el-button class="row-action download-action" :loading="downloadingIds.has(`ebook-${row.fileId}`)" @click="downloadEbook(row)">
+            <el-icon><Download /></el-icon>
+            <span>下载</span>
+          </el-button>
+          <el-button class="row-action jump-action" @click="jumpToEbook(row)">
+            <span>跳转</span>
+          </el-button>
+          <el-button class="row-action favorite-action" :loading="removingIds.has(`ebook-${row.fileId}`)" @click="removeItem(row)">
+            <svg class="heart-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 21.35 10.55 20.03C5.4 15.36 2 12.27 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.77-3.4 6.86-8.55 11.54L12 21.35z" />
+            </svg>
+            <span>取消</span>
+          </el-button>
+        </template>
+      </el-table-column>
+      <template #empty>
+        <div class="empty-state">
+          <el-icon class="empty-icon"><Star /></el-icon>
+          <div class="empty-title">暂无收藏电子书</div>
+          <div class="empty-desc">收藏的电子书会显示在这里</div>
         </div>
       </template>
     </el-table>
@@ -93,7 +127,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, watch, onMounted } from 'vue'
+import { reactive, ref, watch, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Star, Download } from '@element-plus/icons-vue'
@@ -101,6 +135,7 @@ import useUserStore from '@/store/modules/user'
 import { getInfo } from '@/api/login'
 import { listFavorite, delFavorite } from '@/api/datum/favorite'
 import { listFavoriteBookmark, delBookmarkFavorite } from '@/api/datum/bookmarkFavorite'
+import { listDesktopEbookFavorite, delDesktopEbookFavorite, ebookDownloadUrl, ebookPreviewUrl } from '@/api/datum/ebook'
 import { getToken } from '@/utils/auth'
 import { fetchAllPages } from '@/utils/pagination'
 
@@ -175,6 +210,21 @@ const buildFileMeta = async (row) => {
   }
 }
 
+const buildEbookMeta = (row) => {
+  return {
+    ...row,
+    // 统一映射到文件表格的字段名，下载/跳转/取消逻辑复用同一套 id 约定
+    fileId: row.ebookId ?? row.fileId,
+    fileName: truncateFileName(row.ebookName) || `电子书-${row.ebookId}`,
+    fileFormat: row.ebookFormat || '-',
+    fileSize: formatFileSizeBytes(row.ebookSize),
+    subject: row.ebookSubject || row.subject || '-',
+    fileUrl: row.ebookUrl || '',
+    ebookStatus: row.ebookStatus,
+    userId: row.userId
+  }
+}
+
 const buildBookmarkMeta = (row) => {
   return {
     ...row,
@@ -196,22 +246,26 @@ const loadList = async () => {
       await resolveCurrentUser()
     }
     // 单页上限 100：按 total 逐页拉全量后本地过滤/分页（与原 pageSize=1000 行为一致）
-    const res = await fetchAllPages(
-      (query) => activeType.value === 'file'
-        ? listFavorite(query)
-        : listFavoriteBookmark(query),
-      { userId: currentUserId.value }
-    )
+    const lister = activeType.value === 'file'
+      ? listFavorite
+      : activeType.value === 'ebook'
+        ? listDesktopEbookFavorite
+        : listFavoriteBookmark
+    const res = await fetchAllPages(lister, { userId: currentUserId.value })
     const source = res.rows || []
     const rows = activeType.value === 'file'
       ? await Promise.all(source.map(buildFileMeta))
-      : source.map(buildBookmarkMeta)
+      : activeType.value === 'ebook'
+        ? source.map(buildEbookMeta)
+        : source.map(buildBookmarkMeta)
     const keyword = query.keyword.toLowerCase()
     list.value = keyword
       ? rows.filter((item) => {
         const fields = activeType.value === 'file'
           ? [item.subject]
-          : [item.title, item.url, item.collection, item.subject, item.description]
+          : activeType.value === 'ebook'
+            ? [item.subject, item.author, item.publisher]
+            : [item.title, item.url, item.collection, item.subject, item.description]
         return fields.some((value) => `${value || ''}`.toLowerCase().includes(keyword))
       })
       : rows
@@ -231,20 +285,26 @@ const resetQuery = () => {
 
 const removeItem = async (row) => {
   const isBookmark = activeType.value === 'bookmark'
-  const id = isBookmark ? `bookmark-${row.id}` : row.fileId
+  const isEbook = activeType.value === 'ebook'
+  const id = isBookmark ? `bookmark-${row.id}` : isEbook ? `ebook-${row.fileId}` : row.fileId
   const title = isBookmark ? row.title : row.fileName
   await ElMessageBox.confirm(`确认取消收藏「${title}」吗？`, '提示', { type: 'warning' })
   removingIds.add(id)
   try {
     if (isBookmark) {
       await delBookmarkFavorite(currentUserId.value, row.id)
+    } else if (isEbook) {
+      await delDesktopEbookFavorite(currentUserId.value, row.fileId)
     } else {
       await delFavorite(currentUserId.value, row.fileId)
     }
     ElMessage.success('已取消收藏')
-    window.dispatchEvent(new CustomEvent('favorite-updated', {
-      detail: isBookmark ? { bookmarkId: row.id, favorited: false, type: 'bookmark' } : { fileId: row.fileId, favorited: false, type: 'file' }
-    }))
+    const detail = isBookmark
+      ? { bookmarkId: row.id, favorited: false, type: 'bookmark' }
+      : isEbook
+        ? { ebookId: row.fileId, favorited: false, type: 'ebook' }
+        : { fileId: row.fileId, favorited: false, type: 'file' }
+    window.dispatchEvent(new CustomEvent('favorite-updated', { detail }))
     await loadList()
   } finally {
     removingIds.delete(id)
@@ -307,6 +367,88 @@ const jumpToFile = (row) => {
   sessionStorage.setItem('pendingOpenFile', JSON.stringify(fileData))
   router.push('/index')
 }
+
+// 电子书下载：/datum/download/ebook 专有端点（落 ptmj_ebook_download 记录）+
+// 本地 SQLite 下载记录（ebook 前缀类型，与试卷记录同一张表）
+const downloadEbook = async (row) => {
+  const ebookId = row.fileId
+  const format = String(row.fileFormat || '').toLowerCase()
+  const fileName = (row.ebookName || row.fileName || `电子书-${ebookId}`) + (format && format !== '-' ? `.${format}` : '')
+
+  downloadingIds.add(`ebook-${ebookId}`)
+  try {
+    const result = await window.electronAPI.downloadFileDirectly({
+      url: ebookDownloadUrl(ebookId),
+      fileName,
+      token: getToken()
+    })
+    if (result && result.success) {
+      ElMessage.success(`下载完成: ${fileName}`)
+      try {
+        await window.electronAPI.downloadRecords.add({
+          fileId: -Number(ebookId) || 0, // 负数 id 标记电子书记录，避免与试卷 fileId 混淆
+          fileName,
+          fileUrl: row.fileUrl || '',
+          fileSize: Number(row.ebookSize) || 0,
+          fileFormat: row.fileFormat || '',
+          fileSchool: '',
+          fileSubject: row.ebookSubject || row.subject || '',
+          fileYear: null,
+          fileType: row.ebookType != null ? Number(row.ebookType) : null,
+          localPath: result.filePath || '',
+          userId: userStore.id ? Number(userStore.id) : null
+        })
+        await window.electronAPI.downloadRecords.flush()
+      } catch (e) {
+        console.warn('记录电子书下载失败:', e)
+      }
+    } else if (!result || result.reason !== 'canceled') {
+      ElMessage.error(`保存失败: ${(result && result.message) || '未知错误'}`)
+    }
+  } catch (e) {
+    console.error('电子书下载出错:', e)
+    ElMessage.error(`下载失败：${e?.message || '请检查网络'}`)
+  } finally {
+    downloadingIds.delete(`ebook-${ebookId}`)
+  }
+}
+
+// 跳转到首页并打开电子书预览（与试卷跳转同一 pendingOpenFile 通道）
+const jumpToEbook = (row) => {
+  const format = String(row.fileFormat || '').toLowerCase()
+  const ebookData = {
+    id: `ebook-${row.fileId}`,
+    rawId: row.fileId,
+    label: row.ebookName || row.fileName,
+    type: 'ebook',
+    fileExt: format,
+    cover: row.coverUrl || '',
+    ebookSize: row.ebookSize,
+    ebookSubject: row.ebookSubject || row.subject,
+    ebookType: row.ebookType,
+    userId: row.userId,
+    originalData: {
+      type: 'ebook',
+      rawId: row.fileId,
+      ebookId: row.fileId,
+      ebookName: row.ebookName || row.fileName,
+      ebookFormat: format,
+      ebookUrl: row.fileUrl,
+      ebookSize: row.ebookSize,
+      ebookSubject: row.ebookSubject || row.subject,
+      ebookType: row.ebookType,
+      userId: row.userId
+    }
+  }
+  sessionStorage.setItem('pendingOpenFile', JSON.stringify(ebookData))
+  router.push('/index')
+}
+
+const favoriteSearchPlaceholder = computed(() => {
+  if (activeType.value === 'file') return '按科目筛选'
+  if (activeType.value === 'ebook') return '按学科、作者或出版社筛选'
+  return '按书签标题、链接或专栏筛选'
+})
 
 watch(activeType, () => {
   query.pageNum = 1

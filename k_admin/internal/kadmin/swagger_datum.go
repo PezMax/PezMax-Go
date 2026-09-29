@@ -382,6 +382,68 @@ func swaggerDatumEbookFavoriteRemove() {}
 // @Router /datum/ebook/report [post]
 func swaggerDatumEbookReportCreate() {}
 
+// swaggerDatumEbookUpload documents POST /datum/ebook/upload.
+// @Summary 上传电子书（属主；落库待审并计入排行榜计数器）
+// @Tags 桌面端电子书
+// @Accept multipart/form-data
+// @Param file formData file true "电子书文件（pdf/epub/mobi/azw3）"
+// @Param ebookName formData string false "书名（默认取文件名）"
+// @Param author formData string false "作者"
+// @Param publisher formData string false "出版社"
+// @Param ebookSubject formData string true "学科分类"
+// @Param ebookType formData int true "类型：1-教材，2-教辅/参考书，3-课外读物，4-其他"
+// @Success 200 {object} SwaggerResponse
+// @Failure 400 {object} SwaggerErrorResponse
+// @Failure 401 {object} SwaggerErrorResponse
+// @Router /datum/ebook/upload [post]
+func swaggerDatumEbookUpload() {}
+
+// swaggerDatumEbookDelete documents DELETE /datum/ebook/{ebookId}.
+// @Summary 删除自己的电子书（软删，回退排行榜计数器）
+// @Tags 桌面端电子书
+// @Param ebookId path int true "电子书 ID"
+// @Success 200 {object} SwaggerResponse
+// @Failure 401 {object} SwaggerErrorResponse
+// @Failure 404 {object} SwaggerErrorResponse
+// @Router /datum/ebook/{ebookId} [delete]
+func swaggerDatumEbookDelete() {}
+
+// swaggerDatumEbookReportList documents GET /datum/ebook/report/list.
+// @Summary 我的电子书举报列表（与 /datum/report/list 同契约）
+// @Tags 桌面端电子书
+// @Param userId query int false "用户 ID（须为会话用户）"
+// @Param page query int false "页码"
+// @Param pageSize query int false "每页数量"
+// @Success 200 {object} SwaggerTableDataResponse
+// @Failure 401 {object} SwaggerErrorResponse
+// @Failure 403 {object} SwaggerErrorResponse
+// @Router /datum/ebook/report/list [get]
+func swaggerDatumEbookReportList() {}
+
+// swaggerDatumMyEbookFavorites documents GET /datum/desktop/ebook/favorite/list/{userId}.
+// @Summary 我的电子书收藏列表（联查书目详情）
+// @Tags 桌面端活动
+// @Param userId path int true "用户 ID"
+// @Param page query int false "页码"
+// @Param pageSize query int false "每页数量"
+// @Success 200 {object} SwaggerTableDataResponse
+// @Failure 401 {object} SwaggerErrorResponse
+// @Failure 403 {object} SwaggerErrorResponse
+// @Router /datum/desktop/ebook/favorite/list/{userId} [get]
+func swaggerDatumMyEbookFavorites() {}
+
+// swaggerDatumMyEbookFavoriteRemove documents DELETE /datum/desktop/ebook/favorite/{userId}/{ebookId}.
+// @Summary 取消收藏电子书（属主）
+// @Tags 桌面端活动
+// @Param userId path int true "用户 ID"
+// @Param ebookId path int true "电子书 ID"
+// @Success 200 {object} SwaggerResponse
+// @Failure 401 {object} SwaggerErrorResponse
+// @Failure 403 {object} SwaggerErrorResponse
+// @Failure 404 {object} SwaggerErrorResponse
+// @Router /datum/desktop/ebook/favorite/{userId}/{ebookId} [delete]
+func swaggerDatumMyEbookFavoriteRemove() {}
+
 // swaggerDatumFileTree documents GET /datum/file/tree.
 // @Summary 试卷文件树（匿名，哈希缓存协议）
 // @Tags 桌面端文件

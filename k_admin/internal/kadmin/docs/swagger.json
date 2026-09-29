@@ -2389,6 +2389,105 @@
                 }
             }
         },
+        "/datum/desktop/ebook/favorite/list/{userId}": {
+            "get": {
+                "tags": [
+                    "桌面端活动"
+                ],
+                "summary": "我的电子书收藏列表（联查书目详情）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "用户 ID",
+                        "name": "userId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页数量",
+                        "name": "pageSize",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerTableDataResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/datum/desktop/ebook/favorite/{userId}/{ebookId}": {
+            "delete": {
+                "tags": [
+                    "桌面端活动"
+                ],
+                "summary": "取消收藏电子书（属主）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "用户 ID",
+                        "name": "userId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "电子书 ID",
+                        "name": "ebookId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/datum/desktop/favorite/list/{userId}": {
             "get": {
                 "tags": [
@@ -3300,6 +3399,54 @@
                 }
             }
         },
+        "/datum/ebook/report/list": {
+            "get": {
+                "tags": [
+                    "桌面端电子书"
+                ],
+                "summary": "我的电子书举报列表（与 /datum/report/list 同契约）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "用户 ID（须为会话用户）",
+                        "name": "userId",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页数量",
+                        "name": "pageSize",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerTableDataResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/datum/ebook/subjects": {
             "get": {
                 "tags": [
@@ -3318,6 +3465,115 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/datum/ebook/upload": {
+            "post": {
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "tags": [
+                    "桌面端电子书"
+                ],
+                "summary": "上传电子书（属主；落库待审并计入排行榜计数器）",
+                "parameters": [
+                    {
+                        "type": "file",
+                        "description": "电子书文件（pdf/epub/mobi/azw3）",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "书名（默认取文件名）",
+                        "name": "ebookName",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "作者",
+                        "name": "author",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "出版社",
+                        "name": "publisher",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "学科分类",
+                        "name": "ebookSubject",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "类型：1-教材，2-教辅/参考书，3-课外读物，4-其他",
+                        "name": "ebookType",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/datum/ebook/{ebookId}": {
+            "delete": {
+                "tags": [
+                    "桌面端电子书"
+                ],
+                "summary": "删除自己的电子书（软删，回退排行榜计数器）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "电子书 ID",
+                        "name": "ebookId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
                         }

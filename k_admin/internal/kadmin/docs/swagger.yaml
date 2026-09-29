@@ -2153,6 +2153,71 @@ paths:
       summary: 我的下载列表
       tags:
       - 桌面端活动
+  /datum/desktop/ebook/favorite/{userId}/{ebookId}:
+    delete:
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      - description: 电子书 ID
+        in: path
+        name: ebookId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 取消收藏电子书（属主）
+      tags:
+      - 桌面端活动
+  /datum/desktop/ebook/favorite/list/{userId}:
+    get:
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerTableDataResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 我的电子书收藏列表（联查书目详情）
+      tags:
+      - 桌面端活动
   /datum/desktop/favorite/{userId}/{fileId}:
     delete:
       parameters:
@@ -2581,6 +2646,30 @@ paths:
       summary: 下载文件流（属主）
       tags:
       - 桌面端活动
+  /datum/ebook/{ebookId}:
+    delete:
+      parameters:
+      - description: 电子书 ID
+        in: path
+        name: ebookId
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 删除自己的电子书（软删，回退排行榜计数器）
+      tags:
+      - 桌面端电子书
   /datum/ebook/content:
     get:
       parameters:
@@ -2741,6 +2830,37 @@ paths:
       summary: 举报电子书（属主；一用户一书一条待审举报）
       tags:
       - 桌面端电子书
+  /datum/ebook/report/list:
+    get:
+      parameters:
+      - description: 用户 ID（须为会话用户）
+        in: query
+        name: userId
+        type: integer
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerTableDataResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 我的电子书举报列表（与 /datum/report/list 同契约）
+      tags:
+      - 桌面端电子书
   /datum/ebook/subjects:
     get:
       responses:
@@ -2755,6 +2875,54 @@ paths:
           schema:
             $ref: '#/definitions/kadmin.SwaggerErrorResponse'
       summary: 电子书学科列表（匿名，仅已上架）
+      tags:
+      - 桌面端电子书
+  /datum/ebook/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: 电子书文件（pdf/epub/mobi/azw3）
+        in: formData
+        name: file
+        required: true
+        type: file
+      - description: 书名（默认取文件名）
+        in: formData
+        name: ebookName
+        type: string
+      - description: 作者
+        in: formData
+        name: author
+        type: string
+      - description: 出版社
+        in: formData
+        name: publisher
+        type: string
+      - description: 学科分类
+        in: formData
+        name: ebookSubject
+        required: true
+        type: string
+      - description: 类型：1-教材，2-教辅/参考书，3-课外读物，4-其他
+        in: formData
+        name: ebookType
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      summary: 上传电子书（属主；落库待审并计入排行榜计数器）
       tags:
       - 桌面端电子书
   /datum/favorite:

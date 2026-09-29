@@ -41,6 +41,8 @@ func (s *Store) registerDatumActivityRoutes(datumGroup *gin.RouterGroup) {
 	desktop.DELETE("/favorite/:userId/:fileId", s.datumMyFavoriteRemove)
 	desktop.GET("/bookmark/favorite/list/:userId", s.datumMyBookmarkFavorites)
 	desktop.DELETE("/bookmark/favorite/:userId/:bookmarkId", s.datumMyBookmarkFavoriteRemove)
+	desktop.GET("/ebook/favorite/list/:userId", s.datumMyEbookFavorites)
+	desktop.DELETE("/ebook/favorite/:userId/:ebookId", s.datumMyEbookFavoriteRemove)
 
 	favorites := datumGroup.Group("/favorite", s.requireDatumAuth())
 	favorites.POST("", s.datumFavoriteAdd)
@@ -317,6 +319,51 @@ func (s *Store) datumMyFavoriteRemove(c *gin.Context) {
 		return
 	}
 	if err := datum.NewFileFavoriteRepo(s.conn).Remove(fileID, userID); err != nil {
+		if errors.Is(err, datum.ErrNotFound) {
+			fail(c, http.StatusNotFound, "收藏不存在")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "取消收藏失败")
+		return
+	}
+	success(c, true)
+}
+
+// datumMyEbookFavorites serves the desktop "my ebook favorites" view, joined
+// with the book rows（与 /datum/desktop/favorite/list/:userId 同契约）.
+func (s *Store) datumMyEbookFavorites(c *gin.Context) {
+	claimed := toDatumInt64(c.Param("userId"))
+	userID, ok := datumSessionUser(c, claimed)
+	if !ok {
+		return
+	}
+	page, size := datumPageParams(c)
+	result, err := datum.NewEbookFavoriteRepo(s.conn).ListByUserDetailed(userID, page, size)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "电子书收藏列表查询失败")
+		return
+	}
+	books, _ := result.Items.([]datum.Ebook)
+	rows := make([]gin.H, 0, len(books))
+	for _, book := range books {
+		rows = append(rows, datumEbookPayload(book))
+	}
+	respondDatumRows(c, result, rows)
+}
+
+// datumMyEbookFavoriteRemove removes one ebook favorite of the session user.
+func (s *Store) datumMyEbookFavoriteRemove(c *gin.Context) {
+	claimed := toDatumInt64(c.Param("userId"))
+	userID, ok := datumSessionUser(c, claimed)
+	if !ok {
+		return
+	}
+	ebookID := toDatumInt64(c.Param("ebookId"))
+	if ebookID <= 0 {
+		fail(c, http.StatusBadRequest, "电子书 ID 不正确")
+		return
+	}
+	if err := datum.NewEbookFavoriteRepo(s.conn).Remove(ebookID, userID); err != nil {
 		if errors.Is(err, datum.ErrNotFound) {
 			fail(c, http.StatusNotFound, "收藏不存在")
 			return

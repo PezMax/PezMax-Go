@@ -45,6 +45,70 @@ func (r *EbookRepo) FindByID(ebookID int64) (Ebook, bool, error) {
 	return ScanEbook(rows[0]), true, nil
 }
 
+// EbookPayload carries the writable fields of an ebook row.
+type EbookPayload struct {
+	UserID      int64
+	EbookName   string
+	Author      string
+	Publisher   string
+	EbookURL    string
+	EbookSize   int64
+	EbookFormat string
+	EbookSubject string
+	EbookType   int64
+	Remark      string
+}
+
+// Insert creates a pending ebook row（ebook_status=0，进入与试卷相同的审核渠道）.
+func (r *EbookRepo) Insert(payload EbookPayload) (int64, error) {
+	rows, err := r.conn.Query(`INSERT INTO ptmj_ebook
+		(user_id, ebook_name, author, publisher, ebook_url, ebook_size, ebook_format, ebook_subject, ebook_type, reviewer, ebook_status, del_flag, create_by, create_time, update_by, update_time, remark)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', 0, 0, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP, ?)
+		RETURNING ebook_id`,
+		payload.UserID, payload.EbookName, payload.Author, payload.Publisher, payload.EbookURL,
+		payload.EbookSize, payload.EbookFormat, payload.EbookSubject, payload.EbookType,
+		payload.UserID, payload.UserID, payload.Remark)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, fmt.Errorf("ptmj_ebook insert returned no id")
+	}
+	return ScanInt64(rows[0]["ebook_id"]), nil
+}
+
+// MarkDeleted soft-deletes a row owned by userID.
+func (r *EbookRepo) MarkDeleted(ebookID, userID int64) error {
+	result, err := r.conn.Exec(`UPDATE ptmj_ebook SET del_flag = 1, update_time = CURRENT_TIMESTAMP
+		WHERE ebook_id = ? AND user_id = ? AND del_flag = 0`, ebookID, userID)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetStatus transitions review/report status (0 pending, 1 approved,
+// 2 rejected, 3 reported); reviewer records the acting admin.
+func (r *EbookRepo) SetStatus(ebookID, status int64, reviewer string) error {
+	_, err := r.conn.Exec(`UPDATE ptmj_ebook SET ebook_status = ?, reviewer = ?, update_time = CURRENT_TIMESTAMP
+		WHERE ebook_id = ?`, status, reviewer, ebookID)
+	return err
+}
+
+// ApproveAllByUser batch-approves every pending ebook upload of one user.
+func (r *EbookRepo) ApproveAllByUser(userID int64, reviewer string) (int64, error) {
+	result, err := r.conn.Exec(`UPDATE ptmj_ebook SET ebook_status = 1, reviewer = ?, update_time = CURRENT_TIMESTAMP
+		WHERE user_id = ? AND ebook_status = 0 AND del_flag = 0`, reviewer, userID)
+	if err != nil {
+		return 0, err
+	}
+	affected, _ := result.RowsAffected()
+	return affected, nil
+}
+
 // List filters and pages ebook rows ordered by newest first.
 func (r *EbookRepo) List(filter EbookFilter) (Page, error) {
 	page, size := normalizePage(filter.Page, filter.PageSize)
@@ -178,6 +242,35 @@ func (r *EbookFavoriteRepo) ListByUser(userID int64) ([]int64, error) {
 	return ids, nil
 }
 
+// ListByUserDetailed pages the desktop "my ebook favorites" view, joined with
+// the book rows so the UI renders names/subjects without a second round trip.
+func (r *EbookFavoriteRepo) ListByUserDetailed(userID int64, page, size int) (Page, error) {
+	page, size = normalizePage(page, size)
+	countRows, err := r.conn.Query(`SELECT count(*) AS count FROM ptmj_ebook_favorite fav
+		JOIN ptmj_ebook e ON e.ebook_id = fav.ebook_id AND e.del_flag = 0
+		WHERE fav.user_id = ?`, userID)
+	if err != nil {
+		return Page{}, err
+	}
+	total := ScanInt64(countRows[0]["count"])
+
+	queryArgs := []interface{}{userID, size, (page - 1) * size}
+	rows, err := r.conn.Query(`SELECT e.ebook_id, e.user_id, e.ebook_name, e.author, e.publisher, e.cover_url, e.ebook_url,
+		e.ebook_size, e.ebook_format, e.ebook_subject, e.ebook_type, e.reviewer, e.ebook_status, e.del_flag,
+		e.create_by, e.create_time, e.update_by, e.update_time, e.remark FROM ptmj_ebook_favorite fav
+		JOIN ptmj_ebook e ON e.ebook_id = fav.ebook_id AND e.del_flag = 0
+		WHERE fav.user_id = ?
+		ORDER BY fav.ebook_id DESC LIMIT ? OFFSET ?`, queryArgs...)
+	if err != nil {
+		return Page{}, err
+	}
+	books := make([]Ebook, 0, len(rows))
+	for _, row := range rows {
+		books = append(books, ScanEbook(row))
+	}
+	return Page{Items: books, Total: total, Page: page, PageSize: size}, nil
+}
+
 // EbookReportRepo writes ptmj_ebook_report rows: one pending report per
 // (user, ebook) pair（uk_user_ebook 唯一约束由调用方以 duplicate key 兜底）.
 type EbookReportRepo struct {
@@ -199,4 +292,71 @@ func (r *EbookReportRepo) Create(ebookID, userID int64, reason, remark string) (
 		return 0, fmt.Errorf("ptmj_ebook_report insert returned no id")
 	}
 	return ScanInt64(rows[0]["report_id"]), nil
+}
+
+// SetResult records the audit verdict (0 pending, 1 valid, 2 invalid).
+func (r *EbookReportRepo) SetResult(reportID int64, result, reviewer, remark string) error {
+	_, err := r.conn.Exec(`UPDATE ptmj_ebook_report SET result = ?, remark = ?, update_by = ?, update_time = CURRENT_TIMESTAMP
+		WHERE report_id = ?`, result, remark, reviewer, reportID)
+	return err
+}
+
+// LatestPendingReport returns the newest pending report id of one ebook.
+func (r *EbookReportRepo) LatestPendingReport(ebookID int64) (int64, error) {
+	rows, err := r.conn.Query(`SELECT report_id FROM ptmj_ebook_report WHERE ebook_id = ? AND result = '0'
+		ORDER BY report_id DESC LIMIT 1`, ebookID)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	return ScanInt64(rows[0]["report_id"]), nil
+}
+
+// EbookReportRow is one entry of the desktop "my ebook reports" list.
+type EbookReportRow struct {
+	ReportID   int64  `json:"reportId"`
+	EbookID    int64  `json:"ebookId"`
+	EbookName  string `json:"ebookName"`
+	Reason     string `json:"reason"`
+	Result     string `json:"result"`
+	Remark     string `json:"remark"`
+	CreateTime string `json:"createTime"`
+	UpdateTime string `json:"updateTime"`
+}
+
+// ListByUser pages the session user's ebook reports with the book name.
+func (r *EbookReportRepo) ListByUser(userID int64, page, size int) (Page, error) {
+	page, size = normalizePage(page, size)
+	countRows, err := r.conn.Query(`SELECT count(*) AS count FROM ptmj_ebook_report WHERE user_id = ?`, userID)
+	if err != nil {
+		return Page{}, err
+	}
+	total := ScanInt64(countRows[0]["count"])
+
+	queryArgs := []interface{}{userID, size, (page - 1) * size}
+	rows, err := r.conn.Query(`SELECT rp.report_id, rp.ebook_id, rp.reason, rp.result, rp.remark, rp.create_time, rp.update_time,
+			COALESCE(NULLIF(e.ebook_name, ''), CAST(rp.ebook_id AS TEXT)) AS ebook_name
+		FROM ptmj_ebook_report rp
+		LEFT JOIN ptmj_ebook e ON e.ebook_id = rp.ebook_id
+		WHERE rp.user_id = ?
+		ORDER BY rp.report_id DESC LIMIT ? OFFSET ?`, queryArgs...)
+	if err != nil {
+		return Page{}, err
+	}
+	items := make([]EbookReportRow, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, EbookReportRow{
+			ReportID:   ScanInt64(row["report_id"]),
+			EbookID:    ScanInt64(row["ebook_id"]),
+			EbookName:  ScanString(row["ebook_name"]),
+			Reason:     ScanString(row["reason"]),
+			Result:     ScanString(row["result"]),
+			Remark:     ScanString(row["remark"]),
+			CreateTime: ScanString(row["create_time"]),
+			UpdateTime: ScanString(row["update_time"]),
+		})
+	}
+	return Page{Items: items, Total: total, Page: page, PageSize: size}, nil
 }

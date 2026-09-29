@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net/http"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -35,16 +37,18 @@ const (
 
 func (s *Store) registerDatumEbookRoutes(datumGroup *gin.RouterGroup) {
 	// gin v1.3 的 GET 路由树不允许静态子节点与 :param 并存，统一走通配分发器；
-	// POST/DELETE 树无通配冲突，直接注册专有路径。
+	// POST 树无通配冲突，直接注册专有路径；DELETE 同样走通配分发器
+	// （favorite/<id> 取消收藏、<id> 属主删除）。
 	ebooks := datumGroup.Group("/ebook")
 	ebooks.GET("/*rest", s.datumEbookGet)
 	ebooks.POST("/favorite", s.requireDatumAuth(), s.datumEbookFavoriteAdd)
-	ebooks.DELETE("/favorite/:ebookId", s.requireDatumAuth(), s.datumEbookFavoriteRemove)
 	ebooks.POST("/report", s.requireDatumAuth(), s.datumEbookReportCreate)
+	ebooks.POST("/upload", s.requireDatumAuth(), s.datumEbookUpload)
+	ebooks.DELETE("/*rest", s.datumEbookDeleteDispatch)
 }
 
 // datumEbookGet dispatches the read-only ebook routes:
-// /list、/content、/subjects、/favorite（收藏状态查询）。
+// /list、/content、/subjects、/favorite（收藏状态）、/favorite/list、/report/list。
 func (s *Store) datumEbookGet(c *gin.Context) {
 	rest := strings.Trim(c.Param("rest"), "/")
 	switch {
@@ -58,9 +62,57 @@ func (s *Store) datumEbookGet(c *gin.Context) {
 		s.datumEbookFavoriteStatus(c)
 	case rest == "favorite/list":
 		s.datumEbookFavoriteList(c)
+	case rest == "report/list":
+		s.datumEbookReportList(c)
 	default:
 		fail(c, http.StatusNotFound, "接口不存在")
 	}
+}
+
+// datumEbookDeleteDispatch dispatches DELETE /datum/ebook/{favorite/:id|:id}.
+func (s *Store) datumEbookDeleteDispatch(c *gin.Context) {
+	rest := strings.Trim(c.Param("rest"), "/")
+	switch {
+	case strings.HasPrefix(rest, "favorite/"):
+		c.Params = append(c.Params, gin.Param{Key: "ebookId", Value: strings.TrimPrefix(rest, "favorite/")})
+		s.datumEbookFavoriteRemove(c)
+	case rest != "":
+		if ebookID, err := strconv.ParseInt(rest, 10, 64); err == nil && ebookID > 0 {
+			c.Params = append(c.Params, gin.Param{Key: "ebookId", Value: rest})
+			s.datumEbookDelete(c)
+			return
+		}
+		fail(c, http.StatusNotFound, "接口不存在")
+	default:
+		fail(c, http.StatusBadRequest, "电子书 ID 不能为空")
+	}
+}
+
+// datumEbookDelete implements DELETE /datum/ebook/:ebookId — owner soft delete
+// with the same rank-counter decrement as exam file deletion.
+// DELETE 通配分发器无鉴权中间件，这里自解析会话。
+func (s *Store) datumEbookDelete(c *gin.Context) {
+	userID, ok := s.datumUserIDOptional(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "会话已过期，请重新登录")
+		return
+	}
+	ebookID, err := strconv.ParseInt(c.Param("ebookId"), 10, 64)
+	if err != nil || ebookID <= 0 {
+		fail(c, http.StatusBadRequest, "电子书 ID 不正确")
+		return
+	}
+	if err := datum.NewEbookRepo(s.conn).MarkDeleted(ebookID, userID); err != nil {
+		if errors.Is(err, datum.ErrNotFound) {
+			fail(c, http.StatusNotFound, "电子书不存在或无权删除")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "电子书删除失败")
+		return
+	}
+	_ = datum.NewUserStats(s.conn).DecrementUploads(userID)
+	s.invalidateDatumRank()
+	success(c, true)
 }
 
 // datumEbookPayload shapes one ptmj_ebook row for the desktop bookshelf:
@@ -229,9 +281,9 @@ func (s *Store) datumEbookFavoriteList(c *gin.Context) {
 
 // datumEbookFavoriteRemove implements DELETE /datum/ebook/favorite/:ebookId —
 // session user only; removing an absent association answers 404 like the
-// file favorite removal does.
+// file favorite removal does. DELETE 通配分发器无鉴权中间件，这里自解析会话。
 func (s *Store) datumEbookFavoriteRemove(c *gin.Context) {
-	userID, ok := datumUserIDFrom(c)
+	userID, ok := s.datumUserIDOptional(c)
 	if !ok {
 		fail(c, http.StatusUnauthorized, "会话已过期，请重新登录")
 		return
@@ -297,6 +349,136 @@ func (s *Store) datumEbookReportCreate(c *gin.Context) {
 		return
 	}
 	success(c, gin.H{"reportId": reportID})
+}
+
+// 电子书可上传格式：上传白名单是 datumAllowedExts 的电子书子集。
+var datumEbookExts = map[string]bool{"pdf": true, "epub": true, "mobi": true, "azw3": true}
+
+var datumEbookTypeNames = map[int64]string{1: "教材", 2: "教辅/参考书", 3: "课外读物", 4: "其他"}
+
+// datumEbookUpload implements POST /datum/ebook/upload — the desktop ebook
+// upload. 审核与试卷走相同渠道：落库即 ebook_status=0 待审，计入同一
+// ptmj_user.count 排行榜计数器，由后台审核工作台（kind=ebook）通过/驳回。
+func (s *Store) datumEbookUpload(c *gin.Context) {
+	userID, _ := datumUserIDFrom(c)
+	file, err := c.FormFile("file")
+	if err != nil {
+		fail(c, http.StatusBadRequest, "文件不能为空")
+		return
+	}
+	maxBytes := int(datumUploadMaxBytesDef >> 20)
+	if parsed, err := strconv.Atoi(strings.TrimSpace(os.Getenv(datumUploadMaxMBKey))); err == nil && parsed > 0 && parsed <= 4096 {
+		maxBytes = parsed
+	}
+	if file.Size <= 0 || file.Size > int64(maxBytes)<<20 {
+		fail(c, http.StatusBadRequest, fmt.Sprintf("文件过大：不能超过 %dMB", maxBytes))
+		return
+	}
+	opened, err := file.Open()
+	if err != nil {
+		fail(c, http.StatusBadRequest, "文件读取失败")
+		return
+	}
+	defer opened.Close()
+	body, err := io.ReadAll(io.LimitReader(opened, file.Size+1))
+	if err != nil || int64(len(body)) != file.Size {
+		fail(c, http.StatusBadRequest, "文件读取失败")
+		return
+	}
+
+	ebookName := strings.TrimSpace(c.PostForm("ebookName"))
+	if ebookName == "" {
+		ebookName = file.Filename
+	}
+	if ebookName == "" || len([]rune(ebookName)) > 255 {
+		fail(c, http.StatusBadRequest, "书名不能为空且不超过 255 个字符")
+		return
+	}
+	author := strings.TrimSpace(c.PostForm("author"))
+	if len([]rune(author)) > 255 {
+		fail(c, http.StatusBadRequest, "作者不能超过 255 个字符")
+		return
+	}
+	publisher := strings.TrimSpace(c.PostForm("publisher"))
+	if len([]rune(publisher)) > 255 {
+		fail(c, http.StatusBadRequest, "出版社不能超过 255 个字符")
+		return
+	}
+	subject := strings.TrimSpace(c.PostForm("ebookSubject"))
+	if subject == "" || len(subject) > 64 {
+		fail(c, http.StatusBadRequest, "学科分类不能为空且不超过 64 个字符")
+		return
+	}
+	ebookType := toDatumInt64(strings.TrimSpace(c.PostForm("ebookType")))
+	if _, known := datumEbookTypeNames[ebookType]; !known {
+		fail(c, http.StatusBadRequest, "电子书类型不正确")
+		return
+	}
+
+	ext := strings.ToLower(strings.TrimPrefix(path.Ext(file.Filename), "."))
+	if !datumEbookExts[ext] {
+		fail(c, http.StatusBadRequest, "不支持的电子书格式：仅支持 pdf/epub/mobi/azw3")
+		return
+	}
+	contentType := file.Header.Get("Content-Type")
+	if contentType == "" || contentType == "application/octet-stream" {
+		contentType = mimeByExt(ext)
+	}
+
+	unique, err := randomHex(6)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "上传失败，请稍后重试")
+		return
+	}
+	baseName := strings.TrimSuffix(path.Base(ebookName), path.Ext(ebookName))
+	objectKey := path.Join("ebook", subject, fmt.Sprintf("%s_%s.%s", baseName, unique, ext))
+	ebookURL, err := datumFilePut(c.Request.Context(), objectKey, body, contentType)
+	if err != nil {
+		log.Printf("datum ebook storage put failed: %v", err)
+		fail(c, http.StatusServiceUnavailable, "文件存储暂不可用，请稍后重试")
+		return
+	}
+
+	ebookID, err := datum.NewEbookRepo(s.conn).Insert(datum.EbookPayload{
+		UserID: userID, EbookName: ebookName, Author: author, Publisher: publisher,
+		EbookURL: ebookURL, EbookSize: int64(len(body)), EbookFormat: ext,
+		EbookSubject: subject, EbookType: ebookType,
+	})
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "上传失败")
+		return
+	}
+	_ = datum.NewUserStats(s.conn).IncrementUploads(userID)
+	s.invalidateDatumRank()
+	success(c, gin.H{"ebookId": ebookID, "ebookUrl": ebookURL, "ebookName": ebookName})
+}
+
+// datumEbookReportList implements GET /datum/ebook/report/list?userId= — the
+// session user's ebook reports（与 /datum/report/list 同契约，我的举报合并展示）.
+func (s *Store) datumEbookReportList(c *gin.Context) {
+	claimed := toDatumInt64(strings.TrimSpace(c.Query("userId")))
+	session, ok := s.datumUserIDOptional(c)
+	if !ok {
+		fail(c, http.StatusUnauthorized, "会话已过期，请重新登录")
+		return
+	}
+	if claimed != 0 && claimed != session {
+		fail(c, http.StatusForbidden, "没有权限")
+		return
+	}
+	page, size := datumPageParams(c)
+	result, err := datum.NewEbookReportRepo(s.conn).ListByUser(session, page, size)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "电子书举报列表查询失败")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "ok",
+		"msg":     "ok",
+		"rows":    result.Items,
+		"total":   result.Total,
+	})
 }
 
 // datumEbookContent implements GET /datum/ebook/content?ebookId= — the

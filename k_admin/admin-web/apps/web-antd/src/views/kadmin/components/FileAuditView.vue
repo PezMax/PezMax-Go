@@ -86,6 +86,19 @@ function formatSize(size?: number) {
 
 const errorText = ref('');
 const activeTab = ref<'pending' | 'reported'>('pending');
+// 审核内容队列：exam-试卷资料（ptmj_file），ebook-电子书（ptmj_ebook）
+const activeKind = ref<'exam' | 'ebook'>('exam');
+
+const EBOOK_TYPE_OPTIONS = [
+  { label: '教材', value: 1 },
+  { label: '教辅/参考书', value: 2 },
+  { label: '课外读物', value: 3 },
+  { label: '其他', value: 4 },
+];
+
+function ebookTypeText(value?: number) {
+  return EBOOK_TYPE_OPTIONS.find((option) => option.value === value)?.label ?? '-';
+}
 
 interface QueueState {
   items: ExamFile[];
@@ -136,6 +149,7 @@ async function loadPending() {
       fileName: pendingFilters.fileName || undefined,
       user: pendingFilters.user || undefined,
       fileType: pendingFilters.fileType,
+      kind: activeKind.value,
     });
     pending.items = result.items;
     pending.total = result.total;
@@ -154,6 +168,7 @@ async function loadReported() {
       page: reported.page,
       pageSize: reported.pageSize,
       fileName: reportedFilters.keyword || undefined,
+      kind: activeKind.value,
     });
     reported.items = result.items;
     reported.total = result.total;
@@ -162,6 +177,13 @@ async function loadReported() {
   } finally {
     reported.loading = false;
   }
+}
+
+function switchKind(kind: 'exam' | 'ebook') {
+  if (activeKind.value === kind) return;
+  activeKind.value = kind;
+  selectedRowKeys.value = [];
+  void refreshAll();
 }
 
 async function refreshAll() {
@@ -241,7 +263,7 @@ function batchApprove() {
     cancelText: '取消',
     onOk: async () => {
       try {
-        const { approved } = await approveFiles(selectedRowKeys.value);
+        const { approved } = await approveFiles(selectedRowKeys.value, activeKind.value);
         counters.approved += approved;
         message.success(`已通过 ${approved} 个文件`);
         selectedRowKeys.value = [];
@@ -255,7 +277,7 @@ function batchApprove() {
 
 async function approveOne(record: ExamFile) {
   try {
-    const { approved } = await approveFiles([record.fileId]);
+    const { approved } = await approveFiles([record.fileId], activeKind.value);
     counters.approved += approved;
     message.success(`已通过「${record.fileName}」`);
     await loadPending();
@@ -267,7 +289,7 @@ async function approveOne(record: ExamFile) {
 function approveUserAll(record: ExamFile) {
   void (async () => {
     try {
-      const count = await countPendingByUser(record.userId);
+      const count = await countPendingByUser(record.userId, activeKind.value);
       if (!count) {
         message.info('该用户当前没有待审核文件');
         return;
@@ -279,7 +301,7 @@ function approveUserAll(record: ExamFile) {
         cancelText: '取消',
         onOk: async () => {
           try {
-            const { approved } = await approveUserFiles(record.userId);
+            const { approved } = await approveUserFiles(record.userId, activeKind.value);
             counters.approved += approved;
             message.success(`已通过用户 ${record.createBy} 的 ${approved} 个文件`);
             selectedRowKeys.value = [];
@@ -450,6 +472,7 @@ async function submitAudit() {
         fileId: audit.file.fileId,
         decision,
         reason,
+        kind: activeKind.value,
       });
       if (decision === 'approve') {
         counters.approved += 1;
@@ -460,7 +483,7 @@ async function submitAudit() {
       }
       await loadReported();
     } else {
-      await rejectPendingFile({ fileId: audit.file.fileId, reason });
+      await rejectPendingFile({ fileId: audit.file.fileId, reason, kind: activeKind.value });
       counters.rejected += 1;
       message.success('已拒绝该文件，原因已返回给用户');
       await loadPending();
@@ -509,9 +532,13 @@ onMounted(() => {
     <section class="page-heading">
       <div>
         <h1>文件审核</h1>
-        <p>待审核与被举报文件的集中审核工作台 · 表 ptmj_file</p>
+        <p>待审核与被举报内容的集中审核工作台 · 试卷 ptmj_file / 电子书 ptmj_ebook</p>
       </div>
       <a-space wrap>
+        <a-radio-group :value="activeKind" @update:value="switchKind">
+          <a-radio-button value="exam">试卷资料</a-radio-button>
+          <a-radio-button value="ebook">电子书</a-radio-button>
+        </a-radio-group>
         <a-button :loading="pending.loading || reported.loading" @click="refreshAll">
           <ReloadOutlined />
           刷新
@@ -655,13 +682,16 @@ onMounted(() => {
                   </div>
                 </template>
                 <template v-else-if="column.key === 'fileType'">
-                  <a-tag :color="fileTypeColor(record.fileType)">
+                  <a-tag v-if="activeKind === 'ebook'" color="green">
+                    {{ ebookTypeText(record.fileType) }}
+                  </a-tag>
+                  <a-tag v-else :color="fileTypeColor(record.fileType)">
                     {{ fileTypeText(record.fileType) }}
                   </a-tag>
                 </template>
                 <template v-else-if="column.key === 'origin'">
                   <div class="name-cell">
-                    <strong>{{ record.fileSchool }}</strong>
+                    <strong>{{ activeKind === 'ebook' ? record.fileSubject : record.fileSchool }}</strong>
                     <span>{{ record.fileSubject }}</span>
                   </div>
                 </template>

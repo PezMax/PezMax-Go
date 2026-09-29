@@ -48,6 +48,7 @@ func (s *Store) registerExamFileAuditRoutes(api *gin.RouterGroup) {
 // （ptmj_user.user_name 优先，缺失时回退 ptmj_file.create_by），
 // fileUrl 返回可读 HTTP 直链，前端 pdfjs 直接按需拉取渲染。
 type examFileAuditItem struct {
+	Kind        string `json:"kind"`
 	FileID      int64  `json:"fileId"`
 	UserID      int64  `json:"userId"`
 	UserName    string `json:"userName"`
@@ -100,6 +101,10 @@ type examFileAuditPage struct {
 // @Failure 403 {object} object
 // @Router /exam-file-audit/pending [get]
 func (s *Store) examFileAuditPending(c *gin.Context) {
+	if auditKindOf(c) == "ebook" {
+		s.ebookAuditPending(c)
+		return
+	}
 	page, pageSize := examFileAuditPageParams(c)
 	where := ` WHERE f.file_status = 0 AND f.del_flag = 0`
 	args := []interface{}{}
@@ -136,6 +141,10 @@ func (s *Store) examFileAuditPending(c *gin.Context) {
 // @Failure 403 {object} object
 // @Router /exam-file-audit/reported [get]
 func (s *Store) examFileAuditReported(c *gin.Context) {
+	if auditKindOf(c) == "ebook" {
+		s.ebookAuditReported(c)
+		return
+	}
 	page, pageSize := examFileAuditPageParams(c)
 	join := ` JOIN LATERAL (
 		SELECT rp.report_id, rp.reason AS report_reason, rp.result AS report_result,
@@ -222,6 +231,7 @@ func (s *Store) examFileAuditList(where string, args []interface{}, page, pageSi
 
 func examFileAuditItemFromRow(row map[string]interface{}) examFileAuditItem {
 	return examFileAuditItem{
+		Kind:        "exam",
 		FileID:      datum.ScanInt64(row["file_id"]),
 		UserID:      datum.ScanInt64(row["user_id"]),
 		UserName:    datum.ScanString(row["display_name"]),
@@ -290,6 +300,7 @@ func (s *Store) examFileAuditReviewer(c *gin.Context) string {
 func (s *Store) examFileAuditApprove(c *gin.Context) {
 	var req struct {
 		FileIds []int64 `json:"fileIds"`
+		Kind    string  `json:"kind"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || len(req.FileIds) == 0 {
 		httpx.Fail(c, http.StatusBadRequest, "请选择要通过的文件")
@@ -312,6 +323,10 @@ func (s *Store) examFileAuditApprove(c *gin.Context) {
 	}
 	if len(ids) == 0 {
 		httpx.Fail(c, http.StatusBadRequest, "请选择要通过的文件")
+		return
+	}
+	if strings.EqualFold(req.Kind, "ebook") {
+		s.ebookAuditApprove(c, ids)
 		return
 	}
 	reviewer := s.examFileAuditReviewer(c)
@@ -339,10 +354,21 @@ func (s *Store) examFileAuditApprove(c *gin.Context) {
 // @Router /exam-file-audit/approve-user [post]
 func (s *Store) examFileAuditApproveUser(c *gin.Context) {
 	var req struct {
-		UserId int64 `json:"userId"`
+		UserId int64  `json:"userId"`
+		Kind   string `json:"kind"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.UserId <= 0 {
 		httpx.Fail(c, http.StatusBadRequest, "用户 ID 不正确")
+		return
+	}
+	if strings.EqualFold(req.Kind, "ebook") {
+		reviewer := s.examFileAuditReviewer(c)
+		approved, err := datum.NewEbookRepo(s.conn).ApproveAllByUser(req.UserId, reviewer)
+		if err != nil {
+			httpx.Fail(c, http.StatusInternalServerError, err.Error())
+			return
+		}
+		httpx.Success(c, gin.H{"approved": approved})
 		return
 	}
 	reviewer := s.examFileAuditReviewer(c)
@@ -370,6 +396,7 @@ func (s *Store) examFileAuditReject(c *gin.Context) {
 	var req struct {
 		FileId int64  `json:"fileId"`
 		Reason string `json:"reason"`
+		Kind   string `json:"kind"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.FileId <= 0 {
 		httpx.Fail(c, http.StatusBadRequest, "文件 ID 不正确")
@@ -378,6 +405,10 @@ func (s *Store) examFileAuditReject(c *gin.Context) {
 	reason := strings.TrimSpace(req.Reason)
 	if reason == "" {
 		httpx.Fail(c, http.StatusBadRequest, "请填写拒绝原因")
+		return
+	}
+	if strings.EqualFold(req.Kind, "ebook") {
+		s.ebookAuditReject(c, req.FileId, reason)
 		return
 	}
 	file, found, err := datum.NewFileRepo(s.conn).FindByID(req.FileId)
@@ -421,6 +452,7 @@ func (s *Store) examFileAuditReview(c *gin.Context) {
 		FileId   int64  `json:"fileId"`
 		Decision string `json:"decision"`
 		Reason   string `json:"reason"`
+		Kind     string `json:"kind"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.FileId <= 0 {
 		httpx.Fail(c, http.StatusBadRequest, "文件 ID 不正确")
@@ -433,6 +465,10 @@ func (s *Store) examFileAuditReview(c *gin.Context) {
 	reason := strings.TrimSpace(req.Reason)
 	if reason == "" {
 		httpx.Fail(c, http.StatusBadRequest, "请填写审核原因")
+		return
+	}
+	if strings.EqualFold(req.Kind, "ebook") {
+		s.ebookAuditReview(c, req.FileId, req.Decision, reason)
 		return
 	}
 	fileRepo := datum.NewFileRepo(s.conn)
@@ -561,4 +597,244 @@ func idsToInterfaces(ids []int64) []interface{} {
 		args = append(args, id)
 	}
 	return args
+}
+
+// ---------------------------------------------------------------------------
+// 电子书审核（kind=ebook）：与试卷共用同一工作台/权限/前端，
+// 队列与操作落 ptmj_ebook / ptmj_ebook_report，行结构映射为同一 item 形状。
+// ---------------------------------------------------------------------------
+
+// ebookAuditMaterialIDOffset 将电子书 id 映射到通知表 material_id 命名空间：
+// ptmj_notification.material_id 全局唯一（uk_material_notify），试卷与电子书
+// id 序列独立，加固定偏移避免互相吞掉审核通知；桌面端不按 material_id 跳转。
+const ebookAuditMaterialIDOffset = int64(1_000_000_000)
+
+func auditKindOf(c *gin.Context) string {
+	if strings.EqualFold(strings.TrimSpace(c.Query("kind")), "ebook") {
+		return "ebook"
+	}
+	return "exam"
+}
+
+func (s *Store) ebookAuditItemFromRow(row map[string]interface{}) examFileAuditItem {
+	return examFileAuditItem{
+		Kind:        "ebook",
+		FileID:      datum.ScanInt64(row["ebook_id"]),
+		UserID:      datum.ScanInt64(row["user_id"]),
+		UserName:    datum.ScanString(row["display_name"]),
+		FileName:    datum.ScanString(row["ebook_name"]),
+		FileURL:     datumReadableFileURL(datum.ScanString(row["ebook_url"])),
+		FileSize:    datum.ScanInt64(row["ebook_size"]),
+		FileFormat:  datum.ScanString(row["ebook_format"]),
+		FileType:    datum.ScanInt64(row["ebook_type"]),
+		FileSubject: datum.ScanString(row["ebook_subject"]),
+		Reviewer:    datum.ScanString(row["reviewer"]),
+		FileStatus:  datum.ScanInt64(row["ebook_status"]),
+		CreateBy:    datum.ScanString(row["display_name"]),
+		CreateTime:  examFileAuditTimeText(row["create_time"]),
+		Remark:      datum.ScanString(row["remark"]),
+	}
+}
+
+func (s *Store) ebookAuditList(where string, args []interface{}, page, pageSize int) (examFileAuditPage, error) {
+	countRows, err := s.conn.Query(`SELECT count(*) AS count FROM ptmj_ebook e
+		LEFT JOIN ptmj_user u ON u.user_id = e.user_id`+where, args...)
+	if err != nil {
+		return examFileAuditPage{}, err
+	}
+	total := int64(0)
+	if len(countRows) > 0 {
+		total = datum.ScanInt64(countRows[0]["count"])
+	}
+	queryArgs := append(append([]interface{}{}, args...), pageSize, (page-1)*pageSize)
+	rows, err := s.conn.Query(`SELECT e.ebook_id, e.user_id, e.ebook_name, e.ebook_url, e.ebook_size, e.ebook_format,
+			e.ebook_type, e.ebook_subject, e.reviewer, e.ebook_status, e.create_by, e.create_time, e.remark,
+			COALESCE(NULLIF(u.user_name, ''), e.create_by) AS display_name
+		FROM ptmj_ebook e
+		LEFT JOIN ptmj_user u ON u.user_id = e.user_id`+where+`
+		ORDER BY e.create_time DESC, e.ebook_id DESC
+		LIMIT ? OFFSET ?`, queryArgs...)
+	if err != nil {
+		return examFileAuditPage{}, err
+	}
+	items := make([]examFileAuditItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, s.ebookAuditItemFromRow(row))
+	}
+	return examFileAuditPage{Items: items, Total: total, Page: page, PageSize: pageSize}, nil
+}
+
+func (s *Store) ebookAuditPending(c *gin.Context) {
+	page, pageSize := examFileAuditPageParams(c)
+	where := ` WHERE e.ebook_status = 0 AND e.del_flag = 0`
+	args := []interface{}{}
+	if keyword := strings.TrimSpace(c.Query("fileName")); keyword != "" {
+		where += ` AND e.ebook_name ILIKE ?`
+		args = append(args, "%"+keyword+"%")
+	}
+	if ebookType := examFileAuditInt64(c.Query("fileType")); ebookType > 0 {
+		where += ` AND e.ebook_type = ?`
+		args = append(args, ebookType)
+	}
+	if user := strings.TrimSpace(c.Query("user")); user != "" {
+		where += ` AND (CAST(e.user_id AS TEXT) = ? OR e.create_by ILIKE ? OR u.user_name ILIKE ?)`
+		args = append(args, user, "%"+user+"%", "%"+user+"%")
+	}
+	pageResult, err := s.ebookAuditList(where, args, page, pageSize)
+	if err != nil {
+		httpx.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	httpx.Success(c, pageResult)
+}
+
+func (s *Store) ebookAuditReported(c *gin.Context) {
+	page, pageSize := examFileAuditPageParams(c)
+	join := ` JOIN LATERAL (
+		SELECT rp.report_id, rp.reason AS report_reason, rp.result AS report_result,
+			rp.user_id AS reporter_id, rp.create_time AS report_time
+		FROM ptmj_ebook_report rp
+		WHERE rp.ebook_id = e.ebook_id AND rp.result = '0'
+		ORDER BY rp.report_id DESC
+		LIMIT 1
+	) rp ON true
+	LEFT JOIN ptmj_user ru ON ru.user_id = rp.reporter_id`
+	where := ` WHERE e.ebook_status = 3 AND e.del_flag = 0`
+	args := []interface{}{}
+	if keyword := strings.TrimSpace(c.Query("fileName")); keyword != "" {
+		where += ` AND (e.ebook_name ILIKE ? OR rp.report_reason ILIKE ?)`
+		args = append(args, "%"+keyword+"%", "%"+keyword+"%")
+	}
+
+	countRows, err := s.conn.Query(`SELECT count(*) AS count FROM ptmj_ebook e`+join+where, args...)
+	if err != nil {
+		httpx.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	total := int64(0)
+	if len(countRows) > 0 {
+		total = datum.ScanInt64(countRows[0]["count"])
+	}
+	queryArgs := append(append([]interface{}{}, args...), pageSize, (page-1)*pageSize)
+	rows, err := s.conn.Query(`SELECT e.ebook_id, e.user_id, e.ebook_name, e.ebook_url, e.ebook_size, e.ebook_format,
+			e.ebook_type, e.ebook_subject, e.reviewer, e.ebook_status, e.create_by, e.create_time, e.remark,
+			COALESCE(NULLIF(u.user_name, ''), e.create_by) AS display_name,
+			rp.report_id, rp.report_reason, rp.report_result, rp.reporter_id, rp.report_time,
+			COALESCE(NULLIF(ru.user_name, ''), CAST(rp.reporter_id AS TEXT)) AS reporter_name
+		FROM ptmj_ebook e
+		LEFT JOIN ptmj_user u ON u.user_id = e.user_id`+join+where+`
+		ORDER BY rp.report_time DESC, e.ebook_id DESC
+		LIMIT ? OFFSET ?`, queryArgs...)
+	if err != nil {
+		httpx.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	items := make([]examFileAuditReportedItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, examFileAuditReportedItem{
+			examFileAuditItem: s.ebookAuditItemFromRow(row),
+			ReportID:          datum.ScanInt64(row["report_id"]),
+			ReportReason:      datum.ScanString(row["report_reason"]),
+			ReportResult:      datum.ScanString(row["report_result"]),
+			ReporterName:      datum.ScanString(row["reporter_name"]),
+			ReportTime:        examFileAuditTimeText(row["report_time"]),
+		})
+	}
+	httpx.Success(c, examFileAuditPage{Items: items, Total: total, Page: page, PageSize: pageSize})
+}
+
+func (s *Store) ebookAuditApprove(c *gin.Context, fileIds []int64) {
+	placeholders := make([]string, 0, len(fileIds))
+	for range fileIds {
+		placeholders = append(placeholders, "?")
+	}
+	reviewer := s.examFileAuditReviewer(c)
+	queryArgs := append([]interface{}{reviewer, reviewer}, idsToInterfaces(fileIds)...)
+	result, err := s.conn.Exec(`UPDATE ptmj_ebook SET ebook_status = 1, reviewer = ?, update_by = ?, update_time = CURRENT_TIMESTAMP
+		WHERE ebook_id IN (`+strings.Join(placeholders, ",")+`) AND ebook_status = 0 AND del_flag = 0`, queryArgs...)
+	if err != nil {
+		httpx.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	approved, _ := result.RowsAffected()
+	httpx.Success(c, gin.H{"approved": approved})
+}
+
+func (s *Store) ebookAuditReject(c *gin.Context, ebookID int64, reason string) {
+	ebook, found, err := datum.NewEbookRepo(s.conn).FindByID(ebookID)
+	if err != nil {
+		httpx.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !found || ebook.EbookStatus != 0 {
+		httpx.Fail(c, http.StatusNotFound, "电子书不存在或状态已变化")
+		return
+	}
+	reviewer := s.examFileAuditReviewer(c)
+	if err := datum.NewEbookRepo(s.conn).SetStatus(ebookID, 2, reviewer); err != nil {
+		httpx.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if notifyErr := datum.NewNotificationRepo(s.conn).CreateFileAuditNotification(
+		ebookID+ebookAuditMaterialIDOffset, ebook.UserID,
+		fmt.Sprintf("您的电子书《%s》未通过审核", ebook.EbookName),
+		reason,
+	); notifyErr != nil {
+		fmt.Printf("kadmin: ebook audit reject notification failed: %v\n", notifyErr)
+	}
+	httpx.Success(c, gin.H{"fileId": ebookID, "decision": "reject"})
+}
+
+func (s *Store) ebookAuditReview(c *gin.Context, ebookID int64, decision, reason string) {
+	ebookRepo := datum.NewEbookRepo(s.conn)
+	ebook, found, err := ebookRepo.FindByID(ebookID)
+	if err != nil {
+		httpx.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !found || ebook.EbookStatus != 3 {
+		httpx.Fail(c, http.StatusNotFound, "电子书不存在或不在被举报状态")
+		return
+	}
+	reportID, err := datum.NewEbookReportRepo(s.conn).LatestPendingReport(ebookID)
+	if err != nil {
+		httpx.Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if reportID <= 0 {
+		httpx.Fail(c, http.StatusBadRequest, "该电子书没有待处理的举报")
+		return
+	}
+
+	reviewer := s.examFileAuditReviewer(c)
+	notificationRepo := datum.NewNotificationRepo(s.conn)
+	if decision == "approve" {
+		// 举报不属实：电子书恢复上架，举报单置不属实并记录原因。
+		if err := ebookRepo.SetStatus(ebookID, 1, reviewer); err != nil {
+			httpx.Fail(c, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := datum.NewEbookReportRepo(s.conn).SetResult(reportID, "2", reviewer, reason); err != nil {
+			httpx.Fail(c, http.StatusInternalServerError, err.Error())
+			return
+		}
+	} else {
+		// 举报属实：电子书下架，举报单置属实并记录原因，原因随下架通知返回用户。
+		if err := ebookRepo.SetStatus(ebookID, 2, reviewer); err != nil {
+			httpx.Fail(c, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := datum.NewEbookReportRepo(s.conn).SetResult(reportID, "1", reviewer, reason); err != nil {
+			httpx.Fail(c, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if notifyErr := notificationRepo.CreateFileAuditNotification(
+			ebookID+ebookAuditMaterialIDOffset, ebook.UserID,
+			fmt.Sprintf("您的电子书《%s》因举报属实已下架", ebook.EbookName),
+			reason,
+		); notifyErr != nil {
+			fmt.Printf("kadmin: ebook audit review notification failed: %v\n", notifyErr)
+		}
+	}
+	httpx.Success(c, gin.H{"fileId": ebookID, "decision": decision})
 }
