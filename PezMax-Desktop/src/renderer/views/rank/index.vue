@@ -76,20 +76,79 @@
             </div>
 
             <div v-else-if="userDetail" key="detail" class="detail-content">
-              <div :class="['profile-card', `profile-top-${activeRankIndex + 1}`]">
-                <el-avatar :size="96" :src="userDetail.avatar || fallbackAvatar" class="profile-avatar" />
-                <div class="profile-name">{{ userDetail.userName || (userDetail.userId ? `用户 ${userDetail.userId}` : '未知用户') }}</div>
-                <div class="profile-remark">{{ userRemarkLabel }}</div>
+              <div class="detail-stack">
+                <div :class="['profile-card', `profile-top-${activeRankIndex + 1}`]">
+                  <el-avatar :size="96" :src="userDetail.avatar || fallbackAvatar" class="profile-avatar" />
+                  <div class="profile-name">{{ userDetail.userName || (userDetail.userId ? `用户 ${userDetail.userId}` : '未知用户') }}</div>
+                  <div class="profile-remark">{{ userRemarkLabel }}</div>
 
-                <div class="profile-stats">
-                  <div class="stat-item">
-                    <div class="stat-value">{{ userDetail.count ?? 0 }}</div>
-                    <div class="stat-label">上传数量</div>
+                  <div class="profile-stats">
+                    <div class="stat-item">
+                      <div class="stat-value">{{ userDetail.count ?? 0 }}</div>
+                      <div class="stat-label">上传数量</div>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                      <div class="stat-value">{{ yearsUsedLabel }}</div>
+                      <div class="stat-label">使用年限</div>
+                    </div>
                   </div>
-                  <div class="stat-divider"></div>
-                  <div class="stat-item">
-                    <div class="stat-value">{{ yearsUsedLabel }}</div>
-                    <div class="stat-label">使用年限</div>
+                </div>
+
+                <!-- 该用户上传的资料 / 电子书：点条目直接打开（与左侧资源树同一套打开逻辑） -->
+                <div class="upload-section">
+                  <div class="upload-header">
+                    <svg-icon icon-class="documentation" class="upload-header-icon" />
+                    <span class="upload-title">上传的资料</span>
+                    <span class="upload-count">{{ uploadFiles.length }}</span>
+                    <span v-if="!isSelfView" class="upload-scope">仅已上架</span>
+                  </div>
+                  <div v-loading="uploadsLoading" class="upload-list">
+                    <div v-if="!uploadFiles.length" class="upload-empty">
+                      {{ isSelfView ? '还没有上传任何资料' : '暂无已上架的资料' }}
+                    </div>
+                    <div
+                      v-for="item in uploadFiles"
+                      :key="'f' + item.fileId"
+                      class="upload-item"
+                      :title="item.label || item.fileName"
+                      @click="$emit('open-item', item)"
+                    >
+                      <svg-icon icon-class="documentation" class="upload-icon" />
+                      <div class="upload-main">
+                        <div class="upload-label">{{ item.label || item.fileName }}</div>
+                        <div class="upload-meta">{{ fileMeta(item) }}</div>
+                      </div>
+                      <span v-if="Number(item.fileStatus) !== 1" class="upload-badge">待审</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="upload-section">
+                  <div class="upload-header">
+                    <svg-icon icon-class="education" class="upload-header-icon" />
+                    <span class="upload-title">上传的电子书</span>
+                    <span class="upload-count">{{ uploadEbooks.length }}</span>
+                    <span v-if="!isSelfView" class="upload-scope">仅已上架</span>
+                  </div>
+                  <div v-loading="uploadsLoading" class="upload-list">
+                    <div v-if="!uploadEbooks.length" class="upload-empty">
+                      {{ isSelfView ? '还没有上传任何电子书' : '暂无已上架的电子书' }}
+                    </div>
+                    <div
+                      v-for="item in uploadEbooks"
+                      :key="'e' + item.ebookId"
+                      class="upload-item"
+                      :title="item.ebookName || item.label"
+                      @click="$emit('open-item', item)"
+                    >
+                      <svg-icon icon-class="education" class="upload-icon" />
+                      <div class="upload-main">
+                        <div class="upload-label">{{ item.ebookName || item.label }}</div>
+                        <div class="upload-meta">{{ ebookMeta(item) }}</div>
+                      </div>
+                      <span v-if="Number(item.ebookStatus) !== 1" class="upload-badge">待审</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -110,9 +169,16 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { getUploadRank, getUser } from '@/api/datum/user'
+import { listUserUploads } from '@/api/datum/file'
+import { listUserUploadEbooks } from '@/api/datum/ebook'
+import useUserStore from '@/store/modules/user'
 import { isEmpty, isHttp } from '@/utils/validate'
 import { normalizeAvatar } from '@/utils/avatar'
 import { getStorageItem, setStorageItem } from '@/utils/clientStorage'
+
+defineEmits(['open-item'])
+
+const userStore = useUserStore()
 
 const fallbackAvatar = 'https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png'
 const rankLoading = ref(false)
@@ -122,6 +188,59 @@ const activeUserId = ref(null)
 const activeRankIndex = ref(-1) // 新增：记录当前选中的排名索引
 const detailLoading = ref(false)
 const userDetail = ref(null)
+
+// 该用户上传的资料 / 电子书：看自己连待审一起列，看别人只列已上架
+const uploadFiles = ref([])
+const uploadEbooks = ref([])
+const uploadsLoading = ref(false)
+const fileTypeNames = { 1: '期末', 2: '期中', 3: '补考', 4: '资料', 5: '其他学校', 6: '神秘文件', 7: '电子书' }
+const ebookTypeNames = { 1: '教材', 2: '教辅/参考书', 3: '课外读物', 4: '其他' }
+
+const isSelfView = computed(() =>
+  activeUserId.value != null && String(activeUserId.value) === String(userStore.id || '')
+)
+
+function fileMeta(item) {
+  return [fileTypeNames[item.fileType], item.fileSubject, item.fileYear].filter(Boolean).join(' · ')
+}
+
+function ebookMeta(item) {
+  const format = String(item.ebookFormat || '').toUpperCase()
+  return [ebookTypeNames[item.ebookType], item.ebookSubject, format].filter(Boolean).join(' · ')
+}
+
+function pickListRows(res) {
+  if (Array.isArray(res?.rows)) return res.rows
+  if (Array.isArray(res?.data)) return res.data
+  return []
+}
+
+function clearUploads() {
+  uploadFiles.value = []
+  uploadEbooks.value = []
+}
+
+async function fetchUploads(userId) {
+  if (!userId) {
+    clearUploads()
+    return
+  }
+  uploadsLoading.value = true
+  const onlyApproved = !isSelfView.value
+  try {
+    const [fileRes, ebookRes] = await Promise.all([
+      listUserUploads(userId, { onlyApproved }),
+      listUserUploadEbooks(userId, { onlyApproved })
+    ])
+    uploadFiles.value = pickListRows(fileRes)
+    uploadEbooks.value = pickListRows(ebookRes)
+  } catch (err) {
+    console.warn('获取用户上传列表失败:', err)
+    clearUploads()
+  } finally {
+    uploadsLoading.value = false
+  }
+}
 
 const listWidth = ref(260)
 const isResizing = ref(false)
@@ -262,6 +381,7 @@ async function fetchRank() {
     activeUserId.value = null
     activeRankIndex.value = -1
     userDetail.value = null
+    clearUploads()
   } finally {
     rankLoading.value = false
   }
@@ -276,6 +396,7 @@ function applyRankRows(rows) {
     activeUserId.value = null
     activeRankIndex.value = -1
     userDetail.value = null
+    clearUploads()
   }
 }
 
@@ -304,6 +425,9 @@ async function openUserDetail(item, index) {
       console.warn('获取用户详情失败:', err)
     }
   }
+
+  // 3. 并行拉取该用户上传的资料与电子书
+  fetchUploads(userId)
 }
 
 function startResize(e) {
@@ -730,9 +854,133 @@ onUnmounted(() => {
 .detail-content {
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   min-height: 100%;
   padding: 20px;
+}
+
+.detail-stack {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+/* 该用户上传的资料 / 电子书列表 */
+.upload-section {
+  width: 100%;
+  background-color: var(--ide-panel-bg);
+  border: 1px solid var(--ide-border);
+  border-radius: 16px;
+  padding: 12px 14px 14px;
+  box-shadow: var(--ide-shadow-1);
+}
+
+.upload-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ide-text-active);
+  letter-spacing: 0.3px;
+}
+
+.upload-header-icon {
+  font-size: 15px;
+  color: var(--ide-accent);
+}
+
+.upload-count {
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background-color: var(--ide-accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.upload-scope {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ide-text-light);
+}
+
+.upload-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.upload-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background-color: var(--ide-bg);
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    border-color: var(--ide-accent);
+    transform: translateX(2px);
+  }
+}
+
+.upload-icon {
+  flex-shrink: 0;
+  font-size: 15px;
+  color: var(--ide-accent);
+}
+
+.upload-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.upload-label {
+  font-size: 12.5px;
+  color: var(--ide-text-active);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.upload-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--ide-text-light);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.upload-badge {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #d48806;
+  background-color: rgba(212, 136, 6, 0.14);
+  border: 1px solid rgba(212, 136, 6, 0.3);
+}
+
+.upload-empty {
+  padding: 14px 0;
+  font-size: 12px;
+  text-align: center;
+  color: var(--ide-text-light);
 }
 
 .profile-card {

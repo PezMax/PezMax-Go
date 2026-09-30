@@ -1,11 +1,23 @@
 import request from '@/utils/request'
 
 // 查询试卷文件列表
+// userId: 只看某位用户上传的资料；approvedOnly: 强制只看已审核
+// （不传时：带 userId 连待审一起返回，供“我的上传/排行榜看自己”用）
 export function listFile(query) {
     return request({
         url: '/datum/file/list',
         method: 'get',
         params: query
+    })
+}
+
+// 某位用户上传的资料（排行榜点用户查看其贡献）
+export function listUserUploads(userId, options = {}) {
+    return listFile({
+        userId,
+        approvedOnly: options.onlyApproved ? 1 : undefined,
+        pageNum: options.pageNum ?? 1,
+        pageSize: options.pageSize ?? 50
     })
 }
 

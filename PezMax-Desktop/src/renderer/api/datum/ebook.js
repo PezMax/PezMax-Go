@@ -1,12 +1,23 @@
 import request from '@/utils/request'
 import { getToken } from '@/utils/auth'
 
-// 查询电子书列表（匿名可读，仅已上架；keyword 匹配书名/作者/出版社）
+// 查询电子书列表（匿名可读，默认仅已上架；keyword 匹配书名/作者/出版社）
+// userId: 只看某位用户上传的书目；approvedOnly: 强制只看已审核
 export function listEbook(query) {
     return request({
         url: '/datum/ebook/list',
         method: 'get',
         params: query
+    })
+}
+
+// 某位用户上传的电子书（排行榜点用户查看其贡献）
+export function listUserUploadEbooks(userId, options = {}) {
+    return listEbook({
+        userId,
+        approvedOnly: options.onlyApproved ? 1 : undefined,
+        pageNum: options.pageNum ?? 1,
+        pageSize: options.pageSize ?? 50
     })
 }
 

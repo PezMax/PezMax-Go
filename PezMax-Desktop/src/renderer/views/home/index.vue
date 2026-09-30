@@ -10,7 +10,7 @@
 
       <transition name="view-fade" mode="out-in">
         <template v-if="activeView === 'rank'">
-          <RankView />
+          <RankView @open-item="handleRankOpenItem" />
         </template>
 
         <template v-else>
@@ -35,8 +35,9 @@
             <!-- 拖拽条 -->
             <div
               class="resizer"
-              v-show="activeView !== 'none'"
               @mousedown="startResize"
+              @dblclick="togglePanelCollapse"
+              title="拖动调整宽度 · 双击收起/恢复"
             ></div>
 
             <MainEditor
@@ -177,7 +178,22 @@ const normalizeView = (v) => {
 }
 
 const activeView = ref(normalizeView(route.query.view)) // explorer, rank, upload, none
-const panelWidth = ref(260)
+// 侧边栏宽度：可拖拽 150~600，改动会持久化到本地，下次启动沿用
+const PANEL_WIDTH_STORAGE_KEY = 'ptmj_side_panel_width'
+const PANEL_DEFAULT_WIDTH = 260
+const PANEL_MIN_WIDTH = 150
+const PANEL_MAX_WIDTH = 600
+const clampPanelWidth = (value) => Math.min(Math.max(Math.round(value), PANEL_MIN_WIDTH), PANEL_MAX_WIDTH)
+const loadPanelWidth = () => {
+  const raw = getStorageItem(PANEL_WIDTH_STORAGE_KEY)
+  if (raw === '') return PANEL_DEFAULT_WIDTH
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) ? clampPanelWidth(parsed) : PANEL_DEFAULT_WIDTH
+}
+const savePanelWidth = () => setStorageItem(PANEL_WIDTH_STORAGE_KEY, clampPanelWidth(panelWidth.value))
+const panelWidth = ref(loadPanelWidth())
+// 记住收起前的视图，双击分隔条展开时回到原视图
+const lastPanelView = ref(activeView.value === 'none' ? 'explorer' : activeView.value)
 const isResizing = ref(false)
 const rootRef = ref(null)
 const openTabs = ref([])
@@ -586,7 +602,7 @@ const toggleFavorite = async (file) => {
         favoriteBookmarkIds.value = next
         ElMessage.success('已取消收藏')
       } else {
-        await addBookmarkFavorite({ bookmarkId, userId })
+        await addBookmarkFavorite({ bookmarkId: Number(bookmarkId), userId: Number(userId) })
         const next = new Set(favoriteBookmarkIds.value)
         next.add(bookmarkId)
         favoriteBookmarkIds.value = next
@@ -628,7 +644,7 @@ const toggleFavorite = async (file) => {
       setFavoriteState(fileId, false)
       ElMessage.success('已取消收藏')
     } else {
-      await addFavorite({ fileId, userId })
+      await addFavorite({ fileId: Number(fileId), userId: Number(userId) })
       setFavoriteState(fileId, true)
       ElMessage.success('已收藏')
     }
@@ -715,52 +731,66 @@ const fetchTreeData = async () => {
   }
 }
 // 侧边栏搜索逻辑
-// lxq 本地搜索：直接在已有文件树中按文件夹名筛选，排除单个文件，不发起后端请求
+// lxq 本地搜索：直接在已有文件树中按文件名/文件夹名筛选，不发起后端请求
 let searchTimer = null
 
-// lxq 在树中递归搜索匹配的文件夹节点，只返回文件夹，排除文件节点
-const filterFolders = (nodes, kw) => {
+// lxq 在树中递归搜索匹配的节点，文件名与文件夹名都参与匹配
+// 命中规则：文件自身命中则保留该文件；文件夹自身命中则保留整棵子树；
+// 文件夹自身未命中则只保留其中命中的后代（没有命中后代则整枝丢弃）
+const filterTree = (nodes, kw) => {
   if (!Array.isArray(nodes)) return []
 
-  const result = []
   const walk = (list) => {
+    const matched = []
     list.forEach(node => {
-      const isFolder = node.type === 'folder' || (node.children && node.children.length > 0)
-      if (!isFolder) return // 跳过文件节点
+      const children = Array.isArray(node.children) ? node.children : []
+      const isFolder = node.type === 'folder' || children.length > 0
 
-      const label = (node.label || '').toLowerCase()
-      if (label.includes(kw)) {
-        result.push(node)
+      if (String(node.label || '').toLowerCase().includes(kw)) {
+        matched.push(node)
+        return
       }
-      // 递归搜索子文件夹
-      if (node.children && node.children.length > 0) {
-        walk(node.children)
+      if (!isFolder) return // 文件未命中，跳过
+
+      const matchedChildren = walk(children)
+      if (matchedChildren.length > 0) {
+        matched.push({ ...node, children: matchedChildren })
       }
     })
+    return matched
   }
-  walk(nodes)
-  return result
+
+  return walk(nodes)
 }
 
 // lxq 搜索防抖处理：用户停止输入 300ms 后在本地文件树中筛选
-const handleLocalSearch = (query) => {
+// immediate 为 true 时（如回车）跳过防抖，立即执行
+const handleLocalSearch = (query, immediate = false) => {
   const keyword = (query || '').trim()
 
   if (searchTimer) {
     clearTimeout(searchTimer)
+    searchTimer = null
   }
 
-  searchTimer = setTimeout(() => {
+  const runSearch = () => {
     // 清空搜索时恢复原始文件树
     if (!keyword) {
       fileTreeData.value = allFileTreeData.value
       return
     }
 
-    // 在已有文件树中筛选匹配的文件夹
-    const matchedList = filterFolders(allFileTreeData.value, keyword.toLowerCase())
+    // 在已有文件树中筛选匹配的节点（含文件名）
+    const matchedList = filterTree(allFileTreeData.value, keyword.toLowerCase())
     fileTreeData.value = matchedList
-  }, 300)
+  }
+
+  if (immediate) {
+    runSearch()
+    return
+  }
+
+  searchTimer = setTimeout(runSearch, 300)
 }
 // 获取并格式化后端返回的文件树
 // const fetchTreeData = async () => {
@@ -912,6 +942,7 @@ const formatTreeData = (nodes) => {
 
 watch(activeView, (v) => {
   if (v === 'explorer') fetchTreeData()
+  if (v !== 'none') lastPanelView.value = v
 })
 
 watch(
@@ -1036,6 +1067,33 @@ const handleNodeClick = (data) => {
   } else {
     console.log('点击了文件夹或文件缺少URL:', data)
   }
+}
+
+// 排行榜点用户上传条目：资料直接构造文件节点，电子书直接复用 handleNodeClick
+// （不走 formatTreeData，因为那里会过滤掉待审条目，而自己看自己时待审也要能打开）
+const handleRankOpenItem = (item) => {
+  if (!item) return
+  if (item.type === 'ebook') {
+    // tab id 与电子书面板保持一致（ebook-<id>），避免同一本书开出两个标签
+    const ebookId = item.ebookId ?? item.id
+    handleNodeClick({ ...item, id: `ebook-${ebookId}`, rawId: ebookId, originalData: item })
+    return
+  }
+  const rawUrl = item.previewUrl || item.fileUrl || ''
+  if (!rawUrl) {
+    ElMessage.warning('文件地址缺失，无法打开')
+    return
+  }
+  handleNodeClick({
+    ...item,
+    id: item.id || item.fileId,
+    label: item.label || item.fileName || '未命名',
+    type: 'file',
+    url: normalizeFileUrl(rawUrl),
+    fileExt: String(item.fileFormat || '').toLowerCase(),
+    fileInfo: item,
+    children: null
+  })
 }
 
 // 处理下载文件逻辑：统一下载方法——主进程 downloadFileDirectly 流式写盘
@@ -1233,16 +1291,28 @@ const handleMouseMove = (e) => {
   const rect = rootRef.value?.getBoundingClientRect()
   const baseLeft = rect?.left ?? 0
   const newWidth = e.clientX - baseLeft
-  if (newWidth > 150 && newWidth < 600) {
+  if (newWidth >= PANEL_MIN_WIDTH && newWidth <= PANEL_MAX_WIDTH) {
     panelWidth.value = newWidth
   }
 }
 
 const stopResize = () => {
+  if (isResizing.value) savePanelWidth()
   isResizing.value = false
   document.body.style.cursor = ''
   document.removeEventListener('mousemove', handleMouseMove)
   document.removeEventListener('mouseup', stopResize)
+}
+
+// 双击分隔条：展开态一键收起；收起态恢复默认宽度 260 并展开回原视图
+const togglePanelCollapse = () => {
+  if (activeView.value !== 'none') {
+    handleViewChange(activeView.value)
+    return
+  }
+  panelWidth.value = PANEL_DEFAULT_WIDTH
+  savePanelWidth()
+  handleViewChange(lastPanelView.value)
 }
 
 onUnmounted(() => {
@@ -1593,8 +1663,12 @@ html.dark.has-custom-bg {
 
 /* 拖拽条 */
 .resizer {
-  width: 6px;
-  margin: 0 -3px;
+  /* 视觉上仍是 6px 细线，实际点击热区 10px：靠 padding + background-clip 收窄可见部分 */
+  box-sizing: border-box;
+  width: 10px;
+  padding: 0 2px;
+  background-clip: content-box;
+  margin: 0 -5px;
   cursor: ew-resize;
   transition: background-color 0.3s ease, opacity 0.3s ease;
   z-index: 10;

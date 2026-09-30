@@ -146,13 +146,17 @@ func (s *Store) datumEbookList(c *gin.Context) {
 	if len(keyword) > 100 {
 		keyword = keyword[:100]
 	}
+	owner := toDatumInt64(strings.TrimSpace(c.Query("userId")))
 	result, err := datum.NewEbookRepo(s.conn).List(datum.EbookFilter{
 		Page:         page,
 		PageSize:     size,
 		Keyword:      keyword,
 		EbookSubject: strings.TrimSpace(c.Query("subject")),
 		EbookType:    datumQueryInt(c, "ebookType"),
-		OnlyApproved: true,
+		UserID:       owner,
+		// 与试卷列表同语义：匿名浏览只看已上架，带 userId 时主人可见自己的待审书目，
+		// 其它调用方（如排行榜看他人）用 approvedOnly=1 强制只看已审核。
+		OnlyApproved: owner == 0 || datumQueryFlag(c, "approvedOnly"),
 	})
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "电子书列表查询失败")

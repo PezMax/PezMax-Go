@@ -218,6 +218,7 @@ func datumPageParams(c *gin.Context) (int, int) {
 
 func (s *Store) datumFileList(c *gin.Context) {
 	page, size := datumPageParams(c)
+	owner := toDatumInt64(strings.TrimSpace(c.Query("userId")))
 	filter := datum.FileFilter{
 		Page:         page,
 		PageSize:     size,
@@ -226,10 +227,10 @@ func (s *Store) datumFileList(c *gin.Context) {
 		FileSchool:   c.Query("fileSchool"),
 		FileYear:     datumQueryInt(c, "fileYear"),
 		Keyword:      c.Query("keyword"),
-		OnlyApproved: strings.TrimSpace(c.Query("userId")) == "",
-	}
-	if raw := strings.TrimSpace(c.Query("userId")); raw != "" {
-		filter.UserID = toDatumInt64(raw)
+		UserID:       owner,
+		// 匿名浏览只看已上架；带 userId 时沿用“主人可见待审”的语义（我的上传、
+		// 排行榜看自己），其它调用方可用 approvedOnly=1 强制只看已审核条目。
+		OnlyApproved: owner == 0 || datumQueryFlag(c, "approvedOnly"),
 	}
 	result, err := datum.NewFileRepo(s.conn).List(filter)
 	if err != nil {
@@ -757,6 +758,15 @@ func mimeByExt(ext string) string {
 
 func datumQueryInt(c *gin.Context, key string) int64 {
 	return toDatumInt64(strings.TrimSpace(c.Query(key)))
+}
+
+// datumQueryFlag reads an on/off query flag (1/true/yes).
+func datumQueryFlag(c *gin.Context, key string) bool {
+	switch strings.ToLower(strings.TrimSpace(c.Query(key))) {
+	case "1", "true", "yes":
+		return true
+	}
+	return false
 }
 
 func datumPathInt64(c *gin.Context, param string) (int64, bool) {

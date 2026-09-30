@@ -73,6 +73,7 @@
           clearable
           class="panel-search-input"
           @input="handleInput"
+          @keyup.enter="handleEnter"
         ></el-input>
       </div>
     </transition>
@@ -81,11 +82,12 @@
       <transition name="fade-view" mode="out-in">
         <!-- 资源树视图 -->
         <el-tree
-          v-if="activeView === 'explorer'"
+          v-if="activeView === 'explorer' && !isSearchEmpty"
           ref="fileTreeRef"
-          key="explorer"
+          :key="'explorer-' + treeKey"
           :data="fileTreeData"
           :props="defaultProps"
+          :default-expand-all="treeExpandAll"
           @node-click="$emit('node-click', $event)"
           class="ide-tree"
           highlight-current
@@ -113,6 +115,13 @@
             </div>
           </template>
         </el-tree>
+
+        <!-- lxq 搜索无命中提示：树为空时给出明确反馈，避免被误认为"没反应" -->
+        <div v-else-if="activeView === 'explorer'" class="empty-state">
+          <el-icon class="empty-icon"><Search /></el-icon>
+          <p>没有匹配「{{ searchQuery }}」的内容</p>
+          <span class="empty-sub">换个关键词，或清空搜索框查看全部</span>
+        </div>
 
         <div v-else-if="activeView === 'reportUser'" class="report-wrapper">
           <ReportTimelinePanel />
@@ -423,6 +432,23 @@ const props = defineProps({
 })
 
 const searchQuery = ref('')
+// lxq 搜索状态下的树展开控制：命中结果常被折叠的根节点挡住，
+// 搜索时整体展开，退出搜索后恢复折叠；treeKey 用于强制重建树以应用展开状态。
+const treeExpandAll = ref(false)
+const treeKey = ref(0)
+const isSearchEmpty = computed(() =>
+  !!String(searchQuery.value || '').trim() && (props.fileTreeData || []).length === 0
+)
+watch(
+  () => props.fileTreeData,
+  () => {
+    const searching = !!String(searchQuery.value || '').trim()
+    if (searching || treeExpandAll.value !== searching) {
+      treeExpandAll.value = searching
+      treeKey.value++
+    }
+  }
+)
 const isRefreshing = ref(false)
 const pendingCoverFile = ref(null) // 存储本地文件信息 { path, name, size }
 const localPreviewUrl = ref('')    // 用于本地图片的即时预览
@@ -558,7 +584,12 @@ onUnmounted(() => {
 
 // lxq 搜索输入联动：将用户输入的关键字实时传递给父组件执行搜索
 const handleInput = (value) => {
-  emit('search', value)
+  emit('search', value, false)
+}
+
+// lxq 回车立即搜索：跳过父组件的 300ms 防抖，按下的瞬间就出结果
+const handleEnter = () => {
+  emit('search', searchQuery.value, true)
 }
 
 // 控制文件扩展名显示
