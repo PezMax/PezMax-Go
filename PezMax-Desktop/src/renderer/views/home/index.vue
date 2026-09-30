@@ -128,6 +128,17 @@
         />
       </div>
     </transition>
+
+    <!-- 本地文件拖放遮罩：松开即预览（PDF / EPUB） -->
+    <transition name="fade">
+      <div v-if="localDragActive" class="local-drop-overlay">
+        <div class="local-drop-card">
+          <el-icon class="local-drop-icon"><Document /></el-icon>
+          <div class="local-drop-title">松开以本地预览</div>
+          <div class="local-drop-desc">支持 PDF / EPUB 文件，文件不会上传到服务器</div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -154,6 +165,7 @@ import NotificationDialog from '@/components/NotificationDialog/index.vue'
 import useUserStore from '@/store/modules/user'
 import { getUserPopupNotifications } from '@/api/datum/notification'
 import { fetchAllPages } from '@/utils/pagination'
+import { Document } from '@element-plus/icons-vue'
 import { listFavorite, addFavorite, delFavorite } from '@/api/datum/favorite'
 import { listBookmarkFavorite, addBookmarkFavorite, delBookmarkFavorite } from '@/api/datum/bookmarkFavorite'
 
@@ -790,6 +802,98 @@ const handleShowNotification = (event) => {
   }
 }
 
+// ======== 本地文件拖放预览（PDF / EPUB） ========
+const localDragActive = ref(false)
+let localDragDepth = 0
+
+const LOCAL_PREVIEW_EXTS = ['pdf', 'epub']
+
+const localDragHasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files')
+
+const onWinDragEnter = (e) => {
+  if (activeView.value === 'upload') return // 上传视图有自己的拖放流程
+  if (!localDragHasFiles(e)) return
+  localDragDepth++
+  localDragActive.value = true
+}
+const onWinDragOver = (e) => {
+  // 必须阻止默认行为，否则 Electron 会把拖入文件当作页面导航
+  e.preventDefault()
+}
+const onWinDragLeave = () => {
+  localDragDepth = Math.max(0, localDragDepth - 1)
+  if (localDragDepth === 0) localDragActive.value = false
+}
+const onWinDrop = (e) => {
+  e.preventDefault()
+  localDragDepth = 0
+  localDragActive.value = false
+  if (activeView.value === 'upload') return
+  void openLocalPreview(e.dataTransfer?.files)
+}
+
+/** 读取本地文件内容（Electron IPC，仅白名单扩展名） */
+const readLocalPreviewBuffer = async (filePath) => {
+  const result = await window.electronAPI.readFileBuffer(filePath)
+  if (!result?.success) {
+    throw new Error(result?.message || '文件读取失败')
+  }
+  return result
+}
+
+/** 打开本地文件的预览标签页（同一路径复用已开标签） */
+const openLocalPreview = async (files) => {
+  const file = files && files[0]
+  if (!file) {
+    ElMessage.warning('未检测到文件')
+    return
+  }
+  let filePath = ''
+  try {
+    filePath = window.electronAPI?.getPathForFile?.(file) || file.path || ''
+  } catch (e) {
+    filePath = file.path || ''
+  }
+  if (!filePath) {
+    ElMessage.error('无法获取文件路径，请尝试通过上传功能使用该文件')
+    return
+  }
+  const ext = (file.name.split('.').pop() || '').toLowerCase()
+  if (!LOCAL_PREVIEW_EXTS.includes(ext)) {
+    ElMessage.warning('本地预览仅支持 PDF / EPUB 文件')
+    return
+  }
+  const existing = openTabs.value.find((t) => t.localPath === filePath)
+  if (existing) {
+    activeTab.value = ''
+    setTimeout(() => { activeTab.value = existing.id }, 0)
+    return
+  }
+  try {
+    let url = ''
+    if (ext === 'pdf') {
+      // PDF：内容转 Blob URL，交给 Chromium 内建阅读器
+      const { buffer } = await readLocalPreviewBuffer(filePath)
+      const blob = new Blob([buffer], { type: 'application/pdf' })
+      url = URL.createObjectURL(blob)
+    }
+    const title = file.name.replace(/\.[^.]+$/, '')
+    openTabs.value.push({
+      id: `local-${Date.now()}`,
+      title,
+      url,
+      fileExt: ext,
+      type: 'local',
+      localPath: filePath,
+      originalData: { type: 'local', localPath: filePath, fileName: title, fileFormat: ext }
+    })
+    activeTab.value = ''
+    setTimeout(() => { activeTab.value = openTabs.value[openTabs.value.length - 1].id }, 0)
+  } catch (error) {
+    ElMessage.error(error?.message || '本地文件读取失败')
+  }
+}
+
 onMounted(async () => {
   isAppLoading.value = true
   appLoadingText.value = 'Synchronizing Space...'
@@ -798,6 +902,11 @@ onMounted(async () => {
   await refreshFavoriteIds()
   await loadPopupNotifications()
   window.addEventListener('showNotification', handleShowNotification)
+  // 本地文件拖放预览（窗口级，上传视图除外）
+  window.addEventListener('dragenter', onWinDragEnter)
+  window.addEventListener('dragover', onWinDragOver)
+  window.addEventListener('dragleave', onWinDragLeave)
+  window.addEventListener('drop', onWinDrop)
 
   setTimeout(() => {
     isAppLoading.value = false
@@ -1208,6 +1317,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
+  window.removeEventListener('dragenter', onWinDragEnter)
+  window.removeEventListener('dragover', onWinDragOver)
+  window.removeEventListener('dragleave', onWinDragLeave)
+  window.removeEventListener('drop', onWinDrop)
 })
 
 // 关闭 Tab
@@ -1719,5 +1832,44 @@ html.dark .download-progress-float {
 .download-slide-leave-to {
   opacity: 0;
   transform: translate(-50%, 60px) scale(0.9);
+}
+
+/* ======== 本地文件拖放遮罩 ======== */
+.local-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--ide-accent-rgb, 64, 158, 255), 0.12);
+  backdrop-filter: blur(4px);
+  border: 3px dashed var(--ide-accent, #409eff);
+  border-radius: 12px;
+  pointer-events: none; /* 不拦截 drop 事件（drop 监听在 window 上） */
+}
+.local-drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 48px;
+  border-radius: 18px;
+  background: var(--ide-panel-bg, #fff);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+}
+.local-drop-icon {
+  font-size: 42px;
+  color: var(--ide-accent, #409eff);
+  margin-bottom: 4px;
+}
+.local-drop-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ide-text-active, #303133);
+}
+.local-drop-desc {
+  font-size: 13px;
+  color: var(--ide-text-light, #909399);
 }
 </style>

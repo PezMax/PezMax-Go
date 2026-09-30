@@ -25,7 +25,7 @@
     <!-- 预览区 -->
     <div class="editor-content" v-if="openTabs.length > 0">
       <!-- 悬浮操作区：Notion 风格毛玻璃“药丸”岛 (按钮组) -->
-      <div class="editor-floating-pill-group" v-if="currentFileObj && currentFileObj.type !== 'bookmark' && currentFileObj.originalData">
+      <div class="editor-floating-pill-group" v-if="currentFileObj && currentFileObj.type !== 'bookmark' && currentFileObj.type !== 'local' && currentFileObj.originalData">
         <div v-if="currentFileObj.type !== 'bookmark'" class="pill-btn primary-action" @click="$emit('download-file', currentFileObj.originalData)" :title="currentIsEbook ? '下载电子书' : '下载原件'">
           <el-icon class="pill-icon"><Download /></el-icon>
           <span class="pill-text">{{ currentIsEbook ? '下载电子书' : '下载原件' }}</span>
@@ -72,7 +72,8 @@
       </div>
 
       <div class="preview-area">
-        <template v-if="currentFileObj && currentFileObj.url">
+        <!-- local 类型（拖入的本地文件）可能没有预置 url：EPUB 由阅读器按需读文件 -->
+        <template v-if="currentFileObj && (currentFileObj.url || currentFileObj.type === 'local')">
           <!-- PDF 或 Word(已转PDF) 预览 -->
           <iframe
             v-if="['pdf', 'doc', 'docx'].includes(currentFileObj.fileExt)"
@@ -285,7 +286,7 @@
           
           <!-- 电子书 EPUB 预览：连续滚动阅读 + 顶部工具栏（目录/章节翻页/进度条） -->
           <div
-            v-else-if="currentFileObj.type === 'ebook' && currentFileObj.fileExt === 'epub'"
+            v-else-if="['ebook', 'local'].includes(currentFileObj.type) && currentFileObj.fileExt === 'epub'"
             class="epub-preview-container"
           >
             <!-- 工具栏：紧贴标签页下方（章节名 + 固定长度进度条 + 目录抽屉按钮） -->
@@ -676,6 +677,7 @@ const epubProgressBook = ref(0)
 const epubProgressChapter = ref(0)
 let epubBook = null
 let epubRendition = null
+let epubRenditionReady = false
 // 当前 rendition 挂载的容器（普通预览 / 全屏阅读区之间切换）
 let epubActiveContainer = null
 let epubLoadSeq = 0
@@ -727,14 +729,20 @@ const teardownEpub = () => {
 
 // 尺寸变化（窗口缩放/侧栏拖拽）：先同步记位置，抖动结束后恢复
 const epubOnContainerResize = () => {
-  if (!epubRendition) return
+  // rendition 刚创建时 manager 尚未初始化（首次 display 未完成），
+  // 此时 epub.js 的 currentLocation() 内部会访问未定义的 manager 抛错
+  if (!epubRendition || !epubRenditionReady) return
   // 进度跳转中：位置由跳转流程落定，不捕获/恢复——否则会把跳转顶回旧位置
   if (epubSeeking) return
   if (!epubResizeRestoring) {
     // 重排尚未发生，此刻 DOM 里还能读到当前阅读位置
-    const cfi = epubRendition.currentLocation?.()?.start?.cfi
-    if (!cfi && !epubLastCfi) return // 初次布局，尚无可恢复的位置
-    if (cfi) epubLastCfi = cfi
+    try {
+      const cfi = epubRendition.currentLocation?.()?.start?.cfi
+      if (!cfi && !epubLastCfi) return // 初次布局，尚无可恢复的位置
+      if (cfi) epubLastCfi = cfi
+    } catch (e) {
+      return // manager 未就绪等瞬态，忽略本次 resize
+    }
     epubResizeRestoring = true
   }
   if (epubResizeTimer) clearTimeout(epubResizeTimer)
@@ -846,6 +854,7 @@ let epubSeeking = null // 'chapter' | 'book' | null
 const mountEpubRendition = async (el, options = {}) => {
   if (!epubBook || !el) return
   epubActiveContainer = el
+  epubRenditionReady = false
   // continuous + scrolled：整书连续垂直布局，鼠标滚轮顺滑连读
   const rendition = epubBook.renderTo(el, {
     width: '100%',
@@ -856,6 +865,21 @@ const mountEpubRendition = async (el, options = {}) => {
   })
   epubRendition = rendition
   rendition.on('relocated', epubHandleRelocated)
+  // epub.js 的每个章节 iframe 是独立文档：拖放事件不会冒泡到父窗口。
+  // 注入 dragover/drop 转发，保证"已打开书时再拖入新文件"仍能触发窗口级本地预览。
+  rendition.hooks.content.register((contents) => {
+    try {
+      const doc = contents.document
+      doc.addEventListener('dragover', (e) => e.preventDefault())
+      doc.addEventListener('drop', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (window.electronAPI) {
+          window.dispatchEvent(new DragEvent('drop', { dataTransfer: e.dataTransfer }))
+        }
+      })
+    } catch (_) { /* iframe 文档不可访问时忽略 */ }
+  })
   el.addEventListener('scroll', epubOnContainerScroll, true)
   // 尺寸变化监听：窗口缩放与侧栏拖拽都会改变阅读区尺寸
   epubResizeObserver = new ResizeObserver(epubOnContainerResize)
@@ -866,6 +890,7 @@ const mountEpubRendition = async (el, options = {}) => {
   } else {
     await rendition.display()
   }
+  epubRenditionReady = true
 }
 
 // 卸载 rendition（保留书对象与阅读位置：全屏切换不重新下载）
@@ -877,30 +902,35 @@ const unmountEpubRendition = () => {
   epubResizeObserver = null
   try { epubRendition?.destroy() } catch (_) { /* 已销毁则忽略 */ }
   epubRendition = null
+  epubRenditionReady = false
   epubActiveContainer = null
 }
 
 const loadEpub = async () => {
   const tab = currentFileObj.value
-  if (!tab || tab.type !== 'ebook' || tab.fileExt !== 'epub') return
+  if (!tab || !['ebook', 'local'].includes(tab.type) || tab.fileExt !== 'epub') return
   const seq = ++epubLoadSeq
   await nextTick()
   if (seq !== epubLoadSeq || !epubContainer.value) return
   isLoadingEpub.value = true
   try {
     const ePub = (await import('epubjs')).default
-    // openAs: 'epub' 强制按压缩包加载——预览 URL（/datum/ebook/content?ebookId=…）
-    // 路径无扩展名，epub.js 会误判为目录模式去请求 META-INF/container.xml 而失败
-    const book = ePub(tab.url, { openAs: 'epub' })
-    epubBook = book
-    // 临时调试钩子：实机定位进度跳转问题（验证后移除）
-    if (typeof window !== 'undefined') {
-      window.__epubDebug = {
-        get book() { return epubBook },
-        get rendition() { return epubRendition },
-        get state() { return { seeking: epubSeeking, lastCfi: epubLastCfi, spineIndex: epubCurrentSpineIndex, restoring: epubResizeRestoring, locationsReady: epubLocationsReady.value } }
-      }
+    let book
+    if (tab.type === 'local') {
+      // 本地文件：读取磁盘内容为 ArrayBuffer（epub.js 按 BINARY 解压）。
+      // 注意必须传 ArrayBuffer——epub.js 构造器对 Uint8Array 会误判为 options
+      // 对象导致数据被丢弃、书永远打不开（静默失败）。
+      const result = await window.electronAPI.readFileBuffer(tab.localPath)
+      if (!result?.success) throw new Error(result?.message || '文件读取失败')
+      const bytes = result.buffer
+      const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+      book = ePub(arrayBuffer)
+    } else {
+      // openAs: 'epub' 强制按压缩包加载——预览 URL（/datum/ebook/content?ebookId=…）
+      // 路径无扩展名，epub.js 会误判为目录模式去请求 META-INF/container.xml 而失败
+      book = ePub(tab.url, { openAs: 'epub' })
     }
+    epubBook = book
 
     // 目录
     try {
@@ -1016,7 +1046,8 @@ const epubDisplayAt = async (cfi) => {
   if (!epubBook || !epubRendition || !cfi) return
   epubLastCfi = cfi
   const tab = currentFileObj.value
-  if (!tab?.url) return
+  const isLocal = tab?.type === 'local'
+  if (!isLocal && !tab?.url) return
 
   const seekSeq = ++epubFarSeekSeq
   epubSeeking = epubSeeking || 'book'
@@ -1038,7 +1069,17 @@ const epubDisplayAt = async (cfi) => {
     if (!el) return
     el.innerHTML = ''
     const BookCtor = oldBook.constructor
-    const book = new BookCtor(tab.url, { openAs: 'epub' })
+    let book
+    if (isLocal) {
+      // 本地文件：重读磁盘内容为 ArrayBuffer（同 loadEpub：必须 ArrayBuffer，不能 Uint8Array）
+      const result = await window.electronAPI.readFileBuffer(tab.localPath)
+      if (!result?.success) throw new Error(result?.message || '文件读取失败')
+      const bytes = result.buffer
+      const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+      book = new BookCtor(arrayBuffer)
+    } else {
+      book = new BookCtor(tab.url, { openAs: 'epub' })
+    }
     await Promise.race([
       book.opened,
       new Promise((r) => setTimeout(r, 8000))
@@ -1095,11 +1136,6 @@ let epubBookSeekTimer = null
 // 进度条拖动中（input 事件）：滑块即时跟随，同时实时驱动正文滚动到对应位置
 // —— 全书条按 locations 百分比→CFI；本章条按 spine 节内偏移滚动
 const epubOnProgressInput = async (kind, percent) => {
-  // 临时调试：实机定位进度跳转（验证后移除）
-  if (typeof window !== 'undefined') {
-    window.__epubTrace = window.__epubTrace || []
-    window.__epubTrace.push({ at: 'input', kind, percent, spineIndex: epubCurrentSpineIndex })
-  }
   const value = Number(percent) || 0
   if (!epubBook || !epubRendition) return
   if (epubSeeking !== kind) epubSeeking = kind

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 // Custom APIs for renderer
@@ -54,7 +54,10 @@ if (process.contextIsolated) {
       noticeReads: {
         list: (userId) => ipcRenderer.invoke('notice-read:list', userId),
         mark: (userId, notifyIds) => ipcRenderer.invoke('notice-read:mark', { userId, notifyIds })
-      }
+      },
+      // 本地文件预览：拖入窗口的 PDF/EPUB
+      readFileBuffer: (filePath) => ipcRenderer.invoke('read-file-buffer', filePath),
+      getPathForFile: (file) => webUtils.getPathForFile(file)
     })
   } catch (error) {
     console.error(error)

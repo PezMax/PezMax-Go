@@ -504,6 +504,27 @@ app.whenReady().then(() => {
     return null
   })
 
+  // 本地文件预览：读取拖入的 PDF/EPUB 文件内容（仅白名单扩展名）
+  ipcMain.handle('read-file-buffer', async (event, filePath) => {
+    try {
+      if (!filePath || typeof filePath !== 'string') {
+        return { success: false, message: '文件路径无效' }
+      }
+      const ext = filePath.split('.').pop().toLowerCase()
+      if (!['pdf', 'epub'].includes(ext)) {
+        return { success: false, message: '仅支持 PDF / EPUB 文件本地预览' }
+      }
+      if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+        return { success: false, message: '文件不存在或不可读' }
+      }
+      const buffer = await fs.promises.readFile(filePath)
+      return { success: true, buffer, ext }
+    } catch (error) {
+      console.error('读取本地文件失败:', error)
+      return { success: false, message: error?.message || '文件读取失败' }
+    }
+  })
+
   // ================= 核心：彻底接管下载（文件流直写方案） =================
   ipcMain.handle('download-file-directly', async (event, { url, fileName, token, folderPath, silent }) => {
     return new Promise((resolve, reject) => {
