@@ -152,7 +152,7 @@ func (s *Store) datumUserCreate(c *gin.Context) {
 	}
 	repo := &datumUserRepo{conn: s.conn}
 	if existing, err := repo.findByUserName(req.UserName); err == nil && existing != nil {
-		fail(c, http.StatusConflict, "用户名已存在")
+		fail(c, http.StatusConflict, "用户名已存在，请更换后重试")
 		return
 	} else if err != nil && !errors.Is(err, errDatumUserNotFound) {
 		fail(c, http.StatusInternalServerError, "用户创建失败")
@@ -166,7 +166,7 @@ func (s *Store) datumUserCreate(c *gin.Context) {
 	userID, err := repo.createAdmin(req.UserName, passwordHash, strings.TrimSpace(req.Avatar), status, req.Count, strings.TrimSpace(req.Remark))
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
-			fail(c, http.StatusConflict, "用户名已存在")
+			fail(c, http.StatusConflict, "用户名已存在，请更换后重试")
 			return
 		}
 		fail(c, http.StatusInternalServerError, "用户创建失败")
@@ -212,7 +212,7 @@ func (s *Store) datumUserUpdate(c *gin.Context) {
 			return
 		}
 		if clash, err := repo.findByUserName(userName); err == nil && clash != nil && clash.UserID != userID {
-			fail(c, http.StatusConflict, "用户名已存在")
+			fail(c, http.StatusConflict, "用户名已存在，请更换后重试")
 			return
 		} else if err != nil && !errors.Is(err, errDatumUserNotFound) {
 			fail(c, http.StatusInternalServerError, "用户更新失败")
@@ -268,7 +268,7 @@ func (s *Store) datumUserUpdate(c *gin.Context) {
 	update.UpdateBy = datumActorName(c, repo)
 	if _, err := repo.updateAdmin(userID, update); err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
-			fail(c, http.StatusConflict, "用户名已存在")
+			fail(c, http.StatusConflict, "用户名已存在，请更换后重试")
 			return
 		}
 		fail(c, http.StatusInternalServerError, "用户更新失败")

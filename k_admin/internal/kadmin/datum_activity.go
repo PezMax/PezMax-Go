@@ -262,12 +262,12 @@ func (s *Store) datumFavoriteAdd(c *gin.Context) {
 	}
 	repo := datum.NewFileFavoriteRepo(s.conn)
 	if exists, err := repo.Exists(req.FileID, userID); err == nil && exists {
-		fail(c, http.StatusConflict, "收藏已存在")
+		fail(c, http.StatusConflict, "收藏已存在，请勿重复收藏")
 		return
 	}
 	if err := repo.Add(req.FileID, userID); err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
-			fail(c, http.StatusConflict, "收藏已存在")
+			fail(c, http.StatusConflict, "收藏已存在，请勿重复收藏")
 			return
 		}
 		fail(c, http.StatusInternalServerError, "收藏失败")
@@ -404,14 +404,14 @@ func (s *Store) datumBookmarkFavoriteAdd(c *gin.Context) {
 	}
 	repo := datum.NewBookmarkFavoriteRepo(s.conn)
 	if exists, err := repo.Exists(req.BookmarkID, userID); err == nil && exists {
-		fail(c, http.StatusConflict, "收藏已存在")
+		fail(c, http.StatusConflict, "收藏已存在，请勿重复收藏")
 		return
 	}
 	if err := repo.Add(req.BookmarkID, userID); err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
 			// 源库怪癖：ptmj_bookmark_favorite 主键仅 bookmark_id，
 			// 一个书签只能有一行收藏记录。
-			fail(c, http.StatusConflict, "收藏已存在")
+			fail(c, http.StatusConflict, "收藏已存在，请勿重复收藏")
 			return
 		}
 		fail(c, http.StatusInternalServerError, "收藏失败")

@@ -882,7 +882,7 @@ func swaggerDatumReportTimeline() {}
 // @Success 200 {object} SwaggerResponse
 // @Failure 400 {object} SwaggerErrorResponse
 // @Failure 401 {object} SwaggerErrorResponse
-// @Failure 409 {object} SwaggerErrorResponse "已有待处理举报"
+// @Failure 409 {object} SwaggerErrorResponse "举报已受理，请勿重复举报"
 // @Router /datum/report [post]
 func swaggerDatumReportCreate() {}
 
@@ -945,7 +945,7 @@ func swaggerDatumBookmarkReportDetail() {}
 // @Success 200 {object} SwaggerResponse
 // @Failure 400 {object} SwaggerErrorResponse
 // @Failure 401 {object} SwaggerErrorResponse
-// @Failure 409 {object} SwaggerErrorResponse "已有待处理举报"
+// @Failure 409 {object} SwaggerErrorResponse "举报已受理，请勿重复举报"
 // @Router /datum/bookmarkReport [post]
 func swaggerDatumBookmarkReportCreate() {}
 

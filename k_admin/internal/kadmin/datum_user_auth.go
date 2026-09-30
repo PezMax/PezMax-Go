@@ -574,7 +574,7 @@ func (s *Store) datumRegister(c *gin.Context) {
 
 	repo := &datumUserRepo{conn: s.conn}
 	if existing, err := repo.findByUserName(req.Username); err == nil && existing != nil {
-		fail(c, http.StatusConflict, "用户名已存在")
+		fail(c, http.StatusConflict, "用户名已存在，请更换后重试")
 		return
 	} else if err != nil && !errors.Is(err, errDatumUserNotFound) {
 		fail(c, http.StatusInternalServerError, "账号查询失败")
@@ -599,7 +599,7 @@ func (s *Store) datumRegister(c *gin.Context) {
 	userID, err := repo.create(req.Username, passwordHash, strings.TrimSpace(req.Avatar))
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
-			fail(c, http.StatusConflict, "用户名已存在")
+			fail(c, http.StatusConflict, "用户名已存在，请更换后重试")
 			return
 		}
 		fail(c, http.StatusInternalServerError, "注册失败")

@@ -13,7 +13,7 @@ import { PTMJ_AUTH_ROUTES, isPtmjAuthRoute } from '@/constants/ptmjAuth'
 export let isRelogin = { show: false }
 
 // 已知特定错误原因保留原始报错，否则显示通用提示（kadmin HTTP 错误）
-const specificPatterns = /上传失败|用户名或密码|用户不存在|账号已被停用|账号已被封禁|验证码错误|密码不一致|已锁定|密保答案|暂不支持|不能为空|格式错误|文件过大|没有权限|非法操作|已被停用|命名错误|大小超过|类型错误|已存在|不支持此文件|封面文件/
+const specificPatterns = /上传失败|用户名或密码|用户不存在|账号已被停用|账号已被封禁|验证码错误|密码不一致|已锁定|密保答案|暂不支持|不能为空|格式错误|文件过大|没有权限|非法操作|已被停用|命名错误|大小超过|类型错误|已存在|重复举报|不支持此文件|封面文件/
 
 // 会话失效统一处理：kadmin 以 HTTP 401 承载会话失效
 function handleSessionExpired() {

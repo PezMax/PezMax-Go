@@ -213,12 +213,12 @@ func (s *Store) datumEbookFavoriteAdd(c *gin.Context) {
 	}
 	repo := datum.NewEbookFavoriteRepo(s.conn)
 	if exists, err := repo.Exists(req.EbookID, userID); err == nil && exists {
-		fail(c, http.StatusConflict, "收藏已存在")
+		fail(c, http.StatusConflict, "收藏已存在，请勿重复收藏")
 		return
 	}
 	if err := repo.Add(req.EbookID, userID); err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
-			fail(c, http.StatusConflict, "收藏已存在")
+			fail(c, http.StatusConflict, "收藏已存在，请勿重复收藏")
 			return
 		}
 		fail(c, http.StatusInternalServerError, "收藏失败")
@@ -342,7 +342,7 @@ func (s *Store) datumEbookReportCreate(c *gin.Context) {
 	reportID, err := datum.NewEbookReportRepo(s.conn).Create(req.EbookID, userID, reason, strings.TrimSpace(req.Remark))
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
-			fail(c, http.StatusConflict, "该电子书已有你提交的举报，请等待审核")
+			fail(c, http.StatusConflict, "举报已受理，请勿重复举报，若遇到问题请联系管理人员")
 			return
 		}
 		fail(c, http.StatusInternalServerError, "举报提交失败")

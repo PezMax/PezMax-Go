@@ -151,13 +151,13 @@ func (s *Store) datumReportCreate(c *gin.Context) {
 		return
 	}
 	if pending, found, _ := repo.FindByFileAndReporter(req.FileID, userID); found && pending.Result == "0" {
-		fail(c, http.StatusConflict, "该文件已有待处理的举报，请等待审核")
+		fail(c, http.StatusConflict, "举报已受理，请勿重复举报，若遇到问题请联系管理人员")
 		return
 	}
 	reportID, err := repo.Create(req.FileID, userID, reason, strings.TrimSpace(req.Remark))
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
-			fail(c, http.StatusConflict, "该文件已有待处理的举报，请等待审核")
+			fail(c, http.StatusConflict, "举报已受理，请勿重复举报，若遇到问题请联系管理人员")
 			return
 		}
 		fail(c, http.StatusInternalServerError, "举报提交失败")
@@ -440,13 +440,13 @@ func (s *Store) datumBookmarkReportCreate(c *gin.Context) {
 	}
 	repo := datum.NewBookmarkReportRepo(s.conn)
 	if pending, found, _ := repo.FindByReporterAndBookmark(req.BookmarkID, userID); found && pending.Result == "0" {
-		fail(c, http.StatusConflict, "该书签已有待处理的举报，请等待审核")
+		fail(c, http.StatusConflict, "举报已受理，请勿重复举报，若遇到问题请联系管理人员")
 		return
 	}
 	reportID, err := repo.Create(req.BookmarkID, userID, reason, strings.TrimSpace(req.Remark))
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
-			fail(c, http.StatusConflict, "该书签已有待处理的举报，请等待审核")
+			fail(c, http.StatusConflict, "举报已受理，请勿重复举报，若遇到问题请联系管理人员")
 			return
 		}
 		fail(c, http.StatusInternalServerError, "举报提交失败")

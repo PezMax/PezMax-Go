@@ -95,7 +95,7 @@ func (s *Store) datumUpdateUserName(c *gin.Context) {
 	repo := &datumUserRepo{conn: s.conn}
 	if err := repo.updateUserName(userID, userName); err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
-			fail(c, http.StatusConflict, "用户名已存在")
+			fail(c, http.StatusConflict, "用户名已存在，请更换后重试")
 			return
 		}
 		fail(c, http.StatusInternalServerError, "用户名修改失败")

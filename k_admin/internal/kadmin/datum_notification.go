@@ -224,7 +224,7 @@ func (s *Store) datumNotificationCreate(c *gin.Context) {
 	notifyID, err := datum.NewNotificationRepo(s.conn).Create(req.payload())
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
-			fail(c, http.StatusConflict, "该资料的下架通知已存在")
+			fail(c, http.StatusConflict, "该资料的下架通知已存在，请勿重复创建")
 			return
 		}
 		fail(c, http.StatusInternalServerError, "通知创建失败")
@@ -250,7 +250,7 @@ func (s *Store) datumNotificationUpdate(c *gin.Context) {
 			return
 		}
 		if strings.Contains(err.Error(), "duplicate key") {
-			fail(c, http.StatusConflict, "该资料的下架通知已存在")
+			fail(c, http.StatusConflict, "该资料的下架通知已存在，请勿重复创建")
 			return
 		}
 		fail(c, http.StatusInternalServerError, "通知更新失败")
