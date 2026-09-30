@@ -283,17 +283,141 @@
             </div>
           </div>
           
-          <!-- 电子书 EPUB 预览（epub.js 渲染，与试卷 iframe 预览共用预览区） -->
+          <!-- 电子书 EPUB 预览：连续滚动阅读 + 顶部工具栏（目录/章节翻页/进度条） -->
           <div
             v-else-if="currentFileObj.type === 'ebook' && currentFileObj.fileExt === 'epub'"
             class="epub-preview-container"
           >
-            <div ref="epubContainer" class="epub-viewer" v-loading="isLoadingEpub" element-loading-text="正在加载内容..."></div>
-            <div class="epub-nav">
-              <el-button :icon="ArrowLeft" circle title="上一页" @click="epubPrev" />
-              <span class="epub-nav-hint">左右方向键翻页</span>
-              <el-button :icon="ArrowRight" circle title="下一页" @click="epubNext" />
+            <!-- 工具栏：紧贴标签页下方（章节名 + 固定长度进度条 + 目录抽屉按钮） -->
+            <div class="epub-toolbar">
+              <span class="epub-chapter-label" :title="epubChapterLabel">{{ epubChapterLabel || '未命名章节' }}</span>
+              <div class="epub-progress-wrap">
+                <el-slider
+                  class="epub-progress-slider"
+                  :model-value="Math.round(epubProgressBook)"
+                  :show-tooltip="false"
+                  :disabled="!epubLocationsReady"
+                  @input="(v) => epubOnProgressInput('book', v)"
+                  @change="(v) => epubOnProgressChange('book', v)"
+                />
+                <span class="epub-progress-text">
+                  本章 {{ Math.round(epubProgressChapter) }}% · 全书 {{ epubLocationsReady ? Math.round(epubProgressBook) + '%' : '…' }}
+                </span>
+              </div>
+              <el-button size="small" :icon="Menu" circle title="章节目录" @click="epubTocDrawer = true" />
+              <el-button size="small" :icon="FullScreen" circle title="全屏阅读" @click="enterEpubFullscreen" />
             </div>
+
+            <div ref="epubContainer" class="epub-viewer" v-loading="isLoadingEpub || epubGeneratingLocations" :element-loading-text="epubGeneratingLocations ? '正在生成进度索引...' : '正在加载内容...'"></div>
+
+            <!-- 章节目录抽屉：不传送到 body，绝对定位只覆盖预览区（不挡左侧菜单） -->
+            <el-drawer
+              v-model="epubTocDrawer"
+              direction="ltr"
+              size="300px"
+              title="章节目录"
+              class="epub-toc-drawer"
+            >
+              <div class="epub-toc-list">
+                <div
+                  v-for="(item, index) in epubTocItems"
+                  :key="item.href + '-' + index"
+                  :class="['epub-toc-item', `depth-${item.depth}`, { active: item.href === epubCurrentHref }]"
+                  :title="item.label"
+                  @click="epubGoToToc(item)"
+                >
+                  {{ item.label }}
+                </div>
+                <div v-if="epubTocItems.length === 0" class="epub-toc-empty">本书未提供目录</div>
+              </div>
+            </el-drawer>
+
+            <!-- 全屏阅读：左章节栏（浅色缩略）/ 中间正文（居中 60%）/ 右侧双进度条（本章+全书）/ 页码跳转 -->
+            <teleport to="body">
+              <div v-if="epubFullscreen" :class="['epub-fullscreen', { 'ui-hidden': epubUiHidden }]">
+                <div class="fs-left">
+                  <div class="fs-chapter-now" :title="epubChapterLabel">{{ epubChapterLabel || '未命名章节' }}</div>
+                  <div class="fs-toc-list">
+                    <div
+                      v-for="(item, index) in epubTocItems"
+                      :key="'fs-' + item.href + '-' + index"
+                      :class="['epub-toc-item', `depth-${item.depth}`, { active: item.href === epubCurrentHref }]"
+                      :title="item.label"
+                      @click="epubGoToToc(item)"
+                    >
+                      {{ epubTocShort(item.label) }}
+                    </div>
+                    <div v-if="epubTocItems.length === 0" class="epub-toc-empty">本书未提供目录</div>
+                  </div>
+                </div>
+
+                <div class="fs-content">
+                  <div ref="fsEpubContainer" class="fs-reader" v-loading="isLoadingEpub" element-loading-text="正在加载内容..."></div>
+                </div>
+
+                <!-- 右侧：本章进度（绿，有章节时显示）+ 全书进度（蓝），均从上到下 -->
+                <div class="fs-right">
+                  <div class="fs-progress-row">
+                    <div v-if="epubHasChapters" class="fs-progress-group">
+                      <span class="fs-progress-value">{{ Math.round(epubProgressChapter) }}%</span>
+                      <el-slider
+                        class="fs-progress chapter"
+                        vertical
+                        height="42vh"
+                        :model-value="Math.round(epubProgressChapter)"
+                        :show-tooltip="false"
+                        @input="(v) => epubOnProgressInput('chapter', v)"
+                        @change="(v) => epubOnProgressChange('chapter', v)"
+                      />
+                      <span class="fs-progress-label">章</span>
+                    </div>
+                    <div class="fs-progress-group">
+                      <span class="fs-progress-value">{{ epubLocationsReady ? Math.round(epubProgressBook) + '%' : '…' }}</span>
+                      <el-slider
+                        class="fs-progress book"
+                        vertical
+                        height="42vh"
+                        :model-value="Math.round(epubProgressBook)"
+                        :show-tooltip="false"
+                        :disabled="!epubLocationsReady"
+                        @input="(v) => epubOnProgressInput('book', v)"
+                        @change="(v) => epubOnProgressChange('book', v)"
+                      />
+                      <span class="fs-progress-label">书</span>
+                    </div>
+                  </div>
+
+                  <!-- 页码跳转（书带页码标记时显示） -->
+                  <div v-if="epubPageInfo.total > 0" class="fs-page-jump">
+                    <span class="fs-page-label">{{ epubPageInfo.current }}/{{ epubPageInfo.total }} 页</span>
+                    <el-input-number
+                      v-model="epubPageJumpInput"
+                      :min="1"
+                      :max="epubPageInfo.total"
+                      size="small"
+                      controls-position="right"
+                      class="fs-page-input"
+                      @change="epubGoToPage"
+                    />
+                  </div>
+                </div>
+
+                <div class="fs-actions">
+                  <el-button class="fs-exit" :icon="Close" circle title="退出全屏（Esc）" @click="exitEpubFullscreen" />
+                  <el-button
+                    class="fs-hide-ui"
+                    :icon="epubUiHidden ? View : Hide"
+                    circle
+                    :title="epubUiHidden ? '显示界面（H）' : '隐藏界面（H）'"
+                    @click="epubUiHidden = !epubUiHidden"
+                  />
+                </div>
+
+                <transition name="fade">
+                  <div v-if="epubShowEscHint" class="fs-esc-hint">按 Esc 退出全屏 · H 隐藏界面</div>
+                </transition>
+              </div>
+            </teleport>
           </div>
 
           <!-- 暂不支持预览的格式 -->
@@ -374,7 +498,7 @@ import { normalizeAvatar } from '@/utils/avatar' // fxy 引入头像处理工具
 import { getUser } from '@/api/datum/user' // 引入获取平台用户信息接口
 import { normalizeFileUrl } from '@/utils/url'
 /* 引入 Element Plus 图标 */
-import { Close, Download, Document, Link, TopRight, Position, CopyDocument, Collection, EditPen, Folder, User, WarningFilled, Star, StarFilled, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { Close, Download, Document, Link, TopRight, Position, CopyDocument, Collection, EditPen, Folder, User, WarningFilled, Star, StarFilled, Menu, FullScreen, Hide, View } from '@element-plus/icons-vue'
 import useUserStore from '@/store/modules/user'
 import { addReportToPtmjReport } from '@/api/datum/report'
 import { resolveEditorVisibilityValue } from '@/utils/ideAppearance'
@@ -420,6 +544,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('settings-updated', handleSettingsUpdate)
+  epubContainer.value?.removeEventListener?.('scroll', epubOnContainerScroll, true)
   teardownEpub()
 })
 
@@ -530,18 +655,229 @@ const handleToggleFavorite = () => {
 }
 
 // ======== 电子书 EPUB 预览（epub.js 动态加载，切页/关页即释放） ========
+// 阅读器形态：连续垂直滚动（manager: continuous + flow: scrolled）——鼠标滚轮
+// 平滑连读；工具栏紧贴标签页下方，提供章节目录抽屉、章节翻页与全书进度条。
 const epubContainer = ref(null)
+const fsEpubContainer = ref(null)
+const epubFullscreen = ref(false)
+const epubUiHidden = ref(false)
+const epubShowEscHint = ref(false)
+// 页码标记（EPUB3 page-list / source）：total>0 时显示页码与跳转
+const epubPageInfo = ref({ total: 0, current: 0 })
+const epubPageJumpInput = ref(1)
 const isLoadingEpub = ref(false)
+const epubGeneratingLocations = ref(false)
+const epubLocationsReady = ref(false)
+const epubTocDrawer = ref(false)
+const epubTocItems = ref([])
+const epubCurrentHref = ref('')
+const epubChapterLabel = ref('')
+const epubProgressBook = ref(0)
+const epubProgressChapter = ref(0)
 let epubBook = null
 let epubRendition = null
+// 当前 rendition 挂载的容器（普通预览 / 全屏阅读区之间切换）
+let epubActiveContainer = null
 let epubLoadSeq = 0
+let epubCurrentSpineIndex = -1
+let epubScrollTimer = null
+// 窗口/面板尺寸变化时 epub.js 会重排并把滚动位置重置回顶部：
+// 重排前记下当前 CFI，重排落定后 display(cfi) 恢复阅读位置。
+let epubLastCfi = null
+let epubResizeRestoring = false
+let epubResizeTimer = null
+let epubResizeObserver = null
 
 const teardownEpub = () => {
   epubLoadSeq++
-  try { epubRendition?.destroy() } catch (_) { /* 已销毁则忽略 */ }
+  if (epubScrollTimer) {
+    clearTimeout(epubScrollTimer)
+    epubScrollTimer = null
+  }
+  if (epubResizeTimer) {
+    clearTimeout(epubResizeTimer)
+    epubResizeTimer = null
+  }
+  if (epubBookSeekTimer) {
+    clearTimeout(epubBookSeekTimer)
+    epubBookSeekTimer = null
+  }
+  epubResizeObserver?.disconnect()
+  epubResizeObserver = null
+  epubResizeRestoring = false
+  epubLastCfi = null
+  unmountEpubRendition()
   try { epubBook?.destroy() } catch (_) { /* 已销毁则忽略 */ }
-  epubRendition = null
   epubBook = null
+  epubCurrentSpineIndex = -1
+  epubTocItems.value = []
+  epubCurrentHref.value = ''
+  epubChapterLabel.value = ''
+  epubProgressBook.value = 0
+  epubProgressChapter.value = 0
+  epubLocationsReady.value = false
+  epubGeneratingLocations.value = false
+  epubTocDrawer.value = false
+  epubFullscreen.value = false
+  epubUiHidden.value = false
+  epubShowEscHint.value = false
+  epubPageInfo.value = { total: 0, current: 0 }
+  epubPageJumpInput.value = 1
+}
+
+// 尺寸变化（窗口缩放/侧栏拖拽）：先同步记位置，抖动结束后恢复
+const epubOnContainerResize = () => {
+  if (!epubRendition) return
+  // 进度跳转中：位置由跳转流程落定，不捕获/恢复——否则会把跳转顶回旧位置
+  if (epubSeeking) return
+  if (!epubResizeRestoring) {
+    // 重排尚未发生，此刻 DOM 里还能读到当前阅读位置
+    const cfi = epubRendition.currentLocation?.()?.start?.cfi
+    if (!cfi && !epubLastCfi) return // 初次布局，尚无可恢复的位置
+    if (cfi) epubLastCfi = cfi
+    epubResizeRestoring = true
+  }
+  if (epubResizeTimer) clearTimeout(epubResizeTimer)
+  epubResizeTimer = setTimeout(async () => {
+    epubResizeTimer = null
+    try {
+      if (epubRendition && epubLastCfi && !epubSeeking) {
+        await epubDisplayAt(epubLastCfi)
+      }
+    } catch (e) {
+      console.warn('[MainEditor] 阅读位置恢复失败:', e)
+    }
+    epubResizeRestoring = false
+    if (!epubRendition) return
+    // 用恢复后的位置刷新章节名/进度（恢复期间的 relocated 被守卫跳过了）
+    const loc = epubRendition.currentLocation?.()
+    if (loc?.start) epubHandleRelocated(loc)
+    epubHandleScrollGeometry()
+  }, 300)
+}
+
+// 扁平化目录树（保留层级缩进用 depth）
+const epubFlattenToc = (toc, depth = 0, out = []) => {
+  toc.forEach(item => {
+    if (!item?.href) return
+    out.push({
+      label: (item.label?.trim() || '未命名章节'),
+      href: item.href,
+      depth
+    })
+    if (Array.isArray(item.subitems) && item.subitems.length > 0) {
+      epubFlattenToc(item.subitems, depth + 1, out)
+    }
+  })
+  return out
+}
+
+// relocated：滚动/跳转后更新章节名与全书进度（CFI → locations 百分比）
+const epubHandleRelocated = (location) => {
+  if (!epubBook || !location?.start) return
+  // 尺寸重排恢复期跳过：重排会把位置打到顶部，避免污染记录与进度 UI
+  if (epubResizeRestoring) return
+  epubLastCfi = location.start.cfi || epubLastCfi
+  const href = location.start.href || ''
+  const spineItem = epubBook.spine?.get(href)
+  const spineIndex = spineItem?.index ?? epubCurrentSpineIndex
+  if (spineIndex !== undefined && spineIndex >= 0) {
+    epubCurrentSpineIndex = spineIndex
+  }
+  // 目录项按 spine 序号匹配：取 spine 序号不大于当前位置的最后一项
+  let matched = null
+  epubTocItems.value.forEach(item => {
+    const idx = epubBook.spine?.get(item.href)?.index
+    if (idx !== undefined && idx <= epubCurrentSpineIndex) {
+      if (!matched || (matched._spine ?? -1) <= idx) {
+        matched = { ...item, _spine: idx }
+      }
+    }
+  })
+  epubCurrentHref.value = matched?.href || ''
+  epubChapterLabel.value = matched?.label || (epubCurrentSpineIndex >= 0 ? `第 ${epubCurrentSpineIndex + 1} 节` : '')
+  // 拖动全书进度时挂起回写（跳转落定后再由 display 流程刷新）
+  if (epubSeeking !== 'book' && epubLocationsReady.value && epubBook.locations?.length) {
+    const pct = epubBook.locations.percentageFromCfi?.(location.start.cfi)
+    if (typeof pct === 'number' && !Number.isNaN(pct)) {
+      epubProgressBook.value = Math.min(100, Math.max(0, pct * 100))
+    }
+  }
+  epubUpdateCurrentPage(location)
+}
+
+// 滚动几何：以视口中心所在的 spine iframe 计算本章进度
+const epubHandleScrollGeometry = () => {
+  if (epubResizeRestoring || epubSeeking) return
+  const root = epubActiveContainer
+  if (!root || !epubBook) return
+  const scroller = root.querySelector('.epub-container') || root
+  const center = scroller.scrollTop + scroller.clientHeight / 2
+  const iframes = Array.from(scroller.querySelectorAll('iframe'))
+  let currentIdx = -1
+  iframes.forEach((frame, idx) => {
+    const top = frame.offsetTop
+    const bottom = top + frame.offsetHeight
+    if (center >= top && center < bottom) currentIdx = idx
+  })
+  if (currentIdx < 0) return
+  const frame = iframes[currentIdx]
+  const scrollable = Math.max(frame.offsetHeight - scroller.clientHeight, 1)
+  epubProgressChapter.value = Math.min(100, Math.max(0, ((center - frame.offsetTop) / scrollable) * 100))
+  // locations 未就绪时以整体滚动比例近似全书进度
+  if (!epubLocationsReady.value) {
+    const total = scroller.scrollHeight - scroller.clientHeight
+    if (total > 0) {
+      epubProgressBook.value = Math.min(100, Math.max(0, (scroller.scrollTop / total) * 100))
+    }
+  }
+}
+
+// scroll 不冒泡但可捕获：挂在容器上捕获监听内部 .epub-container 的滚动
+const epubOnContainerScroll = () => {
+  if (epubScrollTimer) clearTimeout(epubScrollTimer)
+  epubScrollTimer = setTimeout(epubHandleScrollGeometry, 150)
+}
+
+// 用户正在拖动进度条：挂起滚动→进度的回写，避免拖动中数值被滚动事件顶回
+let epubSeeking = null // 'chapter' | 'book' | null
+
+// 把当前书的 rendition 挂载到指定容器（普通预览 / 全屏阅读区通用）
+const mountEpubRendition = async (el, options = {}) => {
+  if (!epubBook || !el) return
+  epubActiveContainer = el
+  // continuous + scrolled：整书连续垂直布局，鼠标滚轮顺滑连读
+  const rendition = epubBook.renderTo(el, {
+    width: '100%',
+    height: '100%',
+    manager: 'continuous',
+    flow: 'scrolled',
+    spread: 'none'
+  })
+  epubRendition = rendition
+  rendition.on('relocated', epubHandleRelocated)
+  el.addEventListener('scroll', epubOnContainerScroll, true)
+  // 尺寸变化监听：窗口缩放与侧栏拖拽都会改变阅读区尺寸
+  epubResizeObserver = new ResizeObserver(epubOnContainerResize)
+  epubResizeObserver.observe(el)
+  // 有历史位置时首跳到该位置（新 rendition 的首次 display 可靠），新书从头展示
+  if (options.startCfi) {
+    await rendition.display(options.startCfi)
+  } else {
+    await rendition.display()
+  }
+}
+
+// 卸载 rendition（保留书对象与阅读位置：全屏切换不重新下载）
+const unmountEpubRendition = () => {
+  if (epubActiveContainer) {
+    epubActiveContainer.removeEventListener('scroll', epubOnContainerScroll, true)
+  }
+  epubResizeObserver?.disconnect()
+  epubResizeObserver = null
+  try { epubRendition?.destroy() } catch (_) { /* 已销毁则忽略 */ }
+  epubRendition = null
+  epubActiveContainer = null
 }
 
 const loadEpub = async () => {
@@ -556,16 +892,49 @@ const loadEpub = async () => {
     // openAs: 'epub' 强制按压缩包加载——预览 URL（/datum/ebook/content?ebookId=…）
     // 路径无扩展名，epub.js 会误判为目录模式去请求 META-INF/container.xml 而失败
     const book = ePub(tab.url, { openAs: 'epub' })
-    const rendition = book.renderTo(epubContainer.value, { width: '100%', height: '100%', spread: 'none' })
-    await rendition.display()
+    epubBook = book
+    // 临时调试钩子：实机定位进度跳转问题（验证后移除）
+    if (typeof window !== 'undefined') {
+      window.__epubDebug = {
+        get book() { return epubBook },
+        get rendition() { return epubRendition },
+        get state() { return { seeking: epubSeeking, lastCfi: epubLastCfi, spineIndex: epubCurrentSpineIndex, restoring: epubResizeRestoring, locationsReady: epubLocationsReady.value } }
+      }
+    }
+
+    // 目录
+    try {
+      const navigation = await book.loaded.navigation
+      epubTocItems.value = epubFlattenToc(navigation?.toc || [])
+    } catch (e) {
+      console.warn('[MainEditor] EPUB 目录加载失败:', e)
+    }
+
+    await mountEpubRendition(epubContainer.value)
     // 快速切书时丢弃过期渲染
     if (seq !== epubLoadSeq) {
-      try { rendition.destroy() } catch (_) {}
-      try { book.destroy() } catch (_) {}
+      teardownEpub()
       return
     }
-    epubBook = book
-    epubRendition = rendition
+
+    // 进度索引：生成 locations 后 relocated 才能给出精确全书百分比，滑块解锁拖拽跳转
+    epubGeneratingLocations.value = true
+    try {
+      await book.locations.generate(1600)
+      if (seq === epubLoadSeq && epubBook === book) {
+        epubLocationsReady.value = true
+        const loc = epubRendition?.currentLocation?.()
+        if (loc?.start) epubHandleRelocated(loc)
+        epubHandleScrollGeometry()
+      }
+    } catch (e) {
+      console.warn('[MainEditor] EPUB 进度索引生成失败（滑块跳转不可用）:', e)
+    } finally {
+      if (seq === epubLoadSeq) epubGeneratingLocations.value = false
+    }
+
+    // 页码标记（EPUB3 page-list / NCX pageList），无标记则不显示页码 UI
+    await epubParsePageList(book)
   } catch (error) {
     console.error('[MainEditor] EPUB 加载失败:', error)
     ElMessage.error('EPUB 加载失败，可下载后本地阅读')
@@ -574,17 +943,307 @@ const loadEpub = async () => {
   }
 }
 
+// ======== 全屏阅读 ========
+// 同一本书在普通预览与全屏层之间只重建 rendition，书对象（含进度索引）与
+// 阅读位置 CFI 均保留，切换即时完成、位置不丢。
+const enterEpubFullscreen = async () => {
+  if (!epubBook || epubFullscreen.value) return
+  epubFullscreen.value = true
+  await nextTick()
+  if (!fsEpubContainer.value) {
+    epubFullscreen.value = false
+    return
+  }
+  unmountEpubRendition()
+  // 带上当前阅读位置（CFI），全屏切换不丢进度
+  await mountEpubRendition(fsEpubContainer.value, epubLastCfi ? { startCfi: epubLastCfi } : {})
+}
+
+const exitEpubFullscreen = async () => {
+  if (!epubFullscreen.value) return
+  unmountEpubRendition()
+  epubFullscreen.value = false
+  epubUiHidden.value = false
+  await nextTick()
+  if (epubContainer.value) {
+    await mountEpubRendition(epubContainer.value, epubLastCfi ? { startCfi: epubLastCfi } : {})
+  }
+}
+
+// Esc 退出全屏；H 隐藏/恢复界面（隐藏后只剩正文，任意处点击或再按 H 恢复）
+let escHintTimer = null
+const epubFullscreenKeydown = (e) => {
+  if (!epubFullscreen.value) return
+  if (e.key === 'Escape') {
+    exitEpubFullscreen()
+  } else if (e.key === 'h' || e.key === 'H') {
+    epubUiHidden.value = !epubUiHidden.value
+  }
+}
+
+// 进入全屏时展示操作提示，5 秒后淡出
+watch(epubFullscreen, (open) => {
+  if (open) {
+    window.addEventListener('keydown', epubFullscreenKeydown)
+    epubShowEscHint.value = true
+    if (escHintTimer) clearTimeout(escHintTimer)
+    escHintTimer = setTimeout(() => {
+      epubShowEscHint.value = false
+      escHintTimer = null
+    }, 5000)
+  } else {
+    window.removeEventListener('keydown', epubFullscreenKeydown)
+    epubUiHidden.value = false
+    if (escHintTimer) {
+      clearTimeout(escHintTimer)
+      escHintTimer = null
+    }
+  }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', epubFullscreenKeydown)
+  if (escHintTimer) clearTimeout(escHintTimer)
+})
+
+// 进度跳转核心：
+// - 快路径：in-place display(cfi)（近邻位置 ~1s 内完成）；
+// - 慢路径：continuous 管理器跨远端节 display 会挂死（epub.js 已知缺陷，
+//   实测 promise 永不 resolve 且不渲染），检测到挂起后整书重开——新建 Book
+//   定向到目标 CFI 首跳（实机验证可靠），书源走 HTTP 缓存，代价可接受。
+let epubFarSeekSeq = 0
+const epubDisplayAt = async (cfi) => {
+  if (!epubBook || !epubRendition || !cfi) return
+  epubLastCfi = cfi
+  const tab = currentFileObj.value
+  if (!tab?.url) return
+
+  const seekSeq = ++epubFarSeekSeq
+  epubSeeking = epubSeeking || 'book'
+  const wasFullscreen = epubFullscreen.value
+  isLoadingEpub.value = true
+  try {
+    // 快路径：近邻位置直接定位
+    const fast = await Promise.race([
+      epubRendition.display(cfi).then(() => 'ok').catch(() => 'error'),
+      new Promise((r) => setTimeout(() => r('hang'), 2500))
+    ])
+    if (seekSeq !== epubFarSeekSeq) return // 新的跳转已接管
+    if (fast === 'ok') return
+
+    // 慢路径：整书重开，首跳目标 CFI
+    const oldBook = epubBook
+    unmountEpubRendition()
+    const el = wasFullscreen ? fsEpubContainer.value : epubContainer.value
+    if (!el) return
+    el.innerHTML = ''
+    const BookCtor = oldBook.constructor
+    const book = new BookCtor(tab.url, { openAs: 'epub' })
+    await Promise.race([
+      book.opened,
+      new Promise((r) => setTimeout(r, 8000))
+    ])
+    if (seekSeq !== epubFarSeekSeq) {
+      try { book.destroy() } catch (_) { /* 忽略 */ }
+      return
+    }
+    epubBook = book
+    await mountEpubRendition(el, { startCfi: cfi })
+    if (seekSeq !== epubFarSeekSeq) return
+
+    // 重开后异步重建进度索引与页码标记（不阻塞阅读）
+    epubLocationsReady.value = false
+    epubGeneratingLocations.value = true
+    try {
+      await epubBook.locations.generate(1600)
+      if (seekSeq === epubFarSeekSeq) {
+        epubLocationsReady.value = true
+        const loc = epubRendition?.currentLocation?.()
+        if (loc?.start) epubHandleRelocated(loc)
+      }
+    } catch (e) {
+      console.warn('[MainEditor] 进度索引重建失败:', e)
+    } finally {
+      if (seekSeq === epubFarSeekSeq) epubGeneratingLocations.value = false
+    }
+    void epubParsePageList(epubBook)
+  } catch (e) {
+    console.warn('[MainEditor] 进度跳转失败:', e)
+    ElMessage.error('跳转失败，请重试')
+  } finally {
+    if (seekSeq === epubFarSeekSeq) {
+      epubSeeking = null
+      isLoadingEpub.value = false
+    }
+  }
+}
+
+// 进度条拖拽跳转：百分比 → CFI（两段式，未加载节同样可达）
+const epubSeekByPercent = async (percent) => {
+  if (!epubBook || !epubRendition || !epubLocationsReady.value) return
+  const cfi = epubBook.locations.cfiFromPercentage?.((Number(percent) || 0) / 100)
+  if (!cfi) return
+  // 目标立即成为"恢复锚点"：跳转过程中任何重排恢复都会回到目标而非旧位置
+  epubLastCfi = cfi
+  await epubDisplayAt(cfi)
+}
+
+// 全书条拖动中的真实跳转按 120ms 尾随节流：连续拖动即时反馈，又不至于
+// 每个 input 都触发一次远端节加载
+let epubBookSeekTimer = null
+
+// 进度条拖动中（input 事件）：滑块即时跟随，同时实时驱动正文滚动到对应位置
+// —— 全书条按 locations 百分比→CFI；本章条按 spine 节内偏移滚动
+const epubOnProgressInput = async (kind, percent) => {
+  // 临时调试：实机定位进度跳转（验证后移除）
+  if (typeof window !== 'undefined') {
+    window.__epubTrace = window.__epubTrace || []
+    window.__epubTrace.push({ at: 'input', kind, percent, spineIndex: epubCurrentSpineIndex })
+  }
+  const value = Number(percent) || 0
+  if (!epubBook || !epubRendition) return
+  if (epubSeeking !== kind) epubSeeking = kind
+
+  if (kind === 'book') {
+    if (!epubLocationsReady.value) return
+    epubProgressBook.value = value
+    const cfi = epubBook.locations.cfiFromPercentage?.(value / 100)
+    if (!cfi) return
+    epubLastCfi = cfi
+    if (epubBookSeekTimer) clearTimeout(epubBookSeekTimer)
+    epubBookSeekTimer = setTimeout(() => {
+      epubBookSeekTimer = null
+      void epubDisplayAt(cfi)
+    }, 120)
+  } else {
+    epubProgressChapter.value = value
+    if (epubCurrentSpineIndex < 0 || !epubRendition) return
+    const item = epubBook.spine?.get(epubCurrentSpineIndex)
+    if (!item) return
+
+    const scrollToFraction = () => {
+      const root = epubActiveContainer
+      if (!root) return false
+      const scroller = root.querySelector('.epub-container') || root
+      const iframes = Array.from(scroller.querySelectorAll('iframe'))
+      const frame = iframes[epubCurrentSpineIndex]
+      if (!frame) return false
+      const offset = (value / 100) * Math.max(frame.offsetHeight - scroller.clientHeight, 0)
+      scroller.scrollTop = frame.offsetTop + offset
+      return true
+    }
+
+    if (!scrollToFraction()) {
+      // 节尚未渲染：先触发加载，再轮询等几何生效后滚动（最多 ~600ms）
+      try { await epubRendition.display(item.href) } catch (_) { /* 忽略，轮询兜底 */ }
+      for (let i = 0; i < 12; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        if (scrollToFraction()) break
+      }
+    }
+  }
+  epubHandleScrollGeometry()
+}
+
+// 拖动/点击结束（change 事件）：跳到最终位置后解除挂起并刷新进度
+const epubOnProgressChange = (kind, percent) => {
+  const value = Number(percent) || 0
+  if (kind === 'book') {
+    if (epubBookSeekTimer) {
+      clearTimeout(epubBookSeekTimer)
+      epubBookSeekTimer = null
+    }
+    void epubSeekByPercent(value).then(async () => {
+      epubSeeking = null
+      const loc = epubRendition?.currentLocation?.()
+      if (loc?.start) epubHandleRelocated(loc)
+      epubHandleScrollGeometry()
+    })
+  } else {
+    void epubOnProgressInput('chapter', value).then(() => {
+      const loc = epubRendition?.currentLocation?.()
+      if (loc?.start) epubHandleRelocated(loc)
+      epubSeeking = null
+      epubHandleScrollGeometry()
+    })
+  }
+}
+
+// 目录缩略显示（20 字截断）
+const epubTocShort = (label) => {
+  const text = String(label || '')
+  return text.length > 20 ? text.slice(0, 20) + '…' : text
+}
+
+// 目录跳章
+const epubGoToToc = (item) => {
+  epubRendition?.display(item.href)
+  epubTocDrawer.value = false
+}
+
+// 是否有多章节：目录 ≥2 项或 spine ≥2 节才显示"本章"进度条
+const epubHasChapters = computed(() => epubTocItems.value.length >= 2 || (epubBook?.spine?.length || 0) >= 2)
+
+// 页码标记解析：EPUB3 page-list（nav）或 NCX pageList → 线性页表；
+// relocate 后按 CFI 附近匹配当前页。无页码标记时 total=0，不显示页码 UI。
+const epubPageTargets = ref([])
+const epubParsePageList = async (book) => {
+  epubPageTargets.value = []
+  epubPageInfo.value = { total: 0, current: 0 }
+  epubPageJumpInput.value = 1
+  try {
+    const nav = await book.loaded.navigation
+    const collect = (list, out) => {
+      list?.forEach(item => {
+        if (item?.type === 'page' || /^page/i.test(item?.label || '')) {
+          const num = parseInt(String(item.label || '').replace(/[^\d]/g, ''), 10)
+          if (Number.isFinite(num) && item.href) out.push({ page: num, href: item.href })
+        }
+        if (Array.isArray(item?.subitems)) collect(item.subitems, out)
+      })
+    }
+    const out = []
+    collect(nav?.toc, out)
+    // 按 spine 顺序排序页码
+    out.sort((a, b) => (book.spine.get(a.href)?.index ?? 0) - (book.spine.get(b.href)?.index ?? 0))
+    if (out.length > 0) {
+      epubPageTargets.value = out
+      epubPageInfo.value = { total: out.length, current: 1 }
+    }
+  } catch (e) {
+    console.warn('[MainEditor] 页码标记解析失败:', e)
+  }
+}
+
+// relocate 时刷新当前页码：取 CFI 之前（含）最近的页码目标
+const epubUpdateCurrentPage = (location) => {
+  const targets = epubPageTargets.value
+  if (targets.length === 0 || !location?.start?.cfi) return
+  let current = 1
+  for (let i = 0; i < targets.length; i++) {
+    const idx = epubBook?.spine?.get(targets[i].href)?.index
+    if (idx !== undefined && idx <= (epubCurrentSpineIndex ?? 0)) current = i + 1
+    else break
+  }
+  epubPageInfo.value = { ...epubPageInfo.value, current }
+  epubPageJumpInput.value = current
+}
+
+// 页码跳转：display 到目标页所在 spine 节（页码粒度到节，已是 EPUB 无物理页的最优近似）
+const epubGoToPage = (page) => {
+  const target = epubPageTargets.value[(Number(page) || 1) - 1]
+  if (target) epubRendition?.display(target.href)
+}
+
 watch(
   () => [currentFileObj.value?.id, currentFileObj.value?.type, currentFileObj.value?.fileExt],
   () => {
+    epubContainer.value?.removeEventListener?.('scroll', epubOnContainerScroll, true)
     teardownEpub()
     loadEpub()
   },
   { immediate: true }
 )
-
-const epubPrev = () => epubRendition?.prev()
-const epubNext = () => epubRendition?.next()
 
 const bookmarkUploaderName = computed(() => {
   const obj = currentFileObj.value?.originalData || currentFileObj.value || {}
@@ -1574,42 +2233,384 @@ function resetImageTransform() {
   left: 0;
 }
 
-/* 电子书 EPUB 预览容器 */
+/* 章节目录条目样式（预览区抽屉与全屏左栏共用） */
+@mixin epub-toc-list-styles {
+  .epub-toc-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px;
+  }
+
+  .epub-toc-item {
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ide-text, #606266);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background 0.15s ease, color 0.15s ease;
+
+    &.depth-1 { padding-left: 24px; }
+    &.depth-2 { padding-left: 38px; }
+    &.depth-3 { padding-left: 52px; }
+
+    &:hover {
+      background: rgba(var(--ide-accent-rgb, 64, 158, 255), 0.08);
+    }
+
+    &.active {
+      color: var(--ide-accent, #409eff);
+      background: rgba(var(--ide-accent-rgb, 64, 158, 255), 0.14);
+      font-weight: 600;
+    }
+  }
+
+  .epub-toc-empty {
+    padding: 24px 0;
+    text-align: center;
+    font-size: 13px;
+    color: var(--ide-text-light, #909399);
+  }
+}
+
+/* 电子书 EPUB 预览容器：标签页下方单开一栏（章节名/进度条/抽屉按钮）+ 连续滚动阅读区 */
 .epub-preview-container {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
+
+  .epub-toolbar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--ide-border, #ebeef5);
+    background: color-mix(in srgb, var(--ide-panel-bg, #fff) 96%, transparent);
+
+    /* 章节名：固定长度、简略显示 */
+    .epub-chapter-label {
+      flex: 0 0 220px;
+      width: 220px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ide-text-active, #303133);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* 进度条：固定长度居中 */
+    .epub-progress-wrap {
+      flex: 0 0 auto;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .epub-progress-slider {
+      width: 320px;
+      :deep(.el-slider__runway) {
+        height: 6px;
+        border-radius: 3px;
+      }
+      :deep(.el-slider__button) {
+        width: 12px;
+        height: 12px;
+        border: 2px solid var(--ide-accent, #409eff);
+      }
+    }
+
+    .epub-progress-text {
+      font-size: 12px;
+      color: var(--ide-text-light, #909399);
+      white-space: nowrap;
+    }
+
+    /* 抽屉按钮贴右 */
+    .el-button + .el-button,
+    > .el-button {
+      margin-left: 0;
+      flex-shrink: 0;
+    }
+  }
 
   .epub-viewer {
     flex: 1;
     min-width: 0;
     min-height: 0;
+    /* epub.js 的 .epub-container 是实际滚动元素：平滑滚动让跳章/拖进度条有缓动 */
+    scroll-behavior: smooth;
+
+    :deep(.epub-container) {
+      scroll-behavior: smooth;
+    }
   }
 
-  .epub-nav {
+  /* 章节抽屉：只覆盖预览区（不传送到 body，绝对定位于本容器内） */
+  :deep(.el-overlay) {
     position: absolute;
-    bottom: 24px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 12px;
-    border-radius: 999px;
-    border: 1px solid var(--ide-border, #ebeef5);
-    background: rgba(255, 255, 255, 0.82);
-    backdrop-filter: blur(6px);
-    z-index: 5;
+    inset: 0;
+  }
 
-    html.dark & {
-      background: rgba(30, 30, 30, 0.85);
+  :deep(.el-drawer) {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    height: 100%;
+  }
+
+  @include epub-toc-list-styles;
+}
+
+/* ======== 全屏阅读层（teleport 到 body，覆盖整个应用窗口） ======== */
+.epub-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  background: var(--ide-editor-bg, #fff);
+
+  html.dark & {
+    background: var(--ide-editor-bg, #162032);
+  }
+
+  /* 隐藏 UI：只留正文，左右栏与按钮全部淡出 */
+  &.ui-hidden {
+    .fs-left,
+    .fs-right,
+    .fs-actions,
+    .fs-esc-hint {
+      opacity: 0;
+      pointer-events: none;
+    }
+  }
+
+  /* 左侧章节栏：固定大小，与正文并排，不遮挡阅读页；文字整体调浅 */
+  .fs-left {
+    flex: 0 0 260px;
+    width: 260px;
+    min-width: 260px;
+    max-width: 260px;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--ide-border, #ebeef5);
+    background: color-mix(in srgb, var(--ide-panel-bg, #fff) 96%, transparent);
+    padding: 12px 8px;
+
+    .fs-chapter-now {
+      flex-shrink: 0;
+      padding: 6px 10px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ide-text-light, #a8abb2);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      border-bottom: 1px dashed var(--ide-border, #ebeef5);
+      margin-bottom: 8px;
     }
 
-    .epub-nav-hint {
+    .fs-toc-list {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+
+      &::-webkit-scrollbar { width: 6px; }
+      &::-webkit-scrollbar-thumb {
+        background: var(--ide-border, #dcdfe6);
+        border-radius: 3px;
+      }
+    }
+
+    /* 目录文字浅色；当前章与悬浮时加深以保留可读性 */
+    .epub-toc-item {
+      color: var(--ide-text-placeholder, #c0c4cc);
+
+      &:hover {
+        color: var(--ide-text, #606266);
+      }
+
+      &.active {
+        color: var(--ide-accent, #409eff);
+      }
+    }
+  }
+
+  /* 中部正文：固定居中 60% 区域（宽度固定，不随滚动条出现/消失抖动） */
+  .fs-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    justify-content: center;
+    align-items: stretch;
+
+    .fs-reader {
+      flex: 0 0 60%;
+      width: 60%;
+      max-width: 60%;
+      min-width: 0;
+      margin: 0 auto;
+      align-self: center;
+      height: 100%;
+      scroll-behavior: smooth;
+
+      /* 隐藏 epub.js 滚动容器的原生灰色滚动条：滚动仍可用（滚轮/键盘），
+         宽度不再随滚动条增减，正文中线稳定不抖动 */
+      :deep(.epub-container) {
+        scroll-behavior: smooth;
+        scrollbar-width: none;       /* Firefox */
+        -ms-overflow-style: none;    /* 旧 Edge */
+
+        &::-webkit-scrollbar {
+          display: none;             /* Chromium */
+        }
+      }
+    }
+  }
+
+  /* 右侧：本章进度（绿）+ 全书进度（蓝）并排，方向从上到下，UI 一致 */
+  .fs-right {
+    flex: 0 0 108px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    border-left: 1px solid var(--ide-border, #ebeef5);
+
+    /* 两条进度条并排 */
+    .fs-progress-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 18px;
+    }
+
+    .fs-progress-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .fs-progress-label,
+    .fs-progress-value {
       font-size: 11px;
       color: var(--ide-text-light, #909399);
+      white-space: nowrap;
+    }
+
+    .fs-progress {
+      /* 竖向滑块：轨道自上而下（el-slider 竖向默认自下而上，反转填充方向） */
+      :deep(.el-slider__runway) {
+        width: 6px;
+        border-radius: 3px;
+      }
+      :deep(.el-slider__bar) {
+        width: 6px;
+      }
+      :deep(.el-slider__button) {
+        width: 12px;
+        height: 12px;
+        border: 2px solid;
+      }
+
+      &.chapter {
+        :deep(.el-slider__bar) {
+          background: #67c23a;
+        }
+        :deep(.el-slider__button) {
+          border-color: #67c23a;
+        }
+      }
+
+      &.book {
+        :deep(.el-slider__bar) {
+          background: var(--ide-accent, #409eff);
+        }
+        :deep(.el-slider__button) {
+          border-color: var(--ide-accent, #409eff);
+        }
+      }
+    }
+
+    /* 页码跳转 */
+    .fs-page-jump {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      padding-top: 14px;
+      border-top: 1px dashed var(--ide-border, #ebeef5);
+
+      .fs-page-label {
+        font-size: 11px;
+        color: var(--ide-text-light, #909399);
+        white-space: nowrap;
+      }
+
+      .fs-page-input {
+        width: 88px;
+      }
     }
   }
+
+  /* 右上角操作组：退出 + 隐藏 UI */
+  .fs-actions {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+
+    .el-button + .el-button {
+      margin-left: 0;
+    }
+  }
+
+  /* 进入全屏的操作提示 */
+  .fs-esc-hint {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5;
+    padding: 8px 18px;
+    border-radius: 999px;
+    font-size: 13px;
+    color: var(--ide-text, #606266);
+    background: rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--ide-border, #ebeef5);
+    backdrop-filter: blur(6px);
+
+    html.dark & {
+      color: var(--ide-text-light, #cbd5e1);
+      background: rgba(255, 255, 255, 0.08);
+    }
+  }
+
+  .fade-enter-active,
+  .fade-leave-active {
+    transition: opacity 0.5s ease;
+  }
+  .fade-enter-from,
+  .fade-leave-to {
+    opacity: 0;
+  }
+
+  @include epub-toc-list-styles;
 }
 
 .preview-image-zoomable {
