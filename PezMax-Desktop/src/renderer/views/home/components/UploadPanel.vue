@@ -255,6 +255,17 @@ const uploadStore = useUploadStore()
 // 存储当前请求到的所有学校，以便在提交时进行校验
 const existingSchools = ref([])
 
+// Go 返回学校字符串、科目 {Subject, Total}；统一为 autocomplete 的
+// {value, count}，同时兼容旧接口。科目接口返回全量，在这里按输入过滤。
+const normalizeSuggestions = (data, keyword = '') => {
+  const search = keyword.trim().toLowerCase()
+  return (Array.isArray(data) ? data : []).map(item => {
+    const value = typeof item === 'string' ? item : item?.value ?? item?.Subject
+    if (typeof value !== 'string' || !value.trim()) return null
+    return { value: value.trim(), count: Number(item?.count ?? item?.Total ?? 0) || 0 }
+  }).filter(item => item && item.value.toLowerCase().includes(search)).slice(0, 10)
+}
+
 // focus 时请求热门学校
 const handleSchoolFocus = async () => {
   // 如果输入框有值，不触发默认热门，让 querySearchSchool 去处理搜索
@@ -262,8 +273,8 @@ const handleSchoolFocus = async () => {
 
   try {
     const res = await getSchools({ limit: 10 })
-    if (res.code === 200 && res.data) {
-      existingSchools.value = res.data
+    if (res.code === 200 || res.code === 0) {
+      existingSchools.value = normalizeSuggestions(res.data)
     }
   } catch (error) {
     console.error('获取热门学校失败:', error)
@@ -279,10 +290,11 @@ const querySearchSchool = async (queryString, cb) => {
     }
 
     const res = await getSchools(params)
-    if (res.code === 200 && res.data && res.data.length > 0) {
+    const suggestions = normalizeSuggestions(res.data, queryString)
+    if ((res.code === 200 || res.code === 0) && suggestions.length > 0) {
       // 每次请求回来都更新 existingSchools，确保能判断当前输入是否是新学校
-      existingSchools.value = res.data
-      cb(res.data)
+      existingSchools.value = suggestions
+      cb(suggestions)
     } else {
       // 如果查询没有结果，则返回一个特定的"空提示"对象
       cb([{ value: queryString || '无匹配', isEmptyTip: true }])
@@ -309,7 +321,7 @@ const handleSchoolBlur = async (event) => {
   if (value && value.trim()) {
     try {
       const res = await checkSchoolExists(value.trim())
-      if (res.code === 200 && res.data) {
+      if ((res.code === 200 || res.code === 0) && (res.data === true || res.data?.exists === true)) {
         // 提示用户该学校已存在
         await ElMessageBox.confirm(
           '该学校已存在，是否使用已有学校？',
@@ -356,8 +368,8 @@ const handleSubjectFocus = async () => {
   
   try {
     const res = await getSubjects({ limit: 10 })
-    if (res.code === 200 && res.data) {
-      existingSubjects.value = res.data
+    if (res.code === 200 || res.code === 0) {
+      existingSubjects.value = normalizeSuggestions(res.data)
     }
   } catch (error) {
     console.error('获取热门科目失败:', error)
@@ -373,10 +385,11 @@ const querySearchSubject = async (queryString, cb) => {
     }
     
     const res = await getSubjects(params)
-    if (res.code === 200 && res.data && res.data.length > 0) {
+    const suggestions = normalizeSuggestions(res.data, queryString)
+    if ((res.code === 200 || res.code === 0) && suggestions.length > 0) {
       // 每次请求回来都更新 existingSubjects，确保能判断当前输入是否是新科目
-      existingSubjects.value = res.data
-      cb(res.data)
+      existingSubjects.value = suggestions
+      cb(suggestions)
     } else {
       // 如果查询没有结果，则返回一个特定的“空提示”对象，通过自定义项模板进行渲染
       // 给 value 赋值以避免 Element Plus 报错，但并不影响视觉展示

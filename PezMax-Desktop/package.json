@@ -24,7 +24,8 @@
     "build:linux": "npm run clean && npm run build && electron-builder --linux",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:preview": "vitepress preview docs",
+    "test:system": "node --experimental-vm-modules --test tests/*.test.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
