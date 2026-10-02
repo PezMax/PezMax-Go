@@ -113,10 +113,16 @@ func (i *introspector) describeColumns(table string) ([]introspectedColumn, erro
 }
 
 func (i *introspector) primaryKeyColumns(table string) (map[string]bool, error) {
+	// Constraint names are only unique per table, not per schema: another
+	// table's same-named foreign key must never leak into this table's key.
+	// Join on the full constraint identity (catalog/schema/name + table).
 	rows, err := i.conn.Query(`SELECT kcu.column_name
 		FROM information_schema.table_constraints tc
 		JOIN information_schema.key_column_usage kcu
-			ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema
+			ON tc.constraint_catalog = kcu.constraint_catalog
+			AND tc.constraint_schema = kcu.constraint_schema
+			AND tc.constraint_name = kcu.constraint_name
+			AND tc.table_name = kcu.table_name
 		WHERE tc.table_schema = 'public' AND tc.table_name = ? AND tc.constraint_type = 'PRIMARY KEY'`, table)
 	if err != nil {
 		return nil, fmt.Errorf("describe primary key of %s: %w", table, err)
