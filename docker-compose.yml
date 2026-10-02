@@ -73,7 +73,7 @@ services:
       - backend
 
   minio-init:
-    image: minio/mc:latest
+    image: minio/minio:latest
     container_name: pezmax-go-minio-init
     environment:
       MINIO_ROOT_USER: ${PEZMAX_MINIO_ACCESS_KEY:-pezmax_minio}

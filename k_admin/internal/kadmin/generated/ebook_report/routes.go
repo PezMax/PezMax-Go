@@ -250,7 +250,10 @@ func ensurePermissions(conn db.Connection) error {
 	return nil
 }
 
-// ensureMenu inserts the module menu under the shared /business directory.
+// ensureMenu inserts the module menu under the shared /business directory
+// and grants it (together with the parent directory) to the Administrator
+// role, so a freshly generated page is visible without manual authorization.
+// 菜单可见即接口可用：授权菜单即同时放开对应接口权限（见 menu_permission.go）。
 func ensureMenu(conn db.Connection) error {
 	parentRows, err := conn.Query(`SELECT id FROM goadmin_menu WHERE uri = ?`, "/business")
 	if err != nil || len(parentRows) == 0 {
@@ -264,14 +267,34 @@ func ensureMenu(conn db.Connection) error {
 	if err != nil {
 		return err
 	}
-	if len(rows) > 0 {
-		return nil
+	if len(rows) == 0 {
+		if _, err := conn.Exec(`INSERT INTO goadmin_menu
+			(parent_id, type, "order", title, icon, uri, plugin_name, component, created_at, updated_at)
+			VALUES (?, 1, 99, ?, 'lucide:package-open', ?, '', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+			parentID, "电子书举报", "/ebook-reports", "/kadmin/generated/ebook_report/EbookReportListView"); err != nil {
+			return err
+		}
+		rows, err = conn.Query(`SELECT id FROM goadmin_menu WHERE uri = ?`, "/ebook-reports")
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return fmt.Errorf("menu /ebook-reports insert did not persist")
+		}
 	}
-	_, err = conn.Exec(`INSERT INTO goadmin_menu
-		(parent_id, type, "order", title, icon, uri, plugin_name, component, created_at, updated_at)
-		VALUES (?, 1, 99, ?, 'lucide:package-open', ?, '', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-		parentID, "电子书举报", "/ebook-reports", "/kadmin/generated/ebook_report/EbookReportListView")
-	return err
+	menuID := toInt64(rows[0]["id"])
+	for _, grantMenuID := range []int64{parentID, menuID} {
+		if _, err := conn.Exec(`INSERT INTO goadmin_role_menu (role_id, menu_id, created_at, updated_at)
+			SELECT r.id, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM goadmin_roles r
+			WHERE r.slug = 'administrator'
+			  AND NOT EXISTS (
+				SELECT 1 FROM goadmin_role_menu rm
+				WHERE rm.role_id = r.id AND rm.menu_id = ?
+			)`, grantMenuID, grantMenuID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func pathID(c *gin.Context) (int64, bool) {

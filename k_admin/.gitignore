@@ -4,6 +4,9 @@
 .env
 .env.*
 !.env.example
+# admin-web 前端 env 为无敏感信息的默认配置，跟随仓库分发
+!admin-web/apps/web-antd/.env.development
+!admin-web/apps/web-antd/.env.production
 AGENTS.md
 demo/config.json
 demo/config
