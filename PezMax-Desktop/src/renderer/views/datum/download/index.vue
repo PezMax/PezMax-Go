@@ -227,7 +227,9 @@ const openFile = async (row) => {
     // 3. 本地文件不存在，提示后重新下载（统一下载方法：主进程流式写盘）
     ElMessage.warning('本地文件已删除或移动，正在重新下载...')
     const saveResult = await window.electronAPI.downloadFileDirectly({
-      url: `${baseURL}/datum/download/file?fileId=${row.fileId}`,
+      url: isEbookRecord(row)
+        ? `${baseURL}/datum/download/ebook?ebookId=${Math.abs(Number(row.fileId))}`
+        : `${baseURL}/datum/download/file?fileId=${row.fileId}`,
       fileName,
       token: getToken(),
       silent: true
