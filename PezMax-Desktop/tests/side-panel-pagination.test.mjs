@@ -119,3 +119,31 @@ test('refresh then a different keyword still searches the fully loaded source', 
   assert.ok(visible.includes('电子书5'), 'switching keywords must keep searching the full source')
   assert.ok(!visible.includes('电子书101'), 'previous keyword result must not persist')
 })
+
+test('refreshing while searching reloads the full source, then a new keyword applies', async (t) => {
+  const calls = []
+  const paginate = async (query) => {
+    calls.push(query)
+    return {
+      code: 0,
+      rows: query.pageNum === 1 ? Array.from({ length: 100 }, (_, i) => ({ ebookId: i + 1, ebookName: `电子书${i + 1}` })) : [{ ebookId: 101, ebookName: '电子书101' }],
+      total: 101
+    }
+  }
+  const page = await sidePanelPage(paginate)
+  t.after(page.dispose)
+  await page.bindings.fetchEbooks()
+  page.bindings.ebookSearchQuery.value = '电子书101'
+  assert.equal(page.bindings.ebookTreeData.value[0].ebookId, 101)
+  // 搜索中刷新：基础加载不得携带关键词，仍分页拉取完整来源。
+  await page.bindings.fetchEbooks()
+  assert.deepEqual(calls.map(q => q.pageNum), [1, 2, 1, 2], 'refresh while searching must re-fetch every page')
+  assert.equal(calls[2].title, undefined, 'the base refresh must not carry the search keyword')
+  assert.equal(page.bindings.ebookList.value.length, 101, 'the full source must stay loaded across the refresh')
+  assert.equal(page.bindings.ebookTreeData.value[0].ebookId, 101, 'the active keyword still filters after refresh')
+  // 再换关键词：新词在原关键词范围之外，也必须能从完整来源命中。
+  page.bindings.ebookSearchQuery.value = '电子书5'
+  const visible = JSON.stringify(page.bindings.ebookTreeData.value)
+  assert.ok(visible.includes('电子书5'), 'the new keyword must match entries outside the previous keyword range')
+  assert.ok(!visible.includes('电子书101'), 'the previous keyword result must not persist after switching')
+})
