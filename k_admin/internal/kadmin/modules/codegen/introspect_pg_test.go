@@ -3,6 +3,8 @@ package codegen
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"regexp"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,21 +25,71 @@ func codegenReviewPostgres(t *testing.T) db.Connection {
 	if dsn == "" {
 		t.Skip("set KADMIN_TEST_CODEGEN_DSN to a disposable pezmax_codegen_test_* database")
 	}
-	fields := map[string]string{}
-	for _, part := range strings.Fields(dsn) {
-		if key, value, ok := strings.Cut(part, "="); ok {
-			fields[key] = strings.Trim(value, "'")
+	raw, connection, err := openGuardedCodegenReview(dsn)
+	if err != nil {
+		t.Fatalf("guarded review setup: %v", err)
+	}
+	t.Cleanup(func() {
+		for _, statement := range []string{
+			`DROP TABLE IF EXISTS public.codegen_review_foreign`,
+			`DROP TABLE IF EXISTS public.codegen_review_single`,
+			`DROP TABLE IF EXISTS public.codegen_review_composite`,
+		} {
+			_, _ = raw.Exec(statement)
 		}
+		_ = raw.Close()
+	})
+	return connection
+}
+
+// codegenReviewGuardPrefix is the hard isolation prefix every database taking
+// part in this regression must carry.
+const codegenReviewGuardPrefix = "pezmax_codegen_test_"
+
+// actualDatabase asks the connection that will run the DDL which database it
+// is really on. Hand-parsing the DSN cannot answer this: quoting rules let a
+// parameter such as application_name='x dbname=<fake>' hide the real target.
+func actualDatabase(raw *sql.DB) (string, error) {
+	var name string
+	if err := raw.QueryRow(`SELECT current_database()`).Scan(&name); err != nil {
+		return "", err
 	}
-	if !strings.HasPrefix(fields["dbname"], "pezmax_codegen_test_") {
-		t.Fatal("codegen introspection regression requires an isolated pezmax_codegen_test_* database")
+	return name, nil
+}
+
+// actualDatabaseViaGoAdmin asks the same question through the GoAdmin
+// connection so every connection taking part in the test is verified.
+func actualDatabaseViaGoAdmin(connection db.Connection) (string, error) {
+	rows, err := connection.Query(`SELECT current_database()`)
+	if err != nil {
+		return "", err
 	}
+	if len(rows) == 0 {
+		return "", errors.New("current_database() returned no rows")
+	}
+	name, _ := rows[0]["current_database"].(string)
+	return name, nil
+}
+
+// openGuardedCodegenReview prepares the fixture tables and the GoAdmin
+// connection. It must refuse to run any DDL unless the database it is actually
+// connected to carries the isolated test prefix.
+func openGuardedCodegenReview(dsn string) (*sql.DB, db.Connection, error) {
 	raw, err := sql.Open("postgres", dsn)
 	if err != nil {
-		t.Fatal(err)
+		return nil, nil, err
 	}
 	raw.SetMaxOpenConns(1)
-	t.Cleanup(func() { _ = raw.Close() })
+	// 护栏以真实连接为准：任何 DDL 之前先确认实际数据库前缀。
+	actual, err := actualDatabase(raw)
+	if err != nil {
+		_ = raw.Close()
+		return nil, nil, err
+	}
+	if !strings.HasPrefix(actual, codegenReviewGuardPrefix) {
+		_ = raw.Close()
+		return nil, nil, errors.New("codegen introspection regression actual database " + actual + " lacks the required " + codegenReviewGuardPrefix + " prefix")
+	}
 	// 复现审计缺陷的表形态：另一张表存在与目标表主键同名的约束 shared_key。
 	for _, statement := range []string{
 		`DROP TABLE IF EXISTS public.codegen_review_foreign`,
@@ -60,29 +112,27 @@ func codegenReviewPostgres(t *testing.T) db.Connection {
 		)`,
 	} {
 		if _, err := raw.Exec(statement); err != nil {
-			t.Fatal(err)
+			_ = raw.Close()
+			return nil, nil, err
 		}
 	}
+	// GoAdmin 连接使用同一数据源（由驱动解析 DSN），并复核其实际库。
 	connection := db.GetPostgresqlDB().InitDB(map[string]config.Database{
 		"default": {
 			Driver: db.DriverPostgresql,
-			Host:   fields["host"],
-			Port:   fields["port"],
-			User:   fields["user"],
-			Pwd:    fields["password"],
-			Name:   fields["dbname"],
+			Dsn:    dsn,
 		},
 	})
-	t.Cleanup(func() {
-		for _, statement := range []string{
-			`DROP TABLE IF EXISTS public.codegen_review_foreign`,
-			`DROP TABLE IF EXISTS public.codegen_review_single`,
-			`DROP TABLE IF EXISTS public.codegen_review_composite`,
-		} {
-			_, _ = raw.Exec(statement)
-		}
-	})
-	return connection
+	viaFramework, err := actualDatabaseViaGoAdmin(connection)
+	if err != nil {
+		_ = raw.Close()
+		return nil, nil, err
+	}
+	if viaFramework != actual {
+		_ = raw.Close()
+		return nil, nil, errors.New("framework connection reached " + viaFramework + " instead of " + actual)
+	}
+	return raw, connection, nil
 }
 
 // The single-key table shares the constraint name shared_key with another
@@ -176,4 +226,50 @@ func codegenReviewRequest(t *testing.T, engine *gin.Engine, method, path, body s
 		t.Fatalf("%s %s status=%d, want %d; body=%s", method, path, recorder.Code, status, recorder.Body.String())
 	}
 	return recorder
+}
+
+// 护栏负例：合法 DSN 允许带空格的引号参数。application_name 的引号值内
+// 夹带的 dbname=pezmax_codegen_test_fake 可以骗过手工词法解析，但驱动仍会
+// 连接 dbname= 指定的真实库。护栏必须在执行任何 DDL 前发现实际库不符合
+// 测试前缀并拒绝。
+func TestCodegenReviewGuardRejectsActualDatabaseOutsidePrefix(t *testing.T) {
+	dsn := os.Getenv("KADMIN_TEST_CODEGEN_DSN")
+	if dsn == "" {
+		t.Skip("set KADMIN_TEST_CODEGEN_DSN to a disposable pezmax_codegen_test_* database")
+	}
+	prefixed := regexp.MustCompile(`dbname=[^\s']+`)
+	if !prefixed.MatchString(dsn) {
+		t.Fatal("expected a dbname= parameter in the provided DSN")
+	}
+	// 实际目标为 postgres 维护库（无测试前缀）；解析陷阱指向伪装前缀名。
+	hostile := prefixed.ReplaceAllLiteralString(dsn, "dbname=postgres application_name='x dbname=pezmax_codegen_test_fake'")
+	raw, _, err := openGuardedCodegenReview(hostile)
+	if err == nil {
+		// 修复前行为：解析名骗过护栏，DDL 落在无前缀的真实库上。清理现场。
+		for _, statement := range []string{
+			`DROP TABLE IF EXISTS public.codegen_review_foreign`,
+			`DROP TABLE IF EXISTS public.codegen_review_single`,
+			`DROP TABLE IF EXISTS public.codegen_review_composite`,
+		} {
+			_, _ = raw.Exec(statement)
+		}
+		_ = raw.Close()
+		t.Fatal("guard accepted a DSN whose actual database lacks the test prefix")
+	}
+	if !strings.Contains(err.Error(), "pezmax_codegen_test_") {
+		t.Fatalf("guard error should name the required prefix, got: %v", err)
+	}
+	// 护栏必须先于任何 DDL 生效：实际连接的库中不得出现评审表。
+	probe, err := sql.Open("postgres", hostile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer probe.Close()
+	var tables int
+	if err := probe.QueryRow(`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'codegen_review_%'`).Scan(&tables); err != nil {
+		t.Fatal(err)
+	}
+	if tables != 0 {
+		t.Fatalf("guard ran DDL on the non-prefixed actual database: %d review tables found", tables)
+	}
 }
