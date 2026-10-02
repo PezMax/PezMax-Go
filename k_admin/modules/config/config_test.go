@@ -1,13 +1,55 @@
 package config
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/GoAdminGroup/go-admin/modules/utils"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestGetAndUpdateDoNotDeadlock(t *testing.T) {
+	const helperEnv = "KADMIN_CONFIG_CONCURRENCY_HELPER"
+	if os.Getenv(helperEnv) == "1" {
+		testSetCfg(&Config{})
+		var work sync.WaitGroup
+		work.Add(2)
+		go func() {
+			defer work.Done()
+			for range 6000 {
+				_ = Get()
+			}
+		}()
+		go func() {
+			defer work.Done()
+			for range 6000 {
+				if err := _global.Update(map[string]string{"title": "updated"}); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		}()
+		work.Wait()
+		if title := Get().Title; title != "updated" {
+			t.Errorf("final config title = %q, want %q", title, "updated")
+		}
+		return
+	}
+	// Keep a locking regression isolated so a failure cannot hang other tests.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestGetAndUpdateDoNotDeadlock$")
+	command.Env = append(os.Environ(), helperEnv+"=1")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("concurrent configuration reads and updates failed: %v\n%s", err, output)
+	}
+}
 
 func TestConfig_GetIndexUrl(t *testing.T) {
 	Initialize(&Config{
