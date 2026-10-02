@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -62,6 +63,7 @@ type datumStateEntry struct {
 type datumStateStore struct {
 	redis redisDoer
 	ttl   time.Duration
+	mu    *sync.Mutex
 }
 
 func newDatumStateStore(redis redisDoer) *datumStateStore {
@@ -69,44 +71,103 @@ func newDatumStateStore(redis redisDoer) *datumStateStore {
 	if parsed, err := time.ParseDuration(strings.TrimSpace(os.Getenv(datumFileStateTTLKey))); err == nil && parsed > time.Minute {
 		ttl = parsed
 	}
-	return &datumStateStore{redis: redis, ttl: ttl}
+	return &datumStateStore{redis: redis, ttl: ttl, mu: &sync.Mutex{}}
 }
 
 // load returns the cached entry, computing it when missing or expired. A new
 // random 64-bit hash is minted on every recompute, so content changes are
 // always visible to clients comparing hashes.
 func (s *datumStateStore) load(key string, compute func() (interface{}, error)) (datumStateEntry, bool, error) {
+	// Hot reads can keep using the current snapshot during an early refresh.
+	if entry, found, err := s.cached(key); err != nil || found {
+		return entry, false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// A request or the warmer may have filled the cache while we waited.
+	if entry, found, err := s.cached(key); err != nil || found {
+		return entry, false, err
+	}
+	entry, err := s.rebuild(key, compute, nil)
+	return entry, err == nil, err
+}
+
+func (s *datumStateStore) cached(key string) (datumStateEntry, bool, error) {
 	if raw, err := s.redis.do("GET", key); err == nil {
 		if text, ok := raw.(string); ok {
 			var entry datumStateEntry
 			if json.Unmarshal([]byte(text), &entry) == nil && entry.Hash != "" && len(entry.Payload) > 0 {
-				return entry, false, nil
+				return entry, true, nil
 			}
 		}
 	} else if !errors.Is(err, errRedisNil) {
 		return datumStateEntry{}, false, err
 	}
+	return datumStateEntry{}, false, nil
+}
+
+// warm fills missing entries and refreshes ones approaching expiration without
+// deleting the old snapshot. A failed refresh leaves that snapshot available.
+func (s *datumStateStore) warm(key string, compute func() (interface{}, error), refreshBefore time.Duration) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, found, err := s.cached(key)
+	if err != nil {
+		return false, err
+	}
+	if found {
+		if refreshBefore <= 0 {
+			return false, nil
+		}
+		rawTTL, err := s.redis.do("TTL", key)
+		if err != nil {
+			return false, err
+		}
+		ttl, ok := rawTTL.(int64)
+		if !ok {
+			return false, fmt.Errorf("缓存 %s 的 TTL 响应无效", key)
+		}
+		if ttl > int64(refreshBefore/time.Second) {
+			return false, nil
+		}
+	}
+	_, err = s.rebuild(key, compute, &entry)
+	return err == nil, err
+}
+
+func (s *datumStateStore) rebuild(key string, compute func() (interface{}, error), previous *datumStateEntry) (datumStateEntry, error) {
 	payload, err := compute()
 	if err != nil {
-		return datumStateEntry{}, false, err
+		return datumStateEntry{}, err
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		return datumStateEntry{}, false, err
+		return datumStateEntry{}, err
 	}
 	hash, err := randomHex(8) // 64-bit
 	if err != nil {
-		return datumStateEntry{}, false, err
+		return datumStateEntry{}, err
+	}
+	// Proactive refreshes of identical content keep clients' local copies valid.
+	if previous != nil && previous.Hash != "" && bytes.Equal(previous.Payload, encoded) {
+		hash = previous.Hash
 	}
 	entry := datumStateEntry{Hash: hash, Payload: encoded}
-	blob, _ := json.Marshal(entry)
-	if _, err := s.redis.do("SET", key, string(blob), "EX", durationSeconds(s.ttl)); err != nil {
-		return datumStateEntry{}, false, err
+	blob, err := json.Marshal(entry)
+	if err != nil {
+		return datumStateEntry{}, err
 	}
-	return entry, true, nil
+	if _, err := s.redis.do("SET", key, string(blob), "EX", durationSeconds(s.ttl)); err != nil {
+		return datumStateEntry{}, err
+	}
+	return entry, nil
 }
 
 func (s *datumStateStore) invalidate(keys ...string) {
+	// A mutation's DEL must run after any in-flight rebuild has published its
+	// snapshot, so that an older snapshot cannot undo the invalidation.
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, key := range keys {
 		_, _ = s.redis.do("DEL", key)
 	}
@@ -177,7 +238,9 @@ func (s *Store) datumFileGet(c *gin.Context) {
 }
 
 func (s *Store) stateStore() *datumStateStore {
-	return newDatumStateStore(s.datum.redis)
+	state := newDatumStateStore(s.datum.redis)
+	state.mu = &s.datumStateMu
+	return state
 }
 func (s *Store) treeStateKey() string  { return s.datum.keyPrefix + ":tree-state" }
 func (s *Store) rankStateKey() string  { return s.datum.keyPrefix + ":rank-state" }
@@ -472,25 +535,27 @@ func (s *Store) datumTokenOwns(c *gin.Context, ownerID int64) bool {
 }
 
 func (s *Store) datumUserRank(c *gin.Context) {
-	entry, _, err := s.stateStore().load(s.rankStateKey(), func() (interface{}, error) {
-		ranks, err := datum.NewUserStats(s.conn).TopUploaders(50)
-		if err != nil {
-			return nil, err
-		}
-		rows := make([]gin.H, 0, len(ranks))
-		for _, rank := range ranks {
-			rows = append(rows, gin.H{
-				"userId": rank.UserID, "userName": rank.UserName,
-				"avatar": rank.Avatar, "count": rank.Uploads, "uploads": rank.Uploads,
-			})
-		}
-		return rows, nil
-	})
+	entry, _, err := s.stateStore().load(s.rankStateKey(), s.computeDatumRank)
 	if err != nil {
 		fail(c, http.StatusServiceUnavailable, "排行榜暂不可用，请稍后重试")
 		return
 	}
 	respondState(c, entry, strings.TrimSpace(c.Query("hash")), false)
+}
+
+func (s *Store) computeDatumRank() (interface{}, error) {
+	ranks, err := datum.NewUserStats(s.conn).TopUploaders(50)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]gin.H, 0, len(ranks))
+	for _, rank := range ranks {
+		rows = append(rows, gin.H{
+			"userId": rank.UserID, "userName": rank.UserName,
+			"avatar": rank.Avatar, "count": rank.Uploads, "uploads": rank.Uploads,
+		})
+	}
+	return rows, nil
 }
 
 func (s *Store) datumRankCachePurge(c *gin.Context) {

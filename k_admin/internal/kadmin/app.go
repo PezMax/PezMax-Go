@@ -26,6 +26,7 @@ type Store struct {
 	conn           db.Connection
 	configMu       sync.Mutex
 	menuMutationMu sync.Mutex
+	datumStateMu   sync.Mutex
 	auth           *authService
 	security       *securityService
 	datum          *datumIdentity
@@ -37,16 +38,20 @@ type Store struct {
 }
 
 type Runtime struct {
-	audit     *businessAuditRecorder
-	jobs      *jobs.Manager
-	loginLogs *loginlogs.Manager
-	monitor   *monitor.Manager
-	loadRank  *loadrank.Sampler
+	audit       *businessAuditRecorder
+	jobs        *jobs.Manager
+	loginLogs   *loginlogs.Manager
+	monitor     *monitor.Manager
+	loadRank    *loadrank.Sampler
+	datumStates *datumStateWarmer
 }
 
 func (r *Runtime) Close() {
 	if r == nil {
 		return
+	}
+	if r.datumStates != nil {
+		r.datumStates.Close()
 	}
 	if r.audit != nil {
 		r.audit.Close()
@@ -159,9 +164,12 @@ func Register(r *gin.Engine, conn db.Connection) (*Runtime, error) {
 	// Snapshot the route templates after every route is registered so the
 	// sampler groups requests by registered template instead of raw paths.
 	loadRankSampler.SetRouteIndex(loadrank.NewRouteIndex(r.Routes()))
+	// Prime the desktop caches before Register returns and main starts serving
+	// HTTP. Runtime owns the maintenance loop so it stops before the DB closes.
+	datumStates := startDatumStateWarmer(s.warmDatumStates, datumStateWarmInterval)
 	return &Runtime{
 		audit: s.audit, jobs: manager, loginLogs: loginLogManager,
-		monitor: monitorManager, loadRank: loadRankSampler,
+		monitor: monitorManager, loadRank: loadRankSampler, datumStates: datumStates,
 	}, nil
 }
 

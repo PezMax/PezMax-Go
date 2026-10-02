@@ -99,6 +99,10 @@ Copy-Item .env.example .env
 go run .
 ```
 
+后端在开始接收 HTTP 请求前主动预热桌面端文件树与排行榜的 Redis 缓存，并每 30 秒补齐缺失缓存、提前刷新剩余 TTL 不超过 60 秒的缓存。预热失败会记录日志并在后台重试；TTL 通过 `KADMIN_DATUM_STATE_TTL` 设置，默认 `24h`，必须大于 1 分钟。载荷未变化时保留 hash，上传、删除等操作仍按原有规则失效缓存。
+
+默认缓存 Key 为 `kadmin:vbenapi:auth:datum:tree-state` 和 `kadmin:vbenapi:auth:datum:rank-state`；前缀由 `KADMIN_AUTH_REDIS_PREFIX` 控制。验证启动预热时，删除这两个 Key 后重启后端，在未访问客户端的情况下检查 Redis 即可。
+
 默认地址：
 
 - 原 GoAdmin 后台：`http://127.0.0.1:9033/admin`
