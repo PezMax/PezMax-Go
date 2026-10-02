@@ -190,6 +190,30 @@ func TestRenderArtifactsProducesCompilableShapes(t *testing.T) {
 	}
 }
 
+func TestRenderArtifactsWithoutQueryColumnsOmitsSearchCode(t *testing.T) {
+	config := sampleConfig()
+	for index := range config.Columns {
+		config.Columns[index].Queryable = false
+	}
+	artifacts, err := renderArtifacts(config, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range artifacts {
+		if !strings.HasSuffix(artifact.Path, ".vue") {
+			continue
+		}
+		for _, unused := range []string{"ClearOutlined", "SearchOutlined", "const filters", "function search()", "function resetSearch()"} {
+			if strings.Contains(artifact.Content, unused) {
+				t.Errorf("page without query columns includes unused search code: %s", unused)
+			}
+		}
+		if !strings.Contains(artifact.Content, "const formState = reactive") || !strings.Contains(artifact.Content, "function fetchList()") {
+			t.Fatal("CRUD form and paginated list must remain available")
+		}
+	}
+}
+
 func TestRenderArtifactsRejectsCompositePrimaryKey(t *testing.T) {
 	config := sampleConfig()
 	config.Columns[1].IsPK = true

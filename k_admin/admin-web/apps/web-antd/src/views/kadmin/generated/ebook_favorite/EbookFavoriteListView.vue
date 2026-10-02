@@ -106,12 +106,10 @@
 
 <script setup lang="ts">
 import {
-  ClearOutlined,
   DeleteOutlined,
   EditOutlined,
   PlusOutlined,
   ReloadOutlined,
-  SearchOutlined,
 } from '@ant-design/icons-vue';
 import { useAccess } from '@vben/access';
 import { message, Modal, type FormInstance } from 'ant-design-vue';
@@ -139,9 +137,6 @@ const items = ref<EbookFavorite[]>([]);
 const total = ref(0);
 const page = ref(1);
 const pageSize = ref(20);
-
-const filters = reactive<Record<string, string>>({
-});
 
 const columns = [
   { title: 'Ebook Id', dataIndex: 'ebookId', key: 'ebookId', width: 160, ellipsis: true },
@@ -175,14 +170,6 @@ async function fetchList() {
   }
 }
 
-function search() {
-  page.value = 1;
-  void fetchList();
-}
-
-function resetSearch() {
-  search();
-}
 
 function handleTableChange(paginationValue: TablePagination) {
   page.value = paginationValue.current ?? 1;
