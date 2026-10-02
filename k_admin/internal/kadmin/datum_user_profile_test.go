@@ -102,6 +102,8 @@ func TestDatumUploadAvatarStoresLocally(t *testing.T) {
 	seedDatumUser(t, db, "alice", "secret5", "1", false)
 	engine := datumEngine(t, store)
 	token := profileLogin(t, store, engine, "alice", "secret5", "cap-1")
+	rankBefore := datumJSON(t, engine, http.MethodGet, "/datum/user/rank", "", nil)
+	rankHash := treeHashOf(t, datumBody(t, rankBefore))
 
 	localRoot := t.TempDir()
 	t.Setenv("KADMIN_MINIO_ENABLED", "false")
@@ -145,6 +147,14 @@ func TestDatumUploadAvatarStoresLocally(t *testing.T) {
 	}
 	if !strings.HasPrefix(db.users["alice"].Avatar, "/api/uploads/avatars/datum/") {
 		t.Fatalf("user avatar = %q", db.users["alice"].Avatar)
+	}
+	rankAfter := datumJSON(t, engine, http.MethodGet, "/datum/user/rank?hash="+rankHash, "", nil)
+	rank := datumBody(t, rankAfter)
+	if rank["unchanged"] != false || treeHashOf(t, rank) == rankHash {
+		t.Fatalf("avatar upload did not invalidate rank: %s", rankAfter.Body.String())
+	}
+	if rank["data"].([]interface{})[0].(map[string]interface{})["avatar"] != url {
+		t.Fatalf("rank avatar does not match uploaded avatar: %s", rankAfter.Body.String())
 	}
 
 	// 非图片 → 400

@@ -101,6 +101,7 @@ func (s *Store) datumUpdateUserName(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "用户名修改失败")
 		return
 	}
+	s.invalidateDatumRank()
 	success(c, gin.H{"userName": userName})
 }
 
@@ -121,6 +122,7 @@ func (s *Store) datumUpdateAvatar(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "头像更新失败")
 		return
 	}
+	s.invalidateDatumRank()
 	success(c, gin.H{"avatar": avatar})
 }
 
@@ -178,6 +180,7 @@ func (s *Store) datumUploadAvatar(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "头像更新失败")
 		return
 	}
+	s.invalidateDatumRank()
 	success(c, gin.H{"url": avatarURL, "storage": storageName, "name": file.Filename})
 }
 

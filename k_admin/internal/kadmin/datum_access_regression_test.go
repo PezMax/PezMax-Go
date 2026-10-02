@@ -90,3 +90,33 @@ func TestDatumPendingEbookPreviewRecognizesOwnerSession(t *testing.T) {
 		t.Fatal("preview wrote download history")
 	}
 }
+
+// 改名、设置头像 URL、上传头像三条资料变更路径成功落库后，
+// 排行榜快照必须失效：旧 hash 请求返回更新数据与新 hash。
+func TestDatumProfileChangesInvalidateRankSnapshot(t *testing.T) {
+	for _, test := range []struct {
+		path, field, value string
+	}{
+		{"username", "userName", "alice-updated"},
+		{"avatar", "avatar", "/avatar/updated.png"},
+	} {
+		t.Run(test.path, func(t *testing.T) {
+			_, _, engine, token := seedActivityFixture(t)
+			before := datumJSON(t, engine, http.MethodGet, "/datum/user/rank", "", nil)
+			hash := treeHashOf(t, datumBody(t, before))
+			updated := datumJSON(t, engine, http.MethodPut, "/datum/desktop/user/profile/"+test.path, token, map[string]string{test.field: test.value})
+			if updated.Code != http.StatusOK {
+				t.Fatalf("profile update status = %d, body = %s", updated.Code, updated.Body.String())
+			}
+			after := datumJSON(t, engine, http.MethodGet, "/datum/user/rank?hash="+hash, "", nil)
+			body := datumBody(t, after)
+			if body["unchanged"] != false || treeHashOf(t, body) == hash {
+				t.Fatalf("rank retained the old profile snapshot: %s", after.Body.String())
+			}
+			rows := body["data"].([]interface{})
+			if len(rows) == 0 || rows[0].(map[string]interface{})[test.field] != test.value {
+				t.Fatalf("rank did not reflect updated %s: %s", test.field, after.Body.String())
+			}
+		})
+	}
+}
