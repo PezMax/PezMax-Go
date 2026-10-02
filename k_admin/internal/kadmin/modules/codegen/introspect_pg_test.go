@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"regexp"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -233,43 +232,73 @@ func codegenReviewRequest(t *testing.T, engine *gin.Engine, method, path, body s
 // 连接 dbname= 指定的真实库。护栏必须在执行任何 DDL 前发现实际库不符合
 // 测试前缀并拒绝。
 func TestCodegenReviewGuardRejectsActualDatabaseOutsidePrefix(t *testing.T) {
-	dsn := os.Getenv("KADMIN_TEST_CODEGEN_DSN")
+	dsn := os.Getenv("KADMIN_TEST_CODEGEN_REJECT_DSN")
 	if dsn == "" {
-		t.Skip("set KADMIN_TEST_CODEGEN_DSN to a disposable pezmax_codegen_test_* database")
+		t.Skip("set KADMIN_TEST_CODEGEN_REJECT_DSN to a disposable pezmax_codegen_guard_* database")
 	}
-	prefixed := regexp.MustCompile(`dbname=[^\s']+`)
-	if !prefixed.MatchString(dsn) {
-		t.Fatal("expected a dbname= parameter in the provided DSN")
-	}
-	// 实际目标为 postgres 维护库（无测试前缀）；解析陷阱指向伪装前缀名。
-	hostile := prefixed.ReplaceAllLiteralString(dsn, "dbname=postgres application_name='x dbname=pezmax_codegen_test_fake'")
-	raw, _, err := openGuardedCodegenReview(hostile)
-	if err == nil {
-		// 修复前行为：解析名骗过护栏，DDL 落在无前缀的真实库上。清理现场。
-		for _, statement := range []string{
-			`DROP TABLE IF EXISTS public.codegen_review_foreign`,
-			`DROP TABLE IF EXISTS public.codegen_review_single`,
-			`DROP TABLE IF EXISTS public.codegen_review_composite`,
-		} {
-			_, _ = raw.Exec(statement)
-		}
-		_ = raw.Close()
-		t.Fatal("guard accepted a DSN whose actual database lacks the test prefix")
-	}
-	if !strings.Contains(err.Error(), "pezmax_codegen_test_") {
-		t.Fatalf("guard error should name the required prefix, got: %v", err)
-	}
-	// 护栏必须先于任何 DDL 生效：实际连接的库中不得出现评审表。
-	probe, err := sql.Open("postgres", hostile)
+	// 负例也只访问自有测试库。保持 DSN 原样，不能重定向到维护库。
+	probe, err := sql.Open("postgres", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer probe.Close()
-	var tables int
-	if err := probe.QueryRow(`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'codegen_review_%'`).Scan(&tables); err != nil {
+	t.Cleanup(func() { _ = probe.Close() })
+	actual, err := actualDatabase(probe)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if tables != 0 {
-		t.Fatalf("guard ran DDL on the non-prefixed actual database: %d review tables found", tables)
+	if !strings.HasPrefix(actual, "pezmax_codegen_guard_") {
+		t.Fatal("guard rejection regression requires an actual disposable pezmax_codegen_guard_* database")
+	}
+	// information_schema 会隐藏没有表权限的对象，不能据此断定清理目标不存在。
+	const countReviewObjects = `SELECT count(*) FROM pg_catalog.pg_class c
+		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public' AND left(c.relname, length('codegen_review_')) = 'codegen_review_'`
+	var objects int
+	if err := probe.QueryRow(countReviewObjects).Scan(&objects); err != nil {
+		t.Fatal(err)
+	}
+	if objects != 0 {
+		t.Fatal("guard rejection regression requires a disposable database without existing review objects")
+	}
+	// 在调用 helper 前注册，覆盖错误返回及 panic；只清理由本用例创建的表。
+	t.Cleanup(func() {
+		for _, table := range []string{"codegen_review_foreign", "codegen_review_single", "codegen_review_composite"} {
+			var exists bool
+			if err := probe.QueryRow(`SELECT to_regclass($1) IS NOT NULL`, "public."+table).Scan(&exists); err != nil {
+				t.Errorf("check review fixture cleanup: %v", err)
+				continue
+			}
+			if exists {
+				if _, err := probe.Exec("DROP TABLE public." + table); err != nil {
+					t.Errorf("clean review fixture: %v", err)
+				}
+			}
+		}
+	})
+	raw, connection, err := openGuardedCodegenReview(dsn)
+	if raw != nil {
+		t.Cleanup(func() { _ = raw.Close() })
+	}
+	if connection != nil {
+		t.Cleanup(func() {
+			for _, err := range connection.Close() {
+				if err != nil {
+					t.Errorf("close unexpected review connection: %v", err)
+				}
+			}
+		})
+	}
+	if err == nil {
+		t.Fatal("guard accepted a DSN whose actual database lacks the test prefix")
+	}
+	if !strings.Contains(err.Error(), codegenReviewGuardPrefix) {
+		t.Fatalf("guard error should name the required prefix, got: %v", err)
+	}
+	// 检查清理执行前的现场，不能让清理掩盖被测护栏执行过 DDL。
+	if err := probe.QueryRow(countReviewObjects).Scan(&objects); err != nil {
+		t.Fatal(err)
+	}
+	if objects != 0 {
+		t.Fatalf("guard ran DDL on the non-prefixed actual database: %d review objects found", objects)
 	}
 }
