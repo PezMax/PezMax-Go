@@ -212,15 +212,11 @@ const setupScrollNotifications = () => {
 }
 
 
-// 监听路由变化，登录状态可能会改变
-watch(() => route.path, () => {
+// 工作区与用户中心之间导航沿用现有通知和轮询，只在认证状态变化时重启。
+watch([isAuthPage, () => userStore.token], () => {
+  scrollHash = ''
+  scrollNoticeList.value = []
   setupScrollNotifications()
-})
-// lxq 监听 token 变化，登录后重新拉取滚动通知
-watch(hasToken, (newVal, oldVal) => {
-  if (newVal !== oldVal) {
-    setupScrollNotifications()
-  }
 })
 
 onMounted(() => {

@@ -28,7 +28,11 @@ if (process.contextIsolated) {
       selectDownloadPath: () => ipcRenderer.invoke('select-download-path'), // 选择下载路径
       saveFile: (data) => ipcRenderer.invoke('save-file', data), // 保存文件到本地
       downloadFileDirectly: (data) => ipcRenderer.invoke('download-file-directly', data), // 触发底层下载
-      onDownloadProgress: (callback) => ipcRenderer.on('download-progress', (event, data) => callback(data)), // 监听下载进度
+      onDownloadProgress: (callback) => {
+        const listener = (_event, data) => callback(data)
+        ipcRenderer.on('download-progress', listener)
+        return () => ipcRenderer.removeListener('download-progress', listener)
+      },
       onSessionExpired: (callback) => {
         const listener = (_event, message) => callback(message)
         ipcRenderer.on('session-expired', listener)
