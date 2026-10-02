@@ -677,6 +677,9 @@ const submitUpload = async () => {
   
   if (!isExisting) {
     try {
+      const escapedSubject = currentSubject.replace(/[&<>"']/g, char => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[char])
       // 构造现代化的自定义 HTML 弹窗内容
       const customHtml = `
         <div class="custom-confirm-dialog">
@@ -689,7 +692,7 @@ const submitUpload = async () => {
           </div>
           <div class="dialog-content-wrapper">
             <h3 class="dialog-title">创建新学科确认</h3>
-            <p class="dialog-desc">系统中目前不存在 <strong class="subject-highlight">【${currentSubject}】</strong>。</p>
+            <p class="dialog-desc">系统中目前不存在 <strong class="subject-highlight">【${escapedSubject}】</strong>。</p>
             <div class="dialog-tip-box">
               为了防止学科名称混乱（例如已有"高等数学"请勿创建"高数"），请确认这是否是一个全新的学科？
             </div>
