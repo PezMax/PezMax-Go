@@ -2,6 +2,8 @@ package kadmin
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -45,5 +47,46 @@ func TestDatumOwnerListsRequireMatchingSession(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+// 内容接口挂在无鉴权上下文的公开 GET 分发器下：待审电子书必须主动解析
+// 可选会话，属主可预览，匿名/无效/他人一律 404；预览不得写下载记录。
+func TestDatumPendingEbookPreviewRecognizesOwnerSession(t *testing.T) {
+	_, database, engine, token := seedActivityFixture(t)
+	seedEbook(database, 2001, 7, "pending-owner", "author", "epub", "test", 0)
+	seedEbook(database, 2002, 999, "pending-other", "author", "epub", "test", 0)
+	localRoot := t.TempDir()
+	t.Setenv("KADMIN_MINIO_ENABLED", "false")
+	t.Setenv("KADMIN_FILE_LOCAL_ROOT", localRoot)
+	target := filepath.Join(localRoot, "books", "go.epub")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const content = "PK.pending-owner-preview"
+	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, ebookID, token string
+		status               int
+	}{
+		{"anonymous", "2001", "", http.StatusNotFound},
+		{"invalid-session", "2001", "invalid", http.StatusNotFound},
+		{"different-owner", "2002", token, http.StatusNotFound},
+		{"owner", "2001", token, http.StatusOK},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := datumJSON(t, engine, http.MethodGet, "/datum/ebook/content?ebookId="+test.ebookID, test.token, nil)
+			if response.Code != test.status {
+				t.Fatalf("status = %d, want %d; body = %s", response.Code, test.status, response.Body.String())
+			}
+			if response.Code == http.StatusOK && response.Body.String() != content {
+				t.Fatalf("preview body = %q", response.Body.String())
+			}
+		})
+	}
+	if database.ebookDownloads != 0 {
+		t.Fatal("preview wrote download history")
 	}
 }
