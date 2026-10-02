@@ -103,6 +103,8 @@ go run .
 
 默认缓存 Key 为 `kadmin:vbenapi:auth:datum:tree-state` 和 `kadmin:vbenapi:auth:datum:rank-state`；前缀由 `KADMIN_AUTH_REDIS_PREFIX` 控制。验证启动预热时，删除这两个 Key 后重启后端，在未访问客户端的情况下检查 Redis 即可。
 
+桌面端文件树按「科目 → 学校 → 类型 → 年份 → 自定义目录 → 文件」组织；`remark` 中以 `/` 分隔的文件夹上传路径会保留为自定义目录。树缓存携带结构版本，更新后会自动重建旧格式的 Redis 缓存，客户端也会自动替换旧的本地树缓存。
+
 默认地址：
 
 - 原 GoAdmin 后台：`http://127.0.0.1:9033/admin`

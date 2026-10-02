@@ -448,13 +448,13 @@ const getFileId = (file) => {
   if (isBookmarkItem(file)) return ''
   const source = file?.originalData || file
   // 按照优先级从各种可能的嵌套结构中寻找 ID
-  const id = source?.fileId ?? 
-             source?.id ?? 
-             source?.fileInfo?.fileId ?? 
-             source?.fileInfo?.id ?? 
-             source?.ptmjFile?.fileId ?? 
-             source?.ptmjFile?.id
-             
+  const id = source?.fileId ??
+             source?.fileInfo?.fileId ??
+             source?.ptmjFile?.fileId ??
+             source?.fileInfo?.id ??
+             source?.ptmjFile?.id ??
+             source?.id
+
   return id === undefined || id === null || id === '' ? '' : String(id)
 }
 
@@ -700,15 +700,18 @@ const handleNotificationAcknowledge = () => {
 }
 
 // lxq 获取并格式化后端返回的文件树
-// 哈希缓存：本地保存 {hash, tree}，请求携带 hash；服务端未变化时返回 unchanged，
+// 哈希缓存：本地保存 {version, hash, tree}，请求携带 hash；服务端未变化时返回 unchanged，
 // 直接复用本地树避免重新渲染，哈希变化（树内容更新）时才接收新数据。
 const TREE_CACHE_KEY = 'ptmj_file_tree_cache'
+const TREE_CACHE_VERSION = 2
 const fetchTreeData = async () => {
   try {
     let cached = null
     try {
       cached = JSON.parse(getStorageItem(TREE_CACHE_KEY) || 'null')
     } catch { cached = null }
+    // 旧缓存缺少叶子 fileInfo，不能继续用旧 hash 跳过重新格式化。
+    if (cached?.version !== TREE_CACHE_VERSION) cached = null
     const cachedHash = (cached && cached.hash) || ''
     if (cached && Array.isArray(cached.tree) && cached.tree.length > 0) {
       // 先展示本地缓存，界面立即可用；后台再校验哈希
@@ -724,7 +727,7 @@ const fetchTreeData = async () => {
       allFileTreeData.value = tree
       fileTreeData.value = tree
       if (res.hash) {
-        setStorageItem(TREE_CACHE_KEY, JSON.stringify({ hash: res.hash, tree }))
+        setStorageItem(TREE_CACHE_KEY, JSON.stringify({ version: TREE_CACHE_VERSION, hash: res.hash, tree }))
       }
     } else {
       ElMessage.error(res.msg || '获取文件树失败')
@@ -1024,6 +1027,8 @@ const formatTreeData = (nodes) => {
       url,
       // 如果后端把真正的后缀名存在了 fileFormat 中
       fileExt: entity.fileFormat || '',
+      // 侧边栏状态、详情抽屉和预览标签共用完整文件实体。
+      ...(finalIsFile ? { fileInfo: entity } : {}),
       children: finalIsFile ? null : formatTreeData(node.children)
     }
   })

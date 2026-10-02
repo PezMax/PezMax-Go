@@ -8,7 +8,7 @@
     modal-class="ide-file-info-overlay"
     destroy-on-close
   >
-    <div class="drawer-container" v-if="fileInfo">
+    <div class="drawer-container" v-if="displayInfo">
       <!-- 顶部：图标与标题 -->
       <div class="drawer-header animate-item item-1">
         <div class="file-icon-wrapper">
@@ -16,8 +16,8 @@
         </div>
         <div class="file-title-wrapper">
           <div class="title-with-status">
-            <h2 class="file-name" :title="fileInfo.fileName || '未知文件'">
-              {{ fileInfo.fileName || '未知文件' }}
+            <h2 class="file-name" :title="displayInfo.fileName || '未知文件'">
+              {{ displayInfo.fileName || '未知文件' }}
             </h2>
             <span class="status-badge" :class="statusInfo.class" v-if="statusInfo.text">
               {{ statusInfo.text }}
@@ -25,7 +25,7 @@
           </div>
           <div class="file-tags">
             <span class="file-ext-tag">{{ fileExt }}</span>
-            <span class="file-size-tag">{{ formatSize(fileInfo.fileSize) }}</span>
+            <span class="file-size-tag">{{ formatSize(displayInfo.fileSize) }}</span>
           </div>
         </div>
       </div>
@@ -35,27 +35,27 @@
         <div class="info-section animate-item item-2">
           <h3 class="section-title">基本信息</h3>
           <div class="info-grid">
-            <div class="info-card copyable" @click="copyText(fileInfo.fileSchool || '', '学校名称')">
+            <div class="info-card copyable" @click="copyText(displayInfo.fileSchool || '', '学校名称')">
               <span class="info-label">学校名称</span>
-              <span class="info-value">{{ fileInfo.fileSchool || '-' }}</span>
+              <span class="info-value">{{ displayInfo.fileSchool || '-' }}</span>
               <el-icon class="copy-icon"><CopyDocument /></el-icon>
             </div>
-            <div class="info-card copyable" @click="copyText(fileInfo.fileSubject || '未分类', '文件科目')">
+            <div class="info-card copyable" @click="copyText(displayInfo.fileSubject || '未分类', '文件科目')">
               <span class="info-label">文件科目</span>
-              <span class="info-value">{{ fileInfo.fileSubject || '未分类' }}</span>
+              <span class="info-value">{{ displayInfo.fileSubject || '未分类' }}</span>
               <el-icon class="copy-icon"><CopyDocument /></el-icon>
             </div>
             
-            <div class="info-card copyable" @click="copyText(formatFileType(fileInfo.fileType), '文件分类')">
+            <div class="info-card copyable" @click="copyText(formatFileType(displayInfo.fileType), '文件分类')">
               <span class="info-label">文件分类</span>
-              <span class="info-value">{{ formatFileType(fileInfo.fileType) }}</span>
+              <span class="info-value">{{ formatFileType(displayInfo.fileType) }}</span>
               <el-icon class="copy-icon"><CopyDocument /></el-icon>
             </div>
             
             <div class="info-card">
               <span class="info-label">文件年份</span>
               <span class="info-value highlight-num">
-                {{ fileInfo.fileYear || '未知' }}
+                {{ displayInfo.fileYear || '未知' }}
               </span>
             </div>
           </div>
@@ -77,7 +77,7 @@
             
             <div class="info-card">
               <span class="info-label">上传时间</span>
-              <span class="info-value time-val">{{ fileInfo.createTime || '-' }}</span>
+              <span class="info-value time-val">{{ displayInfo.createTime || '-' }}</span>
             </div>
           </div>
         </div>
@@ -103,7 +103,7 @@
           <span>{{ favoriteLoading ? '处理中...' : (isFavorite ? '已收藏' : '收藏') }}</span>
         </button>
         
-        <button class="action-btn secondary-btn" @click="copyText(fileInfo.fileName || '未知文件', '文件名')">
+        <button class="action-btn secondary-btn" @click="copyText(displayInfo.fileName || '未知文件', '文件名')">
           <el-icon><DocumentCopy /></el-icon>
           <span>复制文件名</span>
         </button>
@@ -144,15 +144,15 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update:modelValue', 'download-file', 'report-file'])
+const emit = defineEmits(['update:modelValue', 'download-file', 'report-file', 'toggle-favorite'])
 
 // 内部存储完整的详细信息
 const fullFileInfo = ref(null)
 // 存储单独获取的贡献者用户信息
 const contributorInfo = ref(null)
 
-// 优先使用完整信息，否则使用 prop 传入的基础信息
-const displayInfo = computed(() => fullFileInfo.value || props.fileInfo || {})
+// 详情接口覆盖基础信息；未返回的字段仍保留树节点中的值。
+const displayInfo = computed(() => ({ ...props.fileInfo, ...fullFileInfo.value }))
 
 const drawerVisible = computed({
   get: () => props.modelValue,
@@ -160,15 +160,18 @@ const drawerVisible = computed({
 })
 
 // 监听抽屉打开，尝试获取完整文件详情以展示头像和昵称
-watch(() => props.modelValue, async (val) => {
+watch(() => [props.modelValue, props.fileInfo], async ([val], _previous, onCleanup) => {
+  let cancelled = false
+  onCleanup(() => { cancelled = true })
+  fullFileInfo.value = null
+  contributorInfo.value = null
   if (val) {
-    fullFileInfo.value = null
-    contributorInfo.value = null
-    const fileId = props.fileInfo?.fileId || props.fileInfo?.id
+    const fileId = props.fileInfo?.fileId ?? props.fileInfo?.id
     if (fileId) {
       try {
         const res = await getFile(fileId)
-        if (res.code === 200 && res.data) {
+        if (cancelled) return
+        if ((res.code === 200 || res.code === 0) && res.data) {
           fullFileInfo.value = res.data
           
           // 检查返回的数据中是否有用户信息，如果没有则尝试根据 userId 获取
@@ -180,6 +183,7 @@ watch(() => props.modelValue, async (val) => {
             try {
               // 静默查询：上传账号可能已注销，失败时展示兜底昵称即可
               const userRes = await getUser(userId, { silent: true })
+              if (cancelled) return
               // kadmin 信封 code=0 与旧 RuoYi code=200 双兼容
               if ((userRes.code === 200 || userRes.code === 0) && userRes.data) {
                 // 如果后端直接返回 SysUser 对象
@@ -195,7 +199,7 @@ watch(() => props.modelValue, async (val) => {
       }
     }
   }
-})
+}, { immediate: true })
 
 const fileExt = computed(() => {
   const f = displayInfo.value

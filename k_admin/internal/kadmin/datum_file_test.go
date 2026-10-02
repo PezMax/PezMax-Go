@@ -49,14 +49,8 @@ func TestDatumTreeHashStateFlow(t *testing.T) {
 	if len(tree) == 0 {
 		t.Fatalf("tree empty: %v", body)
 	}
-	typeNode := tree[0].(map[string]interface{})
-	if typeNode["type"] != "folder" || typeNode["label"] != "期末" {
-		t.Fatalf("type node = %v", typeNode)
-	}
-	subjects := typeNode["children"].([]interface{})
-	leafYear := subjects[0].(map[string]interface{})["children"].([]interface{})
-	fileLeaf := leafYear[0].(map[string]interface{})["children"].([]interface{})[0].(map[string]interface{})
-	if fileLeaf["type"] != "file" || fileLeaf["fileId"].(float64) != 1001 {
+	fileLeaf := datumTreeNodeAt(t, tree, "高数", "QLU", "期末", "2024", "试卷A.pdf")
+	if fileLeaf["type"] != "file" || fileLeaf["id"] != "file-1001" || fileLeaf["fileId"].(float64) != 1001 {
 		t.Fatalf("file leaf = %v", fileLeaf)
 	}
 

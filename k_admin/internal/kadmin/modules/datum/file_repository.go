@@ -237,12 +237,12 @@ func (r *FileRepo) TreeYears(fileType int64, subject string) ([]YearCount, error
 }
 
 // ListApprovedFlat returns every approved, alive file ordered for tree
-// aggregation (type → subject → year). One query, no paging: the desktop
+// aggregation (subject → school → type → year). One query, no paging: the desktop
 // explorer renders the whole tree at once.
 func (r *FileRepo) ListApprovedFlat() ([]File, error) {
 	rows, err := r.conn.Query(`SELECT ` + fileColumns + ` FROM ptmj_file
 		WHERE file_status = 1 AND del_flag = 0
-		ORDER BY file_type, file_subject, file_year DESC, file_id`)
+		ORDER BY file_subject, file_school, file_type, file_year DESC, file_id`)
 	if err != nil {
 		return nil, err
 	}

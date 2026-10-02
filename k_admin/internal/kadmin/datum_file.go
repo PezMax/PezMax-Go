@@ -37,6 +37,7 @@ import (
 
 const (
 	datumStateTTLDefault    = 24 * time.Hour
+	datumTreeStateVersion   = 1
 	datumUploadMaxBytesDef  = 200 << 20 // 200MB
 	datumSearchLimit        = 50
 	datumFileStateTTLKey    = "KADMIN_DATUM_STATE_TTL"
@@ -56,14 +57,16 @@ var datumConvertExts = map[string]bool{"doc": true, "docx": true, "ppt": true, "
 // ---------------------------------------------------------------------------
 
 type datumStateEntry struct {
+	Version int             `json:"version,omitempty"`
 	Hash    string          `json:"hash"`
 	Payload json.RawMessage `json:"payload"`
 }
 
 type datumStateStore struct {
-	redis redisDoer
-	ttl   time.Duration
-	mu    *sync.Mutex
+	redis   redisDoer
+	ttl     time.Duration
+	mu      *sync.Mutex
+	version int
 }
 
 func newDatumStateStore(redis redisDoer) *datumStateStore {
@@ -96,7 +99,7 @@ func (s *datumStateStore) cached(key string) (datumStateEntry, bool, error) {
 	if raw, err := s.redis.do("GET", key); err == nil {
 		if text, ok := raw.(string); ok {
 			var entry datumStateEntry
-			if json.Unmarshal([]byte(text), &entry) == nil && entry.Hash != "" && len(entry.Payload) > 0 {
+			if json.Unmarshal([]byte(text), &entry) == nil && entry.Version == s.version && entry.Hash != "" && len(entry.Payload) > 0 {
 				return entry, true, nil
 			}
 		}
@@ -152,7 +155,7 @@ func (s *datumStateStore) rebuild(key string, compute func() (interface{}, error
 	if previous != nil && previous.Hash != "" && bytes.Equal(previous.Payload, encoded) {
 		hash = previous.Hash
 	}
-	entry := datumStateEntry{Hash: hash, Payload: encoded}
+	entry := datumStateEntry{Version: s.version, Hash: hash, Payload: encoded}
 	blob, err := json.Marshal(entry)
 	if err != nil {
 		return datumStateEntry{}, err
@@ -242,6 +245,14 @@ func (s *Store) stateStore() *datumStateStore {
 	state.mu = &s.datumStateMu
 	return state
 }
+
+// Keep the existing Redis key while replacing cached payloads created by older
+// tree layouts. Ranking entries retain their existing unversioned protocol.
+func (s *Store) treeStateStore() *datumStateStore {
+	state := s.stateStore()
+	state.version = datumTreeStateVersion
+	return state
+}
 func (s *Store) treeStateKey() string  { return s.datum.keyPrefix + ":tree-state" }
 func (s *Store) rankStateKey() string  { return s.datum.keyPrefix + ":rank-state" }
 func (s *Store) invalidateDatumTree()  { s.stateStore().invalidate(s.treeStateKey()) }
@@ -315,7 +326,7 @@ func (s *Store) datumFileList(c *gin.Context) {
 }
 
 func (s *Store) datumFileTree(c *gin.Context) {
-	entry, _, err := s.stateStore().load(s.treeStateKey(), s.computeDatumTree)
+	entry, _, err := s.treeStateStore().load(s.treeStateKey(), s.computeDatumTree)
 	if err != nil {
 		fail(c, http.StatusServiceUnavailable, "文件树暂不可用，请稍后重试")
 		return
@@ -328,62 +339,61 @@ func (s *Store) computeDatumTree() (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	type yearNode struct {
-		Label string  `json:"label"`
-		Type  string  `json:"type"`
-		Year  int64   `json:"year"`
-		Files []gin.H `json:"children"`
-	}
-	type subjectNode struct {
-		Label string     `json:"label"`
-		Type  string     `json:"type"`
-		Years []yearNode `json:"children"`
-	}
-	type typeNode struct {
+	type folderNode struct {
+		ID       string        `json:"id"`
 		Label    string        `json:"label"`
 		Type     string        `json:"type"`
-		FileType int64         `json:"fileType"`
-		Subjects []subjectNode `json:"children"`
+		Children []interface{} `json:"children"`
 	}
 
-	types := map[int64]*typeNode{}
+	// Restore the explorer's subject -> school -> type -> year hierarchy,
+	// followed by any custom directories stored in remark by folder uploads.
+	tree := make([]*folderNode, 0)
+	folders := make(map[string]*folderNode)
 	for _, file := range files {
-		typeItem := types[file.FileType]
-		if typeItem == nil {
-			typeItem = &typeNode{Label: datumFileTypeName(file.FileType), Type: "folder", FileType: file.FileType}
-			types[file.FileType] = typeItem
+		subject, school := strings.TrimSpace(file.FileSubject), strings.TrimSpace(file.FileSchool)
+		if subject == "" {
+			subject = "未知科目"
 		}
-		var subjectItem *subjectNode
-		for index := range typeItem.Subjects {
-			if typeItem.Subjects[index].Label == file.FileSubject {
-				subjectItem = &typeItem.Subjects[index]
-				break
+		if school == "" {
+			school = "未知学校"
+		}
+		year := file.FileYear
+		if year <= 0 {
+			year = int64(time.Now().Year())
+		}
+		parts := []string{subject, school, datumFileTypeName(file.FileType), strconv.FormatInt(year, 10)}
+		for _, part := range strings.Split(file.Remark, "/") {
+			if name := strings.TrimSpace(part); name != "" {
+				parts = append(parts, name)
 			}
 		}
-		if subjectItem == nil {
-			typeItem.Subjects = append(typeItem.Subjects, subjectNode{Label: file.FileSubject, Type: "folder"})
-			subjectItem = &typeItem.Subjects[len(typeItem.Subjects)-1]
-		}
-		yearLabel := strconv.FormatInt(file.FileYear, 10)
-		var yearItem *yearNode
-		for index := range subjectItem.Years {
-			if subjectItem.Years[index].Label == yearLabel {
-				yearItem = &subjectItem.Years[index]
-				break
+		var parent *folderNode
+		for index, label := range parts {
+			// Encoding path components separately avoids collisions between a
+			// label containing '/' and two adjacent directory components.
+			encodedPath, _ := json.Marshal(parts[:index+1])
+			key := string(encodedPath)
+			folder := folders[key]
+			if folder == nil {
+				folder = &folderNode{
+					ID: "folder-" + tokenHash(key), Label: label,
+					Type: "folder", Children: make([]interface{}, 0),
+				}
+				folders[key] = folder
+				if parent == nil {
+					tree = append(tree, folder)
+				} else {
+					parent.Children = append(parent.Children, folder)
+				}
 			}
+			parent = folder
 		}
-		if yearItem == nil {
-			subjectItem.Years = append(subjectItem.Years, yearNode{Label: yearLabel, Type: "folder", Year: file.FileYear})
-			yearItem = &subjectItem.Years[len(subjectItem.Years)-1]
-		}
-		yearItem.Files = append(yearItem.Files, datumFilePayload(file))
+		leaf := datumFilePayload(file)
+		leaf["id"] = "file-" + strconv.FormatInt(file.FileID, 10)
+		leaf["children"] = []interface{}{}
+		parent.Children = append(parent.Children, leaf)
 	}
-
-	tree := make([]typeNode, 0, len(types))
-	for _, value := range types {
-		tree = append(tree, *value)
-	}
-	sort.Slice(tree, func(i, j int) bool { return tree[i].FileType < tree[j].FileType })
 	return tree, nil
 }
 
@@ -408,7 +418,13 @@ func datumFilePayload(file datum.File) gin.H {
 		"fileSchool":  file.FileSchool,
 		"fileSubject": file.FileSubject,
 		"fileStatus":  file.FileStatus,
+		"reviewer":    file.Reviewer,
+		"delFlag":     file.DelFlag,
 		"userId":      file.UserID,
+		"createBy":    file.CreateBy,
+		"createTime":  file.CreateTime,
+		"updateBy":    file.UpdateBy,
+		"updateTime":  file.UpdateTime,
 		"remark":      file.Remark,
 		"type":        "file",
 	}

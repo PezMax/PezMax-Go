@@ -59,17 +59,17 @@ func (w *datumStateWarmer) Close() {
 }
 
 func (s *Store) warmDatumStates(refreshBefore time.Duration) error {
-	state := s.stateStore()
 	var failures []error
 	for _, resource := range []struct {
 		name    string
 		key     string
 		compute func() (interface{}, error)
+		state   *datumStateStore
 	}{
-		{"文件树", s.treeStateKey(), s.computeDatumTree},
-		{"排行榜", s.rankStateKey(), s.computeDatumRank},
+		{"文件树", s.treeStateKey(), s.computeDatumTree, s.treeStateStore()},
+		{"排行榜", s.rankStateKey(), s.computeDatumRank, s.stateStore()},
 	} {
-		if _, err := state.warm(resource.key, resource.compute, refreshBefore); err != nil {
+		if _, err := resource.state.warm(resource.key, resource.compute, refreshBefore); err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", resource.name, err))
 		}
 	}

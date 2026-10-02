@@ -491,13 +491,31 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 			}
 		}
 		return rows, nil
-	case strings.Contains(query, "file_status = 1 AND del_flag = 0") && strings.Contains(query, "ORDER BY file_type"):
+	case strings.Contains(query, "file_status = 1 AND del_flag = 0") && strings.Contains(query, "ORDER BY file_subject, file_school, file_type, file_year DESC, file_id"):
 		approved := []map[string]interface{}{}
 		for _, file := range f.files {
 			if toDatumInt64(file["file_status"]) == 1 && toDatumInt64(file["del_flag"]) == 0 {
 				approved = append(approved, file)
 			}
 		}
+		sort.Slice(approved, func(i, j int) bool {
+			for _, column := range []string{"file_subject", "file_school"} {
+				left, right := toDatumString(approved[i][column]), toDatumString(approved[j][column])
+				if left != right {
+					return left < right
+				}
+			}
+			for _, column := range []string{"file_type", "file_year", "file_id"} {
+				left, right := toDatumInt64(approved[i][column]), toDatumInt64(approved[j][column])
+				if left != right {
+					if column == "file_year" {
+						return left > right
+					}
+					return left < right
+				}
+			}
+			return false
+		})
 		return approved, nil
 	case strings.Contains(query, "count(*)") && strings.Contains(query, "FROM ptmj_file"):
 		total := int64(0)
