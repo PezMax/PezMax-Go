@@ -190,6 +190,42 @@ func TestRenderArtifactsProducesCompilableShapes(t *testing.T) {
 	}
 }
 
+func TestRenderArtifactsRejectsCompositePrimaryKey(t *testing.T) {
+	config := sampleConfig()
+	config.Columns[1].IsPK = true
+	if _, err := renderArtifacts(config, nil); err == nil || !strings.Contains(err.Error(), "composite primary key") {
+		t.Fatalf("composite-key generation error = %v", err)
+	}
+}
+
+func TestGenerationEndpointsRejectActualCompositePrimaryKey(t *testing.T) {
+	// Imported flags intentionally claim a single key, simulating a legacy
+	// configuration or a modified schema. Each entry point must recheck SQL.
+	for _, endpoint := range []struct{ method, action string }{
+		{http.MethodPost, "preview"}, {http.MethodPost, "generate"}, {http.MethodGet, "download"},
+	} {
+		t.Run(endpoint.action, func(t *testing.T) {
+			root := t.TempDir()
+			conn := &fakeConn{
+				configRows: productConfigRows(),
+				pkRows:     []map[string]interface{}{{"column_name": "id"}, {"column_name": "name"}},
+			}
+			engine := newCodegenTestEngine(root, conn)
+			request := httptest.NewRequest(endpoint.method, "/api/codegen/configs/1/"+endpoint.action, strings.NewReader(`{}`))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "composite primary key") {
+				t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+			}
+			entries, err := os.ReadDir(root)
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("rejected generation wrote files: entries=%d, err=%v", len(entries), err)
+			}
+		})
+	}
+}
+
 func TestWriterConflictPolicyAndPathSafety(t *testing.T) {
 	root := t.TempDir()
 	writer := NewWriter(root)

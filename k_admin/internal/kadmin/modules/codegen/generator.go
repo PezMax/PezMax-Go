@@ -49,19 +49,25 @@ func validateConfig(config TableConfig) error {
 	if len(config.Columns) == 0 {
 		return fmt.Errorf("table %s has no columns", config.TableName)
 	}
-	listed, writable := 0, 0
+	listed, writable, primaryKeys := 0, 0, 0
 	seen := make(map[string]bool, len(config.Columns))
 	for _, column := range config.Columns {
 		if seen[column.Name] {
 			return fmt.Errorf("duplicate column %q", column.Name)
 		}
 		seen[column.Name] = true
+		if column.IsPK {
+			primaryKeys++
+		}
 		if column.Listed {
 			listed++
 		}
 		if column.Creatable && column.Editable {
 			writable++
 		}
+	}
+	if primaryKeys > 1 {
+		return fmt.Errorf("table %s has a composite primary key; safe CRUD generation currently requires a single primary key", config.TableName)
 	}
 	if listed == 0 {
 		return fmt.Errorf("at least one column must be listed")
