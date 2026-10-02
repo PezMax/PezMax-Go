@@ -405,6 +405,7 @@ import UploadPanel from './UploadPanel.vue'
 import { normalizeFileUrl } from '@/utils/url'
 import { listBookmark, addBookmark, updateBookmark } from '@/api/datum/bookmark'
 import { listEbook } from '@/api/datum/ebook'
+import { fetchAllPages } from '@/utils/pagination'
 import useUserStore from '@/store/modules/user'
 import axios from 'axios'
 import { getToken } from '@/utils/auth'
@@ -909,15 +910,8 @@ const handleCoverUploadClick = async () => {
 const fetchBookmarks = async () => {
   loadingBookmarks.value = true
   try {
-    const res = await listBookmark({
-      title: bookmarkSearchQuery.value || undefined,
-      pageNum: 1,
-      pageSize: 100
-    })
-    // kadmin 原生信封 code=0（request.js 将 0 归一为 200 前的原始值仍在响应体上）
-    if (res.code === 200 || res.code === 0) {
-      bookmarkList.value = res.rows || []
-    }
+    const res = await fetchAllPages(listBookmark)
+    bookmarkList.value = res.rows
   } catch (error) {
     console.error('获取书签失败', error)
   } finally {
@@ -952,10 +946,8 @@ const formatEbookSize = (size) => {
 const fetchEbooks = async () => {
   loadingEbooks.value = true
   try {
-    const res = await listEbook({ pageNum: 1, pageSize: 100 })
-    if (res.code === 200 || res.code === 0) {
-      ebookList.value = res.rows || []
-    }
+    const res = await fetchAllPages(listEbook)
+    ebookList.value = res.rows
   } catch (error) {
     console.error('获取电子书失败', error)
   } finally {
