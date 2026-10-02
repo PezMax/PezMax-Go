@@ -13,8 +13,8 @@
 --                       原 dump 的 AUTO_INCREMENT 值，先建表后迁数据期间
 --                       新插入的行也不会与旧数据冲突）
 --   ON UPDATE CURRENT_TIMESTAMP 已移除：update_time 由 Go 侧显式维护
--- 字段名/怪癖原样保留：creat_by/creat_time 拼写、ptmj_bookmark_favorite 的
--- int 类型与单列主键等，与源库一致以保证 RuoYi 风格 SQL 平移可用。
+-- 字段名/怪癖保留：creat_by/creat_time 拼写、ptmj_bookmark_favorite 的
+-- int 类型；书签收藏主键修正为(bookmark_id,user_id)，支持各用户独立收藏。
 -- 脚本幂等：可重复执行（CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS）。
 -- ============================================================================
 
@@ -179,14 +179,47 @@ CREATE INDEX IF NOT EXISTS idx_bookmark_del_flag      ON ptmj_bookmark (del_flag
 CREATE INDEX IF NOT EXISTS idx_bookmark_create_time   ON ptmj_bookmark (create_time);
 
 -- ---------------------------------------------------------------------------
--- 8. 书签收藏表（源库即 int 类型且主键仅 bookmark_id，原样保留）
+-- 8. 书签收藏表（保留 int 类型；每个用户独立收藏）
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ptmj_bookmark_favorite (
     bookmark_id int NOT NULL,
-    user_id     int,
-    PRIMARY KEY (bookmark_id)
+    user_id     int NOT NULL,
+    PRIMARY KEY (bookmark_id, user_id)
 );
-COMMENT ON TABLE ptmj_bookmark_favorite IS '书签收藏表（源库主键仅 bookmark_id，原样保留）';
+-- 幂等迁移旧单列主键；NULL属主拒绝迁移并保留原数据，需明确修复后重试。
+DO $bookmark_favorite_migration$
+DECLARE
+    primary_key_name text;
+    primary_key_columns text[];
+BEGIN
+    LOCK TABLE public.ptmj_bookmark_favorite IN ACCESS EXCLUSIVE MODE;
+    SELECT constraint_row.conname, array_agg(attribute_row.attname::text ORDER BY key_column.position)
+      INTO primary_key_name, primary_key_columns
+      FROM pg_constraint constraint_row
+      CROSS JOIN LATERAL unnest(constraint_row.conkey) WITH ORDINALITY AS key_column(attnum, position)
+      JOIN pg_attribute attribute_row
+        ON attribute_row.attrelid = constraint_row.conrelid AND attribute_row.attnum = key_column.attnum
+     WHERE constraint_row.conrelid = 'public.ptmj_bookmark_favorite'::regclass
+       AND constraint_row.contype = 'p'
+     GROUP BY constraint_row.conname;
+    IF primary_key_columns = ARRAY['bookmark_id', 'user_id']::text[]
+       OR primary_key_columns = ARRAY['user_id', 'bookmark_id']::text[] THEN
+        RETURN;
+    END IF;
+    IF primary_key_columns IS NOT NULL AND primary_key_columns <> ARRAY['bookmark_id']::text[] THEN
+        RAISE EXCEPTION 'unsupported ptmj_bookmark_favorite primary key: %', primary_key_columns;
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.ptmj_bookmark_favorite WHERE user_id IS NULL) THEN
+        RAISE EXCEPTION 'cannot migrate ptmj_bookmark_favorite: NULL user_id; assign valid owners before restarting; existing rows are unchanged';
+    END IF;
+    IF primary_key_name IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE public.ptmj_bookmark_favorite DROP CONSTRAINT %I', primary_key_name);
+    END IF;
+    ALTER TABLE public.ptmj_bookmark_favorite ALTER COLUMN user_id SET NOT NULL;
+    ALTER TABLE public.ptmj_bookmark_favorite ADD PRIMARY KEY (bookmark_id, user_id);
+END;
+$bookmark_favorite_migration$;
+COMMENT ON TABLE ptmj_bookmark_favorite IS '书签收藏表（书签、用户复合主键）';
 
 -- ---------------------------------------------------------------------------
 -- 9. 书签举报表（原 idx_create_time 与 ptmj_bookmark 重名，改名 idx_bmr_create_time）
