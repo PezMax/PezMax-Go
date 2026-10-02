@@ -409,8 +409,6 @@ func (s *Store) datumBookmarkFavoriteAdd(c *gin.Context) {
 	}
 	if err := repo.Add(req.BookmarkID, userID); err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
-			// 源库怪癖：ptmj_bookmark_favorite 主键仅 bookmark_id，
-			// 一个书签只能有一行收藏记录。
 			fail(c, http.StatusConflict, "收藏已存在，请勿重复收藏")
 			return
 		}
@@ -472,11 +470,7 @@ func (s *Store) datumMyBookmarkFavoriteRemove(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "书签 ID 不正确")
 		return
 	}
-	if exists, err := datum.NewBookmarkFavoriteRepo(s.conn).Exists(bookmarkID, userID); err == nil && !exists {
-		fail(c, http.StatusNotFound, "收藏不存在")
-		return
-	}
-	if err := datum.NewBookmarkFavoriteRepo(s.conn).Remove(bookmarkID); err != nil {
+	if err := datum.NewBookmarkFavoriteRepo(s.conn).Remove(bookmarkID, userID); err != nil {
 		if errors.Is(err, datum.ErrNotFound) {
 			fail(c, http.StatusNotFound, "收藏不存在")
 			return

@@ -25,26 +25,26 @@ import (
 
 type fakeDatumDB struct {
 	db.Connection
-	mu              sync.Mutex
-	users           map[string]*datumUser
-	security        map[int64][2]string
-	files           []map[string]interface{}
-	ebooks          []map[string]interface{}
-	bookmarks       map[int64]map[string]interface{}
-	downloads       []map[string]interface{}
-	ebookDownloads  int
-	ebookFavs       [][2]int64
-	ebookReports    []map[string]interface{}
+	mu                sync.Mutex
+	users             map[string]*datumUser
+	security          map[int64][2]string
+	files             []map[string]interface{}
+	ebooks            []map[string]interface{}
+	bookmarks         map[int64]map[string]interface{}
+	downloads         []map[string]interface{}
+	ebookDownloads    int
+	ebookFavs         [][2]int64
+	ebookReports      []map[string]interface{}
 	nextEbookReportID int64
-	nextEbookID     int64
-	fileFavs        [][2]int64
-	bookmarkFavs    map[int64]int64
-	notifications   []map[string]interface{}
-	reports         []map[string]interface{}
-	bookmarkReports []map[string]interface{}
-	nextDownloadID  int64
-	nextID          int64
-	seedSeq         int
+	nextEbookID       int64
+	fileFavs          [][2]int64
+	bookmarkFavs      map[[2]int64]bool
+	notifications     []map[string]interface{}
+	reports           []map[string]interface{}
+	bookmarkReports   []map[string]interface{}
+	nextDownloadID    int64
+	nextID            int64
+	seedSeq           int
 }
 
 func newFakeDatumDB() *fakeDatumDB {
@@ -52,7 +52,7 @@ func newFakeDatumDB() *fakeDatumDB {
 		users:        map[string]*datumUser{},
 		security:     map[int64][2]string{},
 		bookmarks:    map[int64]map[string]interface{}{},
-		bookmarkFavs: map[int64]int64{},
+		bookmarkFavs: map[[2]int64]bool{},
 		nextID:       100,
 	}
 }
@@ -418,13 +418,15 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 		return []map[string]interface{}{{"count": int64(len(f.bookmarkFavs))}}, nil
 	case strings.Contains(query, "SELECT bookmark_id, user_id FROM ptmj_bookmark_favorite"):
 		rows := []map[string]interface{}{}
-		for bookmarkID, userID := range f.bookmarkFavs {
+		for pair := range f.bookmarkFavs {
+			bookmarkID, userID := pair[0], pair[1]
 			rows = append(rows, map[string]interface{}{"bookmark_id": bookmarkID, "user_id": userID})
 		}
 		return rows, nil
 	case strings.Contains(query, "FROM ptmj_bookmark_favorite fav") && strings.Contains(query, "JOIN ptmj_bookmark b"):
 		rows := []map[string]interface{}{}
-		for bookmarkID, userID := range f.bookmarkFavs {
+		for pair := range f.bookmarkFavs {
+			bookmarkID, userID := pair[0], pair[1]
 			if userID != toDatumInt64(args[0]) {
 				continue
 			}
@@ -438,8 +440,7 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 		}
 		return rows, nil
 	case strings.Contains(query, "SELECT 1 FROM ptmj_bookmark_favorite WHERE"):
-		userID, exists := f.bookmarkFavs[toDatumInt64(args[0])]
-		if exists && userID == toDatumInt64(args[1]) {
+		if f.bookmarkFavs[[2]int64{toDatumInt64(args[0]), toDatumInt64(args[1])}] {
 			return []map[string]interface{}{{"1": int64(1)}}, nil
 		}
 		return nil, nil
@@ -928,10 +929,15 @@ func (f *fakeDatumDB) Exec(query string, args ...interface{}) (sql.Result, error
 		f.fileFavs = kept
 		return fakeDatumResult{rows: removed}, nil
 	case strings.Contains(query, "INSERT INTO ptmj_bookmark_favorite"):
-		f.bookmarkFavs[toDatumInt64(args[0])] = toDatumInt64(args[1])
+		pair := [2]int64{toDatumInt64(args[0]), toDatumInt64(args[1])}
+		if f.bookmarkFavs[pair] {
+			return nil, errFakeDuplicateKey
+		}
+		f.bookmarkFavs[pair] = true
 	case strings.Contains(query, "DELETE FROM ptmj_bookmark_favorite WHERE bookmark_id"):
-		if _, existed := f.bookmarkFavs[toDatumInt64(args[0])]; existed {
-			delete(f.bookmarkFavs, toDatumInt64(args[0]))
+		pair := [2]int64{toDatumInt64(args[0]), toDatumInt64(args[1])}
+		if f.bookmarkFavs[pair] {
+			delete(f.bookmarkFavs, pair)
 			return fakeDatumResult{rows: 1}, nil
 		}
 		return fakeDatumResult{rows: 0}, nil

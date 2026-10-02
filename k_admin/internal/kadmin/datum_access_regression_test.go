@@ -120,3 +120,26 @@ func TestDatumProfileChangesInvalidateRankSnapshot(t *testing.T) {
 		})
 	}
 }
+
+// 取消收藏只允许删除会话属主自己的关联：A 取消后 B 的收藏必须保留。
+func TestDatumBookmarkFavoritesRemainIndependentAcrossUsers(t *testing.T) {
+	store, database, engine, aliceToken := seedActivityFixture(t)
+	seedActivityBookmark(t, database, 55)
+	bobToken := profileLogin(t, store, engine, "bob", "secret5", "cap-bob")
+	for _, session := range []struct {
+		userID int64
+		token  string
+	}{{7, aliceToken}, {8, bobToken}} {
+		response := datumJSON(t, engine, http.MethodPost, "/datum/bookmark/favorite", session.token, map[string]int64{"bookmarkId": 55, "userId": session.userID})
+		if response.Code != http.StatusOK {
+			t.Fatalf("user %d favorite failed: %s", session.userID, response.Body.String())
+		}
+	}
+	response := datumJSON(t, engine, http.MethodDelete, "/datum/desktop/bookmark/favorite/7/55", aliceToken, nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("alice removal failed: %s", response.Body.String())
+	}
+	if database.bookmarkFavs[[2]int64{55, 7}] || !database.bookmarkFavs[[2]int64{55, 8}] {
+		t.Fatalf("removal changed another user's association: %#v", database.bookmarkFavs)
+	}
+}

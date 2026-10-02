@@ -164,9 +164,7 @@ func (r *FileFavoriteRepo) ListFilesByUser(userID int64, page, size int) (Page, 
 	return Page{Items: files, Total: total, Page: page, PageSize: size}, nil
 }
 
-// BookmarkFavoriteRepo owns ptmj_bookmark_favorite. Quirk preserved from the
-// legacy schema: the primary key is bookmark_id alone, so a bookmark has at
-// most one favoriting user row.
+// BookmarkFavoriteRepo owns independent (bookmark_id, user_id) associations.
 type BookmarkFavoriteRepo struct {
 	conn db.Connection
 }
@@ -180,8 +178,8 @@ func (r *BookmarkFavoriteRepo) Add(bookmarkID, userID int64) error {
 	return err
 }
 
-func (r *BookmarkFavoriteRepo) Remove(bookmarkID int64) error {
-	result, err := r.conn.Exec(`DELETE FROM ptmj_bookmark_favorite WHERE bookmark_id = ?`, bookmarkID)
+func (r *BookmarkFavoriteRepo) Remove(bookmarkID, userID int64) error {
+	result, err := r.conn.Exec(`DELETE FROM ptmj_bookmark_favorite WHERE bookmark_id = ? AND user_id = ?`, bookmarkID, userID)
 	if err != nil {
 		return err
 	}
