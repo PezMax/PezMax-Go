@@ -26,10 +26,6 @@ var gzipWriterPool = sync.Pool{
 // 再压只耗 CPU 不省带宽）、以及已知小于 gzipMinLength 的响应。
 func GzipMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.Request.Method == http.MethodHead || !acceptsGzip(c.Request.Header) {
-			c.Next()
-			return
-		}
 		writer := &gzipResponseWriter{ResponseWriter: c.Writer, request: c.Request}
 		c.Writer = writer
 		c.Next()
@@ -38,15 +34,39 @@ func GzipMiddleware() gin.HandlerFunc {
 }
 
 func acceptsGzip(header http.Header) bool {
+	gzipPresent, gzipAllowed, wildcardAllowed := false, false, false
 	for _, value := range header.Values("Accept-Encoding") {
 		for _, part := range strings.Split(value, ",") {
-			encoding := strings.TrimSpace(strings.ToLower(part))
-			if encoding == "gzip" || strings.HasPrefix(encoding, "gzip;") {
-				return true
+			parameters := strings.Split(part, ";")
+			encoding := strings.TrimSpace(strings.ToLower(parameters[0]))
+			if encoding != "gzip" && encoding != "*" {
+				continue
+			}
+			quality := 1.0
+			for _, parameter := range parameters[1:] {
+				name, value, found := strings.Cut(parameter, "=")
+				if !strings.EqualFold(strings.TrimSpace(name), "q") {
+					continue
+				}
+				parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+				if !found || err != nil || !(parsed >= 0 && parsed <= 1) {
+					quality = 0
+					break
+				}
+				quality = parsed
+			}
+			if encoding == "gzip" {
+				gzipPresent = true
+				gzipAllowed = gzipAllowed || quality > 0
+			} else {
+				wildcardAllowed = wildcardAllowed || quality > 0
 			}
 		}
 	}
-	return false
+	if gzipPresent {
+		return gzipAllowed
+	}
+	return wildcardAllowed
 }
 
 func compressibleContentType(contentType string) bool {
@@ -87,7 +107,7 @@ func (w *gzipResponseWriter) WriteHeaderNow() {
 	}
 	w.decided = true
 	header := w.Header()
-	header.Add("Vary", "Accept-Encoding")
+	addVaryAcceptEncoding(header)
 	if w.shouldCompress(header) {
 		header.Del("Content-Length")
 		header.Set("Content-Encoding", "gzip")
@@ -100,6 +120,9 @@ func (w *gzipResponseWriter) WriteHeaderNow() {
 
 func (w *gzipResponseWriter) shouldCompress(header http.Header) bool {
 	if w.ResponseWriter.Written() || w.request == nil {
+		return false
+	}
+	if w.request.Method == http.MethodHead || !acceptsGzip(w.request.Header) {
 		return false
 	}
 	if status := w.ResponseWriter.Status(); status < 200 || status > 299 {
@@ -120,6 +143,18 @@ func (w *gzipResponseWriter) shouldCompress(header http.Header) bool {
 		}
 	}
 	return true
+}
+
+func addVaryAcceptEncoding(header http.Header) {
+	for _, value := range header.Values("Vary") {
+		for _, field := range strings.Split(value, ",") {
+			field = strings.TrimSpace(field)
+			if field == "*" || strings.EqualFold(field, "Accept-Encoding") {
+				return
+			}
+		}
+	}
+	header.Add("Vary", "Accept-Encoding")
 }
 
 func (w *gzipResponseWriter) Write(data []byte) (int, error) {
