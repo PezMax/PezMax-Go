@@ -185,7 +185,35 @@ func TestDatabase_ParamStr(t *testing.T) {
 			"parseTime": "true",
 		},
 	}
-	assert.Equal(t, cfg.ParamStr(), "?charset=utf8mb4&parseTime=true")
+	first := cfg.ParamStr()
+	assert.Equal(t, "?charset=utf8mb4&parseTime=true", first)
+	assert.Equal(t, map[string]string{"parseTime": "true"}, cfg.Params, "DSN rendering must preserve the input map")
+	for i := 0; i < 50; i++ {
+		assert.Equal(t, first, cfg.ParamStr(), "DSN rendering must be stable across calls")
+	}
+
+	nilParams := Database{Driver: DriverMysql}
+	assert.Equal(t, "?charset=utf8mb4", nilParams.ParamStr())
+
+	emptyParams := Database{Driver: DriverMysql, Params: map[string]string{}}
+	assert.Equal(t, "?charset=utf8mb4", emptyParams.ParamStr())
+	assert.Empty(t, emptyParams.Params, "default injection must stay out of the caller's map")
+
+	custom := Database{Driver: DriverMysql, Params: map[string]string{"charset": "utf8", "loc": "Local"}}
+	assert.Equal(t, "?charset=utf8&loc=Local", custom.ParamStr())
+	assert.Equal(t, map[string]string{"charset": "utf8", "loc": "Local"}, custom.Params)
+
+	pg := Database{Driver: DriverPostgresql, Params: map[string]string{"host": "db.example", "user": "app"}}
+	assert.Equal(t, " host=db.example sslmode=disable user=app", pg.ParamStr())
+	assert.Equal(t, map[string]string{"host": "db.example", "user": "app"}, pg.Params)
+
+	mssql := Database{Driver: DriverMssql, Params: map[string]string{"database": "master"}}
+	assert.Equal(t, "database=master;encrypt=disable", mssql.ParamStr())
+	assert.Equal(t, map[string]string{"database": "master"}, mssql.Params)
+
+	sqlite := Database{Driver: DriverSqlite, Params: map[string]string{"mode": "memory"}}
+	assert.Equal(t, "?mode=memory", sqlite.ParamStr())
+	assert.Equal(t, map[string]string{"mode": "memory"}, sqlite.Params)
 }
 
 func TestReadFromYaml(t *testing.T) {

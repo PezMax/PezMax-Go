@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -82,9 +83,12 @@ func (d Database) GetDSN() string {
 
 func (d Database) ParamStr() string {
 	p := ""
-	if d.Params == nil {
-		d.Params = make(map[string]string)
+	// Rendering a DSN must not mutate the caller's shared configuration map.
+	params := make(map[string]string, len(d.Params)+1)
+	for key, value := range d.Params {
+		params[key] = value
 	}
+	d.Params = params
 	if d.Driver == DriverMysql || d.Driver == DriverSqlite || d.Driver == DriverOceanBase {
 		if d.Driver == DriverMysql || d.Driver == DriverOceanBase {
 			if _, ok := d.Params["charset"]; !ok {
@@ -93,8 +97,8 @@ func (d Database) ParamStr() string {
 		}
 		if len(d.Params) > 0 {
 			p = "?"
-			for k, v := range d.Params {
-				p += k + "=" + v + "&"
+			for _, key := range sortedParamKeys(d.Params) {
+				p += key + "=" + d.Params[key] + "&"
 			}
 			p = p[:len(p)-1]
 		}
@@ -103,8 +107,8 @@ func (d Database) ParamStr() string {
 		if _, ok := d.Params["encrypt"]; !ok {
 			d.Params["encrypt"] = "disable"
 		}
-		for k, v := range d.Params {
-			p += k + "=" + v + ";"
+		for _, key := range sortedParamKeys(d.Params) {
+			p += key + "=" + d.Params[key] + ";"
 		}
 		p = p[:len(p)-1]
 	}
@@ -113,12 +117,21 @@ func (d Database) ParamStr() string {
 			d.Params["sslmode"] = "disable"
 		}
 		p = " "
-		for k, v := range d.Params {
-			p += k + "=" + v + " "
+		for _, key := range sortedParamKeys(d.Params) {
+			p += key + "=" + d.Params[key] + " "
 		}
 		p = p[:len(p)-1]
 	}
 	return p
+}
+
+func sortedParamKeys(params map[string]string) []string {
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // DatabaseList is a map of Database.
