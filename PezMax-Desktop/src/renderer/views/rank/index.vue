@@ -122,6 +122,7 @@ const activeUserId = ref(null)
 const activeRankIndex = ref(-1) // 新增：记录当前选中的排名索引
 const detailLoading = ref(false)
 const userDetail = ref(null)
+let detailRequestId = 0
 
 const listWidth = ref(260)
 const isResizing = ref(false)
@@ -258,6 +259,7 @@ async function fetchRank() {
     }
     applyRankRows(data)
   } catch {
+    detailRequestId++
     rankList.value = []
     activeUserId.value = null
     activeRankIndex.value = -1
@@ -273,6 +275,7 @@ function applyRankRows(rows) {
   if (firstItem) {
     openUserDetail(firstItem, 0)
   } else {
+    detailRequestId++
     activeUserId.value = null
     activeRankIndex.value = -1
     userDetail.value = null
@@ -281,6 +284,7 @@ function applyRankRows(rows) {
 
 async function openUserDetail(item, index) {
   if (!item) return
+  const requestId = ++detailRequestId
   const rawData = item.raw || item
   const normalizedItem = normalizeRankUser(rawData)
 
@@ -295,7 +299,7 @@ async function openUserDetail(item, index) {
   if (userId) {
     try {
       const res = await getUser(userId)
-      if ((res?.code === 200 || res?.code === 0) && res.data) {
+      if (requestId === detailRequestId && (res?.code === 200 || res?.code === 0) && res.data) {
         // 如果后端直接返回 SysUser 对象
         const realUser = res.data.user || res.data
         userDetail.value = normalizeDetailUser(realUser, normalizedItem)
@@ -337,6 +341,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  detailRequestId++
   document.removeEventListener('mousemove', handleMouseMove)
   document.removeEventListener('mouseup', stopResize)
 })
