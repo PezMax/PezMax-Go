@@ -1,26 +1,25 @@
-# KAdmin 边缘反代（Nginx）：为上行受限的主机做三层减负。
+# KAdmin 边缘反代：Nginx 压缩与下载分配，tc 限制共享出口预算。
+# Dockerfile.edge 的 35-egress-limit.sh 在 Nginx 启动前设置 eth0 TBF + fq_codel：
+#   KADMIN_EDGE_EGRESS_RATE        — 整个 edge 出口的 bit/s 预算，默认 8mbit。
+#   KADMIN_EDGE_EGRESS_BURST_BYTES — 单桶允许的有限突发，默认 32768 bytes。
+# 所有 worker、Token、连接与响应路径共用该内核队列，配置失败时拒绝启动。
 # 模板变量由 nginx 官方镜像启动时的 envsubst 注入（/etc/nginx/templates/*.template，
 # 只替换容器内已定义的环境变量，nginx 运行时变量不受影响）：
 #   KADMIN_UPSTREAM          — 后端地址。docker compose 内默认 kadmin:9033；
 #                              后端在宿主机直跑时改为 host.docker.internal:9033。
 #   KADMIN_EDGE_DL_RATE_FAST — 独占档：0–1 个在写连接时单个下载的速率。
-#                              建议设为总上行预算的 70–80%（10Mbps ≈ 1.25MB/s → 1m）。
+#                              用于单请求分配，总出口始终受 tc 共享预算限制。
 #   KADMIN_EDGE_DL_RATE_MID  — 中档：2–3 个并发下载。
 #   KADMIN_EDGE_DL_RATE_LOW  — 低档：4 个及以上并发下载。
 #   KADMIN_EDGE_DL_MAXCONN   — 全体客户端共享的下载总并发帽。
 #
-# 弹性限速：每连接限速值不再是固定值，而是按“当前正在写出响应的连接数”
+# 弹性限速：每请求限速值按“当前正在写出响应的连接数”
 # 分档映射（$connections_writing 为 stub_status 模块内置变量，即时可用，
 # 无需有人抓取 /stub_status 端点）。在线用户少时单个下载自动提到独占档，
 # 并发上来后整体回落到预算档：
 #   独占(0–1)×FAST → 2–3×MID → 4+×LOW（总并发被 MAXCONN 兜住）。
-# 档位总额约 FAST 的 1–2 倍（如 FAST=1m → 总额 ≈ 1–2MB/s）。
-#
-# 诚实的边界：nginx 只有“每连接速率整形”，没有跨连接的全局令牌桶，上述
-# 总额是档位乘法下的软约束（并发采样滞后时可能短暂越界）。需要硬性总上限
-# 时在宿主机出口网卡做内核整形，一行即可（示例：按 2.2Mbps 上行预算）：
-#   tc qdisc replace dev eth0 root cake bandwidth 2200kbit besteffort
-# 应用侧全局令牌桶（出口 QoS 中间件）是另一条硬约束路线。
+# 分档与 limit_conn 只控制单请求速率和并发数；总带宽由独立的 tc 单桶封顶，
+# 不依赖连接数采样是否及时。单连接空闲后的有限突发也计入同一个桶。
 
 # 文本类响应出站压缩：JSON 列表、后台控制台 HTML/CSS/JS 通常压掉 70%–90%。
 # 图片/PDF/压缩包不在此列（压不动），由后端已按 Content-Type 跳过。
@@ -40,7 +39,7 @@ gzip_types
     image/svg+xml;
 
 # 弹性限速映射：正在写出的连接数（含 API 小响应，方向偏保守——多算并发
-# 只会降速不会超发）→ 每连接下载速率档位。
+# 只会降速不会超发）→ 每请求下载速率档位。
 map $connections_writing $download_rate {
     default          ${KADMIN_EDGE_DL_RATE_MID};  # 信号缺失兜底，取保守中档
     ""               ${KADMIN_EDGE_DL_RATE_FAST}; # 空闲：独占快速档
@@ -48,11 +47,11 @@ map $connections_writing $download_rate {
     ~^1$             ${KADMIN_EDGE_DL_RATE_FAST};
     ~^[2-3]$         ${KADMIN_EDGE_DL_RATE_MID};
     ~^[4-9]$         ${KADMIN_EDGE_DL_RATE_LOW};
-    ~^[1-9][0-9]+$   ${KADMIN_EDGE_DL_RATE_LOW};  # 10+：低档，总额由并发帽封顶
+    ~^[1-9][0-9]+$   ${KADMIN_EDGE_DL_RATE_LOW};  # 10+：低档；总出口由 tc 共享预算封顶
 }
 
-# 并发限制区：per-IP 单连接保证公平（无法靠并行流倍增速率）；
-# $server_addr 在容器内是本机地址、恒定，作为 key 时 limit_conn 即全局计数器。
+# 并发限制区：per-IP 减少单个来源的并行下载；IPv4/IPv6 的计数可分别存在。
+# 总出口预算不依赖这些 key，由 eth0 的同一内核队列覆盖。
 limit_conn_zone $binary_remote_addr zone=download_conn:10m;
 limit_conn_zone $server_addr zone=download_total:10m;
 
@@ -75,7 +74,7 @@ server {
 
     # 大文件下载（桌面端 /datum/download/file）：单客户端单连接 + 弹性限速。
     # proxy_buffering 保持默认开启：后端把字节快速吐到 Nginx 本地缓冲后即可
-    # 释放，出网速度由 limit_rate 单独整形，后端连接不会长期挂占用。
+    # 释放，单请求按 limit_rate 分配，全部出流再通过共享 tc 预算。
     location /datum/download/ {
         limit_conn download_conn 1;
         limit_conn download_total ${KADMIN_EDGE_DL_MAXCONN};
@@ -85,7 +84,8 @@ server {
         proxy_read_timeout 300s;
     }
 
-    # 其余流量（JSON API、控制台、静态资源、Swagger）只做压缩与透传。
+    # 其余流量（JSON API、控制台、静态资源、Swagger）压缩与透传后也经过
+    # eth0 的共享预算，大响应不能通过切换 URL 绕过总出口上限。
     location / {
         proxy_pass http://${KADMIN_UPSTREAM};
         include /etc/nginx/kadmin-proxy-headers.conf;

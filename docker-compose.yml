@@ -141,14 +141,24 @@ services:
   # host.docker.internal:9033；compose 内跑 kadmin 时默认值即可。
   # 不设 depends_on：后端可能运行在宿主机而非 compose 内。
   edge:
-    image: nginx:1.27-alpine
+    build:
+      context: ./deploy
+      dockerfile: Dockerfile.edge
+      args:
+        ALPINE_MIRROR: ${KADMIN_EDGE_APK_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}
+    image: pezmax-go-edge:local
     container_name: pezmax-go-edge
     restart: unless-stopped
     profiles:
       - edge
+    cap_add:
+      - NET_ADMIN
     environment:
       KADMIN_UPSTREAM: ${KADMIN_EDGE_UPSTREAM:-kadmin:9033}
-      # 弹性下载限速档位（按在写连接数分档，语义见 deploy/nginx.conf.template 头注）
+      # 整个 edge 出口共享预算（tc 单位为 bit/s；8mbit 约 1MB/s）。
+      KADMIN_EDGE_EGRESS_RATE: ${KADMIN_EDGE_EGRESS_RATE:-8mbit}
+      KADMIN_EDGE_EGRESS_BURST_BYTES: ${KADMIN_EDGE_EGRESS_BURST_BYTES:-32768}
+      # 单请求分档用于流量分配，总出口上限由共享内核队列保证。
       KADMIN_EDGE_DL_RATE_FAST: ${KADMIN_EDGE_DL_RATE_FAST:-5m}
       KADMIN_EDGE_DL_RATE_MID: ${KADMIN_EDGE_DL_RATE_MID:-2560k}
       KADMIN_EDGE_DL_RATE_LOW: ${KADMIN_EDGE_DL_RATE_LOW:-640k}
