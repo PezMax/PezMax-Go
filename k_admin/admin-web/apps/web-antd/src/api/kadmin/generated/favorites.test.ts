@@ -99,6 +99,7 @@ describe('composite favorite API and pages', () => {
         { [spec.resource]: 42, userId: undefined },
         { [spec.resource]: 0, userId: 7 },
         { [spec.resource]: 42, userId: 0 },
+        { [spec.resource]: -42, userId: 7 },
         { [spec.resource]: 42, userId: -3 },
       ] as Array<Record<string, number | undefined>>) {
         const page = mountPage(spec.component);
