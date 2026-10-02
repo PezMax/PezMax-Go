@@ -29,6 +29,11 @@ if (process.contextIsolated) {
       saveFile: (data) => ipcRenderer.invoke('save-file', data), // 保存文件到本地
       downloadFileDirectly: (data) => ipcRenderer.invoke('download-file-directly', data), // 触发底层下载
       onDownloadProgress: (callback) => ipcRenderer.on('download-progress', (event, data) => callback(data)), // 监听下载进度
+      onSessionExpired: (callback) => {
+        const listener = (_event, message) => callback(message)
+        ipcRenderer.on('session-expired', listener)
+        return () => ipcRenderer.removeListener('session-expired', listener)
+      },
       clearAppCache: () => ipcRenderer.invoke('clear-app-cache'), // 清除应用缓存
       openPath: (filePath) => ipcRenderer.invoke('open-path', filePath), // 用系统默认程序打开文件
       getUpdateInfo: () => ipcRenderer.invoke('update:get-info'),

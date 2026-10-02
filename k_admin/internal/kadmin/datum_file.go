@@ -467,12 +467,8 @@ func (s *Store) datumFileDetail(c *gin.Context) {
 }
 
 func (s *Store) datumTokenOwns(c *gin.Context, ownerID int64) bool {
-	token := tokenFromRequest(c)
-	if token == "" || s.datum == nil {
-		return false
-	}
-	userID, err := s.datum.ResolveSession(token)
-	return err == nil && userID == ownerID
+	userID, ok := s.datumUserIDOptional(c)
+	return ok && userID == ownerID
 }
 
 func (s *Store) datumUserRank(c *gin.Context) {

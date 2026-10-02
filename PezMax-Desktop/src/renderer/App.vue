@@ -14,11 +14,16 @@ import { useRoute } from 'vue-router'
 import TitleHeader from '@/components/TitleHeader/index.vue'
 import { applyIdeAppearanceFromSettings, applyIdeThemeState, teardownIdeAppearanceMediaListener } from '@/utils/ideAppearance'
 import { isPtmjAuthRoute } from '@/constants/ptmjAuth'
+import { handleSessionExpired } from '@/utils/request'
 
 const route = useRoute()
 const savedDarkMode = ref(null)
+let removeSessionExpiredListener = null
 
 onMounted(async () => {
+  removeSessionExpiredListener = window.electronAPI?.onSessionExpired?.((message) => {
+    handleSessionExpired(message).catch(() => {})
+  })
   await applyIdeAppearanceFromSettings()
   savedDarkMode.value = document.documentElement.classList.contains('dark')
   if (isPtmjAuthRoute(route.path)) {
@@ -40,6 +45,7 @@ watch(() => route.path, (newPath, oldPath) => {
 })
 
 onUnmounted(() => {
+  removeSessionExpiredListener?.()
   teardownIdeAppearanceMediaListener()
 })
 </script>

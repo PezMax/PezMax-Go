@@ -15,26 +15,36 @@ export let isRelogin = { show: false }
 // 已知特定错误原因保留原始报错，否则显示通用提示（kadmin HTTP 错误）
 const specificPatterns = /上传失败|用户名或密码|用户不存在|账号已被停用|账号已被封禁|验证码错误|密码不一致|已锁定|密保答案|暂不支持|不能为空|格式错误|文件过大|没有权限|非法操作|已被停用|命名错误|大小超过|类型错误|已存在|重复举报|不支持此文件|封面文件/
 
-// 会话失效统一处理：kadmin 以 HTTP 401 承载会话失效
-function handleSessionExpired() {
+function clearLocalSession() {
+  useUserStore().$patch({
+    token: '',
+    id: '',
+    name: '',
+    nickName: '',
+    avatar: '',
+    count: 0,
+    roles: [],
+    permissions: []
+  })
+  removeToken()
+}
+
+// HTTP 与主进程上传/下载统一处理；禁用账号立即清除登录态并返回登录页。
+export function handleSessionExpired(message = '') {
+  if (/账号已被停用|账号已被封禁/.test(message)) {
+    const hadToken = !!getToken()
+    const currentPath = router.currentRoute.value.fullPath || '/'
+    clearLocalSession()
+    if (!isPtmjAuthRoute(router.currentRoute.value.path)) {
+      router.replace({ path: PTMJ_AUTH_ROUTES.login, query: { redirect: currentPath } }).catch(() => {})
+    }
+    if (hadToken) ElMessage.error(message)
+    return Promise.reject(new Error(message))
+  }
   if (!isRelogin.show) {
     isRelogin.show = true
     const currentPath = router.currentRoute.value.path || ''
     const isAuthPage = isPtmjAuthRoute(currentPath)
-    const clearLocalSession = () => {
-      const userStore = useUserStore()
-      userStore.$patch({
-        token: '',
-        id: '',
-        name: '',
-        nickName: '',
-        avatar: '',
-        roles: [],
-        permissions: []
-      })
-      removeToken()
-    }
-
     if (!getToken() || isAuthPage) {
       clearLocalSession()
       isRelogin.show = false
@@ -173,8 +183,8 @@ service.interceptors.response.use(res => {
     // skipErrorMsg 请求（贡献者信息等辅助查询）静默失败，由调用方自行兜底。
     const responseData = error.response && error.response.data
     const serverMsg = responseData && (responseData.msg || responseData.message)
-    if (!error.config?.skipErrorMsg && error.response && error.response.status === 401) {
-      return handleSessionExpired()
+    if (error.response && error.response.status === 401) {
+      return handleSessionExpired(serverMsg)
     }
     if (!error.config?.skipErrorMsg) {
       let { message } = error

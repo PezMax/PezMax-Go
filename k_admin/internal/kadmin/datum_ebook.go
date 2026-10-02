@@ -238,7 +238,7 @@ func (s *Store) datumUserIDOptional(c *gin.Context) (int64, bool) {
 	if token == "" || s.datum == nil {
 		return 0, false
 	}
-	userID, err := s.datum.ResolveSession(token)
+	userID, err := s.resolveDatumSession(token)
 	if err != nil {
 		return 0, false
 	}

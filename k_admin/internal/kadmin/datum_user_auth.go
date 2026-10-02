@@ -30,6 +30,7 @@ const (
 
 var (
 	errDatumSessionInvalid = errors.New("datum session invalid")
+	errDatumUserDisabled   = errors.New("datum user disabled")
 	errDatumUserNotFound   = errors.New("datum user not found")
 )
 
@@ -420,6 +421,28 @@ func (s *Store) datumUserDeleteDispatch(c *gin.Context) {
 	}
 }
 
+// resolveDatumSession checks the current account state on every request, so
+// disabling or deleting a user also invalidates sessions issued before the change.
+func (s *Store) resolveDatumSession(token string) (int64, error) {
+	userID, err := s.datum.ResolveSession(token)
+	if err != nil {
+		return 0, err
+	}
+	user, err := (&datumUserRepo{conn: s.conn}).findByUserID(userID)
+	if errors.Is(err, errDatumUserNotFound) {
+		_ = s.datum.RevokeSession(token)
+		return 0, errDatumSessionInvalid
+	}
+	if err != nil {
+		return 0, err
+	}
+	if strings.TrimSpace(user.Status) == "0" {
+		_ = s.datum.RevokeSession(token)
+		return 0, errDatumUserDisabled
+	}
+	return userID, nil
+}
+
 func (s *Store) requireDatumAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := tokenFromRequest(c)
@@ -428,8 +451,13 @@ func (s *Store) requireDatumAuth() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		userID, err := s.datum.ResolveSession(token)
+		userID, err := s.resolveDatumSession(token)
 		if err != nil {
+			if errors.Is(err, errDatumUserDisabled) {
+				fail(c, http.StatusUnauthorized, "账号已被停用，请重新登录")
+				c.Abort()
+				return
+			}
 			if !errors.Is(err, errDatumSessionInvalid) {
 				fail(c, http.StatusServiceUnavailable, "身份存储不可用")
 				c.Abort()
