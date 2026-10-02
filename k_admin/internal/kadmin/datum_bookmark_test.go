@@ -155,8 +155,12 @@ func TestDatumBookmarkListVisibilityAndFilters(t *testing.T) {
 		t.Fatalf("url filter rows = %v", rows)
 	}
 
-	// 带 userId：出该用户全部状态（含待审 202）
-	recorder = datumJSON(t, engine, http.MethodGet, "/datum/bookmark/list?userId=7", "", nil)
+	// 属主会话带 userId：出该用户全部状态（含待审 202）
+	token := datumBookmarkLogin(t, engine, store, "alice", "secret5")
+	recorder = datumJSON(t, engine, http.MethodGet, "/datum/bookmark/list?userId=7", token, nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("owner list status = %d body %s", recorder.Code, recorder.Body.String())
+	}
 	rows = datumBody(t, recorder)["rows"].([]interface{})
 	if len(rows) != 2 {
 		t.Fatalf("owner rows = %v", rows)

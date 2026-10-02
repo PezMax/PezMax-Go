@@ -290,7 +290,30 @@ func datumPageParams(c *gin.Context) (int, int) {
 	return page, size
 }
 
+// Owner lists include pending/rejected rows, so the requested owner must be
+// the current datum session user. Public lists omit userId and stay approved-only.
+func (s *Store) datumOwnerListUser(c *gin.Context) (int64, bool) {
+	raw := strings.TrimSpace(c.Query("userId"))
+	if raw == "" {
+		return 0, true
+	}
+	userID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || userID <= 0 {
+		fail(c, http.StatusBadRequest, "用户 ID 不正确")
+		return 0, false
+	}
+	s.requireDatumAuth()(c)
+	if c.IsAborted() {
+		return 0, false
+	}
+	return datumSessionUser(c, userID)
+}
+
 func (s *Store) datumFileList(c *gin.Context) {
+	userID, ok := s.datumOwnerListUser(c)
+	if !ok {
+		return
+	}
 	page, size := datumPageParams(c)
 	filter := datum.FileFilter{
 		Page:         page,
@@ -300,10 +323,8 @@ func (s *Store) datumFileList(c *gin.Context) {
 		FileSchool:   c.Query("fileSchool"),
 		FileYear:     datumQueryInt(c, "fileYear"),
 		Keyword:      c.Query("keyword"),
-		OnlyApproved: strings.TrimSpace(c.Query("userId")) == "",
-	}
-	if raw := strings.TrimSpace(c.Query("userId")); raw != "" {
-		filter.UserID = toDatumInt64(raw)
+		UserID:       userID,
+		OnlyApproved: userID == 0,
 	}
 	result, err := datum.NewFileRepo(s.conn).List(filter)
 	if err != nil {
