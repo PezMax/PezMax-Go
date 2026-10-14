@@ -590,7 +590,29 @@ app.whenReady().then(() => {
               return
             }
             if (status !== 200 && status !== 206) {
-              reject(new Error(`下载失败，服务器返回: ${status}`))
+              if (status === 401) {
+                const chunks = []
+                let bodySize = 0
+                response.on('data', (chunk) => {
+                  if (bodySize < 8192) {
+                    const bytes = Buffer.from(chunk).subarray(0, 8192 - bodySize)
+                    chunks.push(bytes)
+                    bodySize += bytes.length
+                  }
+                })
+                response.on('end', () => {
+                  let message = '会话已过期，请重新登录'
+                  try {
+                    const result = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+                    message = result.msg || result.message || message
+                  } catch (_) {}
+                  event.sender.send('session-expired', message)
+                  reject(new Error(message))
+                })
+                response.on('error', reject)
+              } else {
+                reject(new Error(`下载失败，服务器返回: ${status}`))
+              }
               return
             }
 
@@ -931,6 +953,9 @@ app.whenReady().then(() => {
       }
 
       if (status !== 200) {
+        if (status === 401) {
+          event.sender.send('session-expired', result?.msg || result?.message || '会话已过期，请重新登录')
+        }
         console.error('upload-file 请求失败，状态码:', status, '响应:', result)
       } else {
         console.log('upload-file 请求成功:', {

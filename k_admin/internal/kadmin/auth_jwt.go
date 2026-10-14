@@ -177,6 +177,9 @@ func (a *authService) parseAccessToken(token string) (accessTokenClaims, error) 
 	if claims.Type != "access" || claims.UserID <= 0 || claims.JTI == "" {
 		return accessTokenClaims{}, errInvalidAccessToken
 	}
+	if claims.Issuer != a.issuer {
+		return accessTokenClaims{}, errInvalidAccessToken
+	}
 	if claims.ExpiresAt <= time.Now().Unix() {
 		return accessTokenClaims{}, errInvalidAccessToken
 	}

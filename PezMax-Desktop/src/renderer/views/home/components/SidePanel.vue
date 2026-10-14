@@ -405,6 +405,7 @@ import UploadPanel from './UploadPanel.vue'
 import { normalizeFileUrl } from '@/utils/url'
 import { listBookmark, addBookmark, updateBookmark } from '@/api/datum/bookmark'
 import { listEbook } from '@/api/datum/ebook'
+import { fetchAllPages } from '@/utils/pagination'
 import useUserStore from '@/store/modules/user'
 import axios from 'axios'
 import { getToken } from '@/utils/auth'
@@ -768,7 +769,7 @@ const getStatusText = (status) => {
   if (status === undefined || status === null) return ''
   const numStatus = Number(status)
   if (numStatus === 0) return '未审核'
-  if (numStatus === 1) return '已审核' // 审核通过的不显示额外标签以保持整洁
+  if (numStatus === 1) return '通过'
   if (numStatus === 3) return '被举报'
   return ''
 }
@@ -777,6 +778,7 @@ const getStatusClass = (status) => {
   if (status === undefined || status === null) return ''
   const numStatus = Number(status)
   if (numStatus === 0) return 'status-pending'
+  if (numStatus === 1) return 'status-approved'
   if (numStatus === 3) return 'status-reported'
   return ''
 }
@@ -908,15 +910,8 @@ const handleCoverUploadClick = async () => {
 const fetchBookmarks = async () => {
   loadingBookmarks.value = true
   try {
-    const res = await listBookmark({
-      title: bookmarkSearchQuery.value || undefined,
-      pageNum: 1,
-      pageSize: 100
-    })
-    // kadmin 原生信封 code=0（request.js 将 0 归一为 200 前的原始值仍在响应体上）
-    if (res.code === 200 || res.code === 0) {
-      bookmarkList.value = res.rows || []
-    }
+    const res = await fetchAllPages(listBookmark)
+    bookmarkList.value = res.rows
   } catch (error) {
     console.error('获取书签失败', error)
   } finally {
@@ -951,10 +946,8 @@ const formatEbookSize = (size) => {
 const fetchEbooks = async () => {
   loadingEbooks.value = true
   try {
-    const res = await listEbook({ pageNum: 1, pageSize: 100 })
-    if (res.code === 200 || res.code === 0) {
-      ebookList.value = res.rows || []
-    }
+    const res = await fetchAllPages(listEbook)
+    ebookList.value = res.rows
   } catch (error) {
     console.error('获取电子书失败', error)
   } finally {
@@ -1392,6 +1385,12 @@ onUnmounted(() => {
         justify-content: center;
         margin-left: auto;
         
+        &.status-approved {
+          background: rgba(103, 194, 58, 0.15);
+          color: #67c23a;
+          border: 1px solid rgba(103, 194, 58, 0.3);
+        }
+
         &.status-pending {
           background: rgba(230, 162, 60, 0.15);
           color: #e6a23c;

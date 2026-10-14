@@ -122,6 +122,10 @@ const activeUserId = ref(null)
 const activeRankIndex = ref(-1) // 新增：记录当前选中的排名索引
 const detailLoading = ref(false)
 const userDetail = ref(null)
+let detailRequestId = 0
+// 生命周期守卫：卸载后到达的榜单/详情响应一律丢弃，不得写回状态
+// 或借 applyRankRows 的自动详情路径重新发起请求。
+let rankPageAlive = true
 
 const listWidth = ref(260)
 const isResizing = ref(false)
@@ -239,6 +243,7 @@ const userRemarkLabel = computed(() => {
 const RANK_CACHE_KEY = 'ptmj_upload_rank_cache'
 
 async function fetchRank() {
+  if (!rankPageAlive) return
   if (rankLoading.value) return
   rankLoading.value = true
   try {
@@ -247,6 +252,7 @@ async function fetchRank() {
       cached = JSON.parse(getStorageItem(RANK_CACHE_KEY) || 'null')
     } catch { cached = null }
     const res = await getUploadRank(cached?.hash || undefined)
+    if (!rankPageAlive) return
     if (res?.code !== 200 && res?.code !== 0) return
     if (res.unchanged && Array.isArray(cached?.rows)) {
       applyRankRows(cached.rows)
@@ -258,6 +264,8 @@ async function fetchRank() {
     }
     applyRankRows(data)
   } catch {
+    if (!rankPageAlive) return
+    detailRequestId++
     rankList.value = []
     activeUserId.value = null
     activeRankIndex.value = -1
@@ -273,6 +281,7 @@ function applyRankRows(rows) {
   if (firstItem) {
     openUserDetail(firstItem, 0)
   } else {
+    detailRequestId++
     activeUserId.value = null
     activeRankIndex.value = -1
     userDetail.value = null
@@ -280,7 +289,8 @@ function applyRankRows(rows) {
 }
 
 async function openUserDetail(item, index) {
-  if (!item) return
+  if (!item || !rankPageAlive) return
+  const requestId = ++detailRequestId
   const rawData = item.raw || item
   const normalizedItem = normalizeRankUser(rawData)
 
@@ -295,7 +305,7 @@ async function openUserDetail(item, index) {
   if (userId) {
     try {
       const res = await getUser(userId)
-      if ((res?.code === 200 || res?.code === 0) && res.data) {
+      if (rankPageAlive && requestId === detailRequestId && (res?.code === 200 || res?.code === 0) && res.data) {
         // 如果后端直接返回 SysUser 对象
         const realUser = res.data.user || res.data
         userDetail.value = normalizeDetailUser(realUser, normalizedItem)
@@ -337,6 +347,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  rankPageAlive = false
+  detailRequestId++
   document.removeEventListener('mousemove', handleMouseMove)
   document.removeEventListener('mouseup', stopResize)
 })

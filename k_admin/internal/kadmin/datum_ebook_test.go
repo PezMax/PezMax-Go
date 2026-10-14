@@ -452,7 +452,7 @@ func TestOpenStoredObjectLocalFallback(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	body, info, err := files.OpenStoredObject(t.Context(), "ptmj", "books/go.epub")
+	body, info, err := files.OpenStoredObject(context.Background(), "ptmj", "books/go.epub")
 	if err != nil {
 		t.Fatalf("open stored object: %v", err)
 	}

@@ -546,8 +546,8 @@ const docTemplate = `{
                 "summary": "获取书签收藏详情",
                 "parameters": [
                     {
-                        "type": "integer",
-                        "description": "记录 ID",
+                        "type": "string",
+                        "description": "复合收藏 ID，resourceId,userId",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -592,8 +592,8 @@ const docTemplate = `{
                 "summary": "修改书签收藏",
                 "parameters": [
                     {
-                        "type": "integer",
-                        "description": "记录 ID",
+                        "type": "string",
+                        "description": "复合收藏 ID，resourceId,userId",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -653,8 +653,8 @@ const docTemplate = `{
                 "summary": "删除书签收藏",
                 "parameters": [
                     {
-                        "type": "integer",
-                        "description": "记录 ID",
+                        "type": "string",
+                        "description": "复合收藏 ID，resourceId,userId",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -2085,7 +2085,7 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "已有待处理举报",
+                        "description": "举报已受理，请勿重复举报",
                         "schema": {
                             "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
                         }
@@ -4310,7 +4310,7 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "已有待处理举报",
+                        "description": "举报已受理，请勿重复举报",
                         "schema": {
                             "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
                         }
@@ -5943,8 +5943,8 @@ const docTemplate = `{
                 "summary": "获取电子书收藏详情",
                 "parameters": [
                     {
-                        "type": "integer",
-                        "description": "记录 ID",
+                        "type": "string",
+                        "description": "复合收藏 ID，resourceId,userId",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -5989,8 +5989,8 @@ const docTemplate = `{
                 "summary": "修改电子书收藏",
                 "parameters": [
                     {
-                        "type": "integer",
-                        "description": "记录 ID",
+                        "type": "string",
+                        "description": "复合收藏 ID，resourceId,userId",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -6050,8 +6050,8 @@ const docTemplate = `{
                 "summary": "删除电子书收藏",
                 "parameters": [
                     {
-                        "type": "integer",
-                        "description": "记录 ID",
+                        "type": "string",
+                        "description": "复合收藏 ID，resourceId,userId",
                         "name": "id",
                         "in": "path",
                         "required": true
@@ -11801,6 +11801,9 @@ const docTemplate = `{
         "bookmark_favorite.BookmarkFavoritePayload": {
             "type": "object",
             "properties": {
+                "bookmarkId": {
+                    "type": "integer"
+                },
                 "userId": {
                     "type": "integer"
                 }
@@ -11926,6 +11929,9 @@ const docTemplate = `{
         "ebook_favorite.EbookFavoritePayload": {
             "type": "object",
             "properties": {
+                "ebookId": {
+                    "type": "integer"
+                },
                 "userId": {
                     "type": "integer"
                 }

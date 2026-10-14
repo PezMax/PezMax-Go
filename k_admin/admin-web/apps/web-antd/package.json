@@ -20,7 +20,7 @@
     "build:analyze": "vite build --mode analyze",
     "dev": "vite --mode development",
     "preview": "vite preview",
-    "typecheck": "vue-tsc --noEmit --skipLibCheck"
+    "typecheck": "node --stack-size=8192 ../../node_modules/vue-tsc/bin/vue-tsc.js --noEmit --skipLibCheck"
   },
   "imports": {
     "#/*": "./src/*"

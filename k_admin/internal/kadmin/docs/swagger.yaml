@@ -37,6 +37,8 @@ definitions:
     type: object
   bookmark_favorite.BookmarkFavoritePayload:
     properties:
+      bookmarkId:
+        type: integer
       userId:
         type: integer
     type: object
@@ -119,6 +121,8 @@ definitions:
     type: object
   ebook_favorite.EbookFavoritePayload:
     properties:
+      ebookId:
+        type: integer
       userId:
         type: integer
     type: object
@@ -973,11 +977,11 @@ paths:
   /bookmark-favorites/{id}:
     delete:
       parameters:
-      - description: 记录 ID
+      - description: 复合收藏 ID，resourceId,userId
         in: path
         name: id
         required: true
-        type: integer
+        type: string
       responses:
         "200":
           description: OK
@@ -1002,11 +1006,11 @@ paths:
       - 生成业务
     get:
       parameters:
-      - description: 记录 ID
+      - description: 复合收藏 ID，resourceId,userId
         in: path
         name: id
         required: true
-        type: integer
+        type: string
       responses:
         "200":
           description: OK
@@ -1031,11 +1035,11 @@ paths:
       - 生成业务
     put:
       parameters:
-      - description: 记录 ID
+      - description: 复合收藏 ID，resourceId,userId
         in: path
         name: id
         required: true
-        type: integer
+        type: string
       - description: 书签收藏信息
         in: body
         name: payload
@@ -1930,7 +1934,7 @@ paths:
           schema:
             $ref: '#/definitions/kadmin.SwaggerErrorResponse'
         "409":
-          description: 已有待处理举报
+          description: 举报已受理，请勿重复举报
           schema:
             $ref: '#/definitions/kadmin.SwaggerErrorResponse'
       summary: 提交书签举报
@@ -3364,7 +3368,7 @@ paths:
           schema:
             $ref: '#/definitions/kadmin.SwaggerErrorResponse'
         "409":
-          description: 已有待处理举报
+          description: 举报已受理，请勿重复举报
           schema:
             $ref: '#/definitions/kadmin.SwaggerErrorResponse'
       summary: 提交资料举报
@@ -4418,11 +4422,11 @@ paths:
   /ebook-favorites/{id}:
     delete:
       parameters:
-      - description: 记录 ID
+      - description: 复合收藏 ID，resourceId,userId
         in: path
         name: id
         required: true
-        type: integer
+        type: string
       responses:
         "200":
           description: OK
@@ -4447,11 +4451,11 @@ paths:
       - 生成业务
     get:
       parameters:
-      - description: 记录 ID
+      - description: 复合收藏 ID，resourceId,userId
         in: path
         name: id
         required: true
-        type: integer
+        type: string
       responses:
         "200":
           description: OK
@@ -4476,11 +4480,11 @@ paths:
       - 生成业务
     put:
       parameters:
-      - description: 记录 ID
+      - description: 复合收藏 ID，resourceId,userId
         in: path
         name: id
         required: true
-        type: integer
+        type: string
       - description: 电子书收藏信息
         in: body
         name: payload

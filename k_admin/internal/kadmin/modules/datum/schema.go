@@ -138,11 +138,11 @@ var schemaStatements = []string{
 	`CREATE INDEX IF NOT EXISTS idx_bookmark_del_flag      ON ptmj_bookmark (del_flag)`,
 	`CREATE INDEX IF NOT EXISTS idx_bookmark_create_time   ON ptmj_bookmark (create_time)`,
 
-	// 8. 书签收藏表（源库即 int 类型且主键仅 bookmark_id，原样保留）
+	// 8. 书签收藏表：每个用户独立收藏，同一书签允许多个用户收藏。
 	`CREATE TABLE IF NOT EXISTS ptmj_bookmark_favorite (
 		bookmark_id int NOT NULL,
-		user_id     int,
-		PRIMARY KEY (bookmark_id)
+		user_id     int NOT NULL,
+		PRIMARY KEY (bookmark_id, user_id)
 	)`,
 
 	// 9. 书签举报表（idx_create_time 与 ptmj_bookmark 重名，改名 idx_bmr_create_time）
@@ -266,6 +266,42 @@ var schemaStatements = []string{
 	`CREATE INDEX IF NOT EXISTS idx_ebr_create_time ON ptmj_ebook_report (create_time)`,
 }
 
+// The old bookmark-only key prevented two users from saving the same bookmark.
+// This transaction preserves rows and refuses ownerless legacy data rather than
+// silently assigning or deleting it. The table lock serializes concurrent starts.
+const bookmarkFavoriteKeyMigration = `DO $bookmark_favorite_migration$
+DECLARE
+    primary_key_name text;
+    primary_key_columns text[];
+BEGIN
+    LOCK TABLE public.ptmj_bookmark_favorite IN ACCESS EXCLUSIVE MODE;
+    SELECT constraint_row.conname, array_agg(attribute_row.attname::text ORDER BY key_column.position)
+      INTO primary_key_name, primary_key_columns
+      FROM pg_constraint constraint_row
+      CROSS JOIN LATERAL unnest(constraint_row.conkey) WITH ORDINALITY AS key_column(attnum, position)
+      JOIN pg_attribute attribute_row
+        ON attribute_row.attrelid = constraint_row.conrelid AND attribute_row.attnum = key_column.attnum
+     WHERE constraint_row.conrelid = 'public.ptmj_bookmark_favorite'::regclass
+       AND constraint_row.contype = 'p'
+     GROUP BY constraint_row.conname;
+    IF primary_key_columns = ARRAY['bookmark_id', 'user_id']::text[]
+       OR primary_key_columns = ARRAY['user_id', 'bookmark_id']::text[] THEN
+        RETURN;
+    END IF;
+    IF primary_key_columns IS NOT NULL AND primary_key_columns <> ARRAY['bookmark_id']::text[] THEN
+        RAISE EXCEPTION 'unsupported ptmj_bookmark_favorite primary key: %', primary_key_columns;
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.ptmj_bookmark_favorite WHERE user_id IS NULL) THEN
+        RAISE EXCEPTION 'cannot migrate ptmj_bookmark_favorite: NULL user_id; assign valid owners before restarting; existing rows are unchanged';
+    END IF;
+    IF primary_key_name IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE public.ptmj_bookmark_favorite DROP CONSTRAINT %I', primary_key_name);
+    END IF;
+    ALTER TABLE public.ptmj_bookmark_favorite ALTER COLUMN user_id SET NOT NULL;
+    ALTER TABLE public.ptmj_bookmark_favorite ADD PRIMARY KEY (bookmark_id, user_id);
+END;
+$bookmark_favorite_migration$;`
+
 // EnsureSchema creates the fourteen ptmj_* business tables and their indexes
 // when missing. It is idempotent and safe to run against a database that
 // already carries migrated production data.
@@ -277,6 +313,9 @@ func EnsureSchema(conn db.Connection) error {
 		if _, err := conn.Exec(statement); err != nil {
 			return fmt.Errorf("initialize datum schema: %w", err)
 		}
+	}
+	if _, err := conn.Exec(bookmarkFavoriteKeyMigration); err != nil {
+		return fmt.Errorf("migrate bookmark favorite primary key: %w", err)
 	}
 	return nil
 }

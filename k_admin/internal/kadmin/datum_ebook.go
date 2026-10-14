@@ -238,7 +238,7 @@ func (s *Store) datumUserIDOptional(c *gin.Context) (int64, bool) {
 	if token == "" || s.datum == nil {
 		return 0, false
 	}
-	userID, err := s.datum.ResolveSession(token)
+	userID, err := s.resolveDatumSession(token)
 	if err != nil {
 		return 0, false
 	}
@@ -486,7 +486,7 @@ func (s *Store) datumEbookReportList(c *gin.Context) {
 // 自己未过审的书；inline 便于 Chromium 内建 PDF 阅读器与 epub.js 拉流，
 // 不落下载记录（下载走 /datum/download/ebook）。
 func (s *Store) datumEbookContent(c *gin.Context) {
-	userID, _ := datumUserIDFrom(c)
+	userID, _ := s.datumUserIDOptional(c)
 	ebookID := toDatumInt64(strings.TrimSpace(c.Query("ebookId")))
 	if ebookID <= 0 {
 		fail(c, http.StatusBadRequest, "电子书 ID 不能为空")

@@ -1,14 +1,55 @@
 package config
 
 import (
+	"context"
 	"fmt"
-	"reflect"
+	"os"
+	"os/exec"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/GoAdminGroup/go-admin/modules/utils"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestGetAndUpdateDoNotDeadlock(t *testing.T) {
+	const helperEnv = "KADMIN_CONFIG_CONCURRENCY_HELPER"
+	if os.Getenv(helperEnv) == "1" {
+		testSetCfg(&Config{})
+		var work sync.WaitGroup
+		work.Add(2)
+		go func() {
+			defer work.Done()
+			for range 6000 {
+				_ = Get()
+			}
+		}()
+		go func() {
+			defer work.Done()
+			for range 6000 {
+				if err := _global.Update(map[string]string{"title": "updated"}); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		}()
+		work.Wait()
+		if title := Get().Title; title != "updated" {
+			t.Errorf("final config title = %q, want %q", title, "updated")
+		}
+		return
+	}
+	// Keep a locking regression isolated so a failure cannot hang other tests.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestGetAndUpdateDoNotDeadlock$")
+	command.Env = append(os.Environ(), helperEnv+"=1")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("concurrent configuration reads and updates failed: %v\n%s", err, output)
+	}
+}
 
 func TestConfig_GetIndexUrl(t *testing.T) {
 	Initialize(&Config{
@@ -144,7 +185,35 @@ func TestDatabase_ParamStr(t *testing.T) {
 			"parseTime": "true",
 		},
 	}
-	assert.Equal(t, cfg.ParamStr(), "?charset=utf8mb4&parseTime=true")
+	first := cfg.ParamStr()
+	assert.Equal(t, "?charset=utf8mb4&parseTime=true", first)
+	assert.Equal(t, map[string]string{"parseTime": "true"}, cfg.Params, "DSN rendering must preserve the input map")
+	for i := 0; i < 50; i++ {
+		assert.Equal(t, first, cfg.ParamStr(), "DSN rendering must be stable across calls")
+	}
+
+	nilParams := Database{Driver: DriverMysql}
+	assert.Equal(t, "?charset=utf8mb4", nilParams.ParamStr())
+
+	emptyParams := Database{Driver: DriverMysql, Params: map[string]string{}}
+	assert.Equal(t, "?charset=utf8mb4", emptyParams.ParamStr())
+	assert.Empty(t, emptyParams.Params, "default injection must stay out of the caller's map")
+
+	custom := Database{Driver: DriverMysql, Params: map[string]string{"charset": "utf8", "loc": "Local"}}
+	assert.Equal(t, "?charset=utf8&loc=Local", custom.ParamStr())
+	assert.Equal(t, map[string]string{"charset": "utf8", "loc": "Local"}, custom.Params)
+
+	pg := Database{Driver: DriverPostgresql, Params: map[string]string{"host": "db.example", "user": "app"}}
+	assert.Equal(t, " host=db.example sslmode=disable user=app", pg.ParamStr())
+	assert.Equal(t, map[string]string{"host": "db.example", "user": "app"}, pg.Params)
+
+	mssql := Database{Driver: DriverMssql, Params: map[string]string{"database": "master"}}
+	assert.Equal(t, "database=master;encrypt=disable", mssql.ParamStr())
+	assert.Equal(t, map[string]string{"database": "master"}, mssql.Params)
+
+	sqlite := Database{Driver: DriverSqlite, Params: map[string]string{"mode": "memory"}}
+	assert.Equal(t, "?mode=memory", sqlite.ParamStr())
+	assert.Equal(t, map[string]string{"mode": "memory"}, sqlite.Params)
 }
 
 func TestReadFromYaml(t *testing.T) {
@@ -251,68 +320,21 @@ func TestUpdate(t *testing.T) {
 		"url_prefix":                        `admin`,
 	}
 	c := &Config{}
-	c2 := &Config{}
-	if c.Update(m) == nil {
-		if c.Language != c2.Language ||
-			c.Domain != c2.Domain ||
-			c.Theme != c2.Theme ||
-			c.Title != c2.Title ||
-			c.Logo != c2.Logo ||
-			c.MiniLogo != c2.MiniLogo ||
-			c.Debug != c2.Debug ||
-			c.SiteOff != c2.SiteOff ||
-			c.AccessLogOff != c2.AccessLogOff ||
-			c.InfoLogOff != c2.InfoLogOff ||
-			c.ErrorLogOff != c2.ErrorLogOff ||
-			c.AccessAssetsLogOff != c2.AccessAssetsLogOff ||
-			c.InfoLogPath != c2.InfoLogPath ||
-			c.ErrorLogPath != c2.ErrorLogPath ||
-			c.AccessLogPath != c2.AccessLogPath ||
-			c.SqlLog != c2.SqlLog ||
-			c.Logger.Rotate.MaxSize != c2.Logger.Rotate.MaxSize ||
-			c.Logger.Rotate.MaxBackups != c2.Logger.Rotate.MaxBackups ||
-			c.Logger.Rotate.MaxAge != c2.Logger.Rotate.MaxAge ||
-			c.Logger.Rotate.Compress != c2.Logger.Rotate.Compress ||
-			c.Logger.Encoder.Encoding != c2.Logger.Encoder.Encoding ||
-			c.Logger.Level != c2.Logger.Level ||
-			c.Logger.Encoder.TimeKey != c2.Logger.Encoder.TimeKey ||
-			c.Logger.Encoder.LevelKey != c2.Logger.Encoder.LevelKey ||
-			c.Logger.Encoder.NameKey != c2.Logger.Encoder.NameKey ||
-			c.Logger.Encoder.CallerKey != c2.Logger.Encoder.CallerKey ||
-			c.Logger.Encoder.MessageKey != c2.Logger.Encoder.MessageKey ||
-			c.Logger.Encoder.StacktraceKey != c2.Logger.Encoder.StacktraceKey ||
-			c.Logger.Encoder.Level != c2.Logger.Encoder.Level ||
-			c.Logger.Encoder.Time != c2.Logger.Encoder.Time ||
-			c.Logger.Encoder.Duration != c2.Logger.Encoder.Duration ||
-			c.Logger.Encoder.Caller != c2.Logger.Encoder.Caller ||
-			c.ColorScheme != c2.ColorScheme ||
-			c.SessionLifeTime != c2.SessionLifeTime ||
-			c.CustomHeadHtml != c2.CustomHeadHtml ||
-			c.CustomFootHtml != c2.CustomFootHtml ||
-			c.Custom404HTML != c2.Custom404HTML ||
-			c.Custom403HTML != c2.Custom403HTML ||
-			c.Custom500HTML != c2.Custom500HTML ||
-			c.BootstrapFilePath != c2.BootstrapFilePath ||
-			c.GoModFilePath != c2.GoModFilePath ||
-			c.FooterInfo != c2.FooterInfo ||
-			c.LoginTitle != c2.LoginTitle ||
-			c.AssetUrl != c2.AssetUrl ||
-			c.LoginLogo != c2.LoginLogo ||
-			c.NoLimitLoginIP != c2.NoLimitLoginIP ||
-			c.AllowDelOperationLog != c2.AllowDelOperationLog ||
-			c.OperationLogOff != c2.OperationLogOff ||
-			c.HideConfigCenterEntrance != c2.HideConfigCenterEntrance ||
-			c.HideAppInfoEntrance != c2.HideAppInfoEntrance ||
-			c.HideToolEntrance != c2.HideToolEntrance ||
-			c.HidePluginEntrance != c2.HidePluginEntrance ||
-			c.FileUploadEngine.Name != c2.FileUploadEngine.Name ||
-			c.Animation.Type != c2.Animation.Type ||
-			c.Animation.Duration != c2.Animation.Duration ||
-			c.Animation.Delay != c2.Animation.Delay ||
-			!reflect.DeepEqual(c.Extra, c2.Extra) {
-			panic("c.Extra")
-		}
+	if err := c.Update(m); err != nil {
+		t.Fatalf("update configuration: %v", err)
 	}
+	assert.Equal(t, "GoAdmin", c.Title)
+	assert.Equal(t, "zh", c.Language)
+	assert.Equal(t, "sword", c.Theme)
+	assert.True(t, c.Debug)
+	assert.True(t, c.AccessAssetsLogOff)
+	assert.Equal(t, 7200, c.SessionLifeTime)
+	assert.Equal(t, "fadeInUp", c.Animation.Type)
+	assert.Equal(t, 10, c.Logger.Rotate.MaxSize)
+	assert.Equal(t, 5, c.Logger.Rotate.MaxBackups)
+	assert.Equal(t, 30, c.Logger.Rotate.MaxAge)
+	assert.Nil(t, c.Extra)
+	assert.Nil(t, c.Databases, "framework configuration updates must preserve database connection settings")
 }
 
 func TestToMap(t *testing.T) {
@@ -346,7 +368,7 @@ func TestToMap(t *testing.T) {
 		"animation_type", "animation_duration", "animation_delay",
 		"no_limit_login_ip", "allow_del_operation_log", "operation_log_off",
 		"hide_config_center_entrance", "hide_app_info_entrance", "hide_tool_entrance", "hide_plugin_entrance",
-		"asset_root_path",
+		"asset_root_path", "prohibit_config_modification",
 	}
 
 	for key := range m {

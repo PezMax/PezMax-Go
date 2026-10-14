@@ -369,7 +369,8 @@ const registerRules = {
   ],//LYZ三次修改：校验字段名改为userName，与注册表单和后端DTO一致
   password: [
     { required: true, trigger: "blur", message: "请输入您的密码" },
-    { min: 5, max: 20, message: "用户密码长度必须介于 5 和 20 之间", trigger: "blur" },
+    { min: 5, max: 15, message: "用户密码长度必须介于 5 和 15 之间", trigger: "blur" },
+    { pattern: /^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z0-9])[\x21-\x7E]{5,15}$/, message: "密码需为5-15位，包含数字、字母与符号，且不能包含空格", trigger: "blur" },
     { pattern: /^[^<>"'|\\]+$/, message: "不能包含非法字符：< > \" ' \\ |", trigger: "blur" }
   ],
   confirmPassword: [
