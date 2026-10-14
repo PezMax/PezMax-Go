@@ -57,6 +57,8 @@ def fetch(entry, destination, source_base, attempts):
         return True
     target.parent.mkdir(parents=True, exist_ok=True)
     partial = target.with_name(target.name + PART_SUFFIX)
+    if size == 0:
+        partial.write_bytes(b"")
     url = source_base.rstrip("/") + "/" + quote(key, safe="/")
     for attempt in range(attempts):
         offset = partial.stat().st_size if partial.exists() else 0
