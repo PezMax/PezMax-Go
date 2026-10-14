@@ -390,6 +390,69 @@ func TestSamplerAccumulatesAcrossFlushesAndDrainsOnDisable(t *testing.T) {
 	}
 }
 
+func TestSamplerRetriesFailedAggregatesWithoutDoubleCounting(t *testing.T) {
+	store := &fakeBucketStore{failUpsert: true}
+	sampler, err := NewSampler(SamplerOptions{
+		Settings: &fakeSettings{}, Buckets: store, FlushInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sampler.Close()
+	if _, err := sampler.SetEnabled(true, 7); err != nil {
+		t.Fatal(err)
+	}
+	sampler.Observe(event(200, 10, "GET", "/api/users"))
+	sampler.Observe(event(500, 30, "GET", "/api/users"))
+	if sampler.drain() {
+		t.Fatal("expected first flush to fail")
+	}
+	sampler.Observe(event(200, 20, "GET", "/api/users"))
+	store.mu.Lock()
+	store.failUpsert = false
+	store.mu.Unlock()
+	if !sampler.drain() {
+		t.Fatal("retry should succeed")
+	}
+	rows := store.mergedUpserts()
+	if len(rows) != 2 {
+		t.Fatalf("rows after retry = %#v", rows)
+	}
+	for _, row := range rows {
+		switch row.statusCode {
+		case 200:
+			if row.requestCount != 2 || row.totalDurationMs != 30 || row.maxDurationMs != 20 {
+				t.Fatalf("successful bucket after retry = %#v", row)
+			}
+		case 500:
+			if row.requestCount != 1 || row.errorCount != 1 {
+				t.Fatalf("error bucket after retry = %#v", row)
+			}
+		default:
+			t.Fatalf("unexpected status: %#v", row)
+		}
+	}
+
+	store.mu.Lock()
+	store.failUpsert = true
+	store.mu.Unlock()
+	sampler.Observe(event(200, 5, "GET", "/api/users"))
+	if _, err := sampler.SetEnabled(false, 8); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.failUpsert = false
+	store.mu.Unlock()
+	sampler.flush()
+	sampler.Observe(event(200, 50, "GET", "/api/users"))
+	rows = store.mergedUpserts()
+	for _, row := range rows {
+		if row.statusCode == 200 && row.requestCount != 3 {
+			t.Fatalf("disabled retry lost or overcounted events: %#v", row)
+		}
+	}
+}
+
 func TestSamplerPrunesOnFlushTick(t *testing.T) {
 	store := &fakeBucketStore{}
 	now := time.Date(2026, 7, 31, 8, 0, 0, 0, time.UTC)
