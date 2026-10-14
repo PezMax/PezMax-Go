@@ -298,6 +298,7 @@ func (s *Store) datumGetSecurity(c *gin.Context) {
 
 type datumUpdateSecurityRequest struct {
 	datumSecurityAnswerSet
+	Password              string `json:"password"`
 	SecurityQuestionOne   string `json:"securityQuestionOne"`
 	SecurityQuestionTwo   string `json:"securityQuestionTwo"`
 	SecurityQuestionThree string `json:"securityQuestionThree"`
@@ -307,6 +308,15 @@ func (s *Store) datumUpdateSecurity(c *gin.Context) {
 	userID, _ := datumUserIDFrom(c)
 	var req datumUpdateSecurityRequest
 	_ = c.ShouldBind(&req)
+	user, err := (&datumUserRepo{conn: s.conn}).findByUserID(userID)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "账号查询失败")
+		return
+	}
+	if !verifyDatumSecret(user.Password, req.Password) {
+		fail(c, http.StatusBadRequest, "密码错误")
+		return
+	}
 	questions := []string{
 		strings.TrimSpace(req.SecurityQuestionOne),
 		strings.TrimSpace(req.SecurityQuestionTwo),

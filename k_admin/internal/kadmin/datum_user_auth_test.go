@@ -1400,6 +1400,7 @@ func TestDatumPasswordRecoveryFlow(t *testing.T) {
 	store, db := newDatumAuthStore(t, nil)
 	seedDatumUser(t, db, "alice", "old-pass-1", "1", true)
 	engine := datumEngine(t, store)
+	previousToken := profileLogin(t, store, engine, "alice", "old-pass-1", "cap-login-before-reset")
 
 	// 第一步：验证码校验并返回密保问题，签发重置工单
 	seedDatumCaptcha(t, store, "cap-step1")
@@ -1423,6 +1424,9 @@ func TestDatumPasswordRecoveryFlow(t *testing.T) {
 	}
 	if verifyDatumSecret(db.users["alice"].Password, "old-pass-1") || !verifyDatumSecret(db.users["alice"].Password, "new-pass-9") {
 		t.Fatal("password was not updated")
+	}
+	if rec := datumJSON(t, engine, http.MethodGet, "/datum/user/getInfo", previousToken, nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("session after recovery = %d", rec.Code)
 	}
 
 	// 工单已被消费：重放同一请求 → 400

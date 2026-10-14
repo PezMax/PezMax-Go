@@ -59,13 +59,16 @@ func (d *datumIdentity) sessionKey(token string) string {
 }
 
 // IssueSession mints an opaque bearer token bound to a ptmj_user id.
-func (d *datumIdentity) IssueSession(userID int64) (string, time.Time, error) {
+func (d *datumIdentity) IssueSession(userID int64, passwordHash string) (string, time.Time, error) {
+	if userID <= 0 || passwordHash == "" {
+		return "", time.Time{}, errDatumSessionInvalid
+	}
 	token, err := randomHex(32)
 	if err != nil {
 		return "", time.Time{}, err
 	}
 	expiresAt := time.Now().Add(d.sessionTTL)
-	result, err := d.redis.do("SET", d.sessionKey(token), strconv.FormatInt(userID, 10), "EX", durationSeconds(d.sessionTTL))
+	result, err := d.redis.do("SET", d.sessionKey(token), strconv.FormatInt(userID, 10)+":"+tokenHash(passwordHash), "EX", durationSeconds(d.sessionTTL))
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -77,22 +80,31 @@ func (d *datumIdentity) IssueSession(userID int64) (string, time.Time, error) {
 
 // ResolveSession maps a bearer token back to its ptmj_user id.
 func (d *datumIdentity) ResolveSession(token string) (int64, error) {
+	userID, _, err := d.resolveSessionRecord(token)
+	return userID, err
+}
+
+func (d *datumIdentity) resolveSessionRecord(token string) (int64, string, error) {
 	result, err := d.redis.do("GET", d.sessionKey(token))
 	if errors.Is(err, errRedisNil) {
-		return 0, errDatumSessionInvalid
+		return 0, "", errDatumSessionInvalid
 	}
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	value, ok := result.(string)
 	if !ok {
-		return 0, errDatumSessionInvalid
+		return 0, "", errDatumSessionInvalid
 	}
-	userID, parseErr := strconv.ParseInt(value, 10, 64)
+	parts := strings.SplitN(value, ":", 2)
+	if len(parts) != 2 || len(parts[1]) != 64 {
+		return 0, "", errDatumSessionInvalid
+	}
+	userID, parseErr := strconv.ParseInt(parts[0], 10, 64)
 	if parseErr != nil || userID <= 0 {
-		return 0, errDatumSessionInvalid
+		return 0, "", errDatumSessionInvalid
 	}
-	return userID, nil
+	return userID, parts[1], nil
 }
 
 func (d *datumIdentity) RevokeSession(token string) error {
@@ -424,7 +436,7 @@ func (s *Store) datumUserDeleteDispatch(c *gin.Context) {
 // resolveDatumSession checks the current account state on every request, so
 // disabling or deleting a user also invalidates sessions issued before the change.
 func (s *Store) resolveDatumSession(token string) (int64, error) {
-	userID, err := s.datum.ResolveSession(token)
+	userID, credential, err := s.datum.resolveSessionRecord(token)
 	if err != nil {
 		return 0, err
 	}
@@ -439,6 +451,10 @@ func (s *Store) resolveDatumSession(token string) (int64, error) {
 	if strings.TrimSpace(user.Status) == "0" {
 		_ = s.datum.RevokeSession(token)
 		return 0, errDatumUserDisabled
+	}
+	if subtle.ConstantTimeCompare([]byte(credential), []byte(tokenHash(user.Password))) != 1 {
+		_ = s.datum.RevokeSession(token)
+		return 0, errDatumSessionInvalid
 	}
 	return userID, nil
 }
@@ -543,7 +559,7 @@ func (s *Store) datumLogin(c *gin.Context) {
 		return
 	}
 
-	token, expiresAt, err := s.datum.IssueSession(user.UserID)
+	token, expiresAt, err := s.datum.IssueSession(user.UserID, user.Password)
 	if err != nil {
 		fail(c, http.StatusServiceUnavailable, "会话创建失败，请稍后重试")
 		return

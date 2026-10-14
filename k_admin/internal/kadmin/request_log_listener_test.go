@@ -13,7 +13,7 @@ import (
 )
 
 func TestCaptureRequestLogInputRedactsSensitiveValuesAndRestoresBody(t *testing.T) {
-	body := `{"username":"admin","password":"secret","profile":{"accessToken":"token","city":"Shanghai"}}`
+	body := `{"username":"admin","password":"secret","profile":{"accessToken":"token","securityAnswerOne":"private-answer","answer":"single-answer","city":"Shanghai"}}`
 	request := httptest.NewRequest("POST", "/api/auth/login?token=query-token&view=full", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json; charset=utf-8")
 
@@ -23,7 +23,7 @@ func TestCaptureRequestLogInputRedactsSensitiveValuesAndRestoresBody(t *testing.
 		t.Fatalf("captured input is not valid JSON: %v", err)
 	}
 	encoded := string(mustJSON(t, payload))
-	if strings.Contains(encoded, "secret") || strings.Contains(encoded, "query-token") {
+	if strings.Contains(encoded, "secret") || strings.Contains(encoded, "query-token") || strings.Contains(encoded, "private-answer") || strings.Contains(encoded, "single-answer") {
 		t.Fatalf("captured input leaked a sensitive value: %s", encoded)
 	}
 	if !strings.Contains(encoded, "[REDACTED]") || !strings.Contains(encoded, "Shanghai") {
