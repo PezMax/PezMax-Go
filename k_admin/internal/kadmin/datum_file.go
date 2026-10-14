@@ -614,8 +614,8 @@ var datumAllowedExts = map[string]bool{
 var datumFilePut = func(ctx context.Context, objectKey string, body []byte, contentType string) (string, error) {
 	minio := storage.NewMinio(storage.MinioConfig{
 		Endpoints: []string{datumEnv("KADMIN_MINIO_ENDPOINT", "127.0.0.1:19000"), datumEnv("KADMIN_MINIO_INTERNAL_ENDPOINT", "minio:9000")},
-		AccessKey: datumEnv("KADMIN_MINIO_ACCESS_KEY", "kadmin_minio"),
-		SecretKey: datumEnv("KADMIN_MINIO_SECRET_KEY", "kadmin_minio_pwd"),
+		AccessKey: datumEnv("KADMIN_MINIO_ACCESS_KEY", ""),
+		SecretKey: datumEnv("KADMIN_MINIO_SECRET_KEY", ""),
 		Bucket:    datumEnv("KADMIN_MINIO_BUCKET", "kadmin"),
 		UseSSL:    datumEnvBool("KADMIN_MINIO_USE_SSL"),
 		Region:    datumEnv("KADMIN_MINIO_REGION", "us-east-1"),
@@ -632,16 +632,23 @@ var datumFilePut = func(ctx context.Context, objectKey string, body []byte, cont
 	return builder.ObjectURL(objectKey)
 }
 
+func (s *Store) fileConverter() *convert.Converter {
+	s.converterOnce.Do(func() {
+		s.datumConverter = convert.New(convert.ConfigFromEnv(datumEnv))
+	})
+	return s.datumConverter
+}
+
 func (s *Store) datumFileUpload(c *gin.Context) {
 	userID, _ := datumUserIDFrom(c)
-	file, err := c.FormFile("file")
-	if err != nil {
-		fail(c, http.StatusBadRequest, "文件不能为空")
-		return
-	}
 	maxBytes := int(datumUploadMaxBytesDef >> 20)
 	if parsed, err := strconv.Atoi(strings.TrimSpace(os.Getenv(datumUploadMaxMBKey))); err == nil && parsed > 0 && parsed <= 4096 {
 		maxBytes = parsed
+	}
+	file, ok := datumMultipartFile(c, int64(maxBytes)<<20, "文件不能为空")
+	defer cleanupDatumMultipart(c)
+	if !ok {
+		return
 	}
 	if file.Size <= 0 || file.Size > int64(maxBytes)<<20 {
 		fail(c, http.StatusBadRequest, fmt.Sprintf("文件过大：不能超过 %dMB", maxBytes))
@@ -711,8 +718,7 @@ func (s *Store) datumFileUpload(c *gin.Context) {
 		}
 	}
 	if datumConvertExts[ext] {
-		converter := convert.New(convert.ConfigFromEnv(datumEnv))
-		pdf, err := converter.ToPDF(c.Request.Context(), fileName, bytes.NewReader(body))
+		pdf, err := s.fileConverter().ToPDF(c.Request.Context(), fileName, bytes.NewReader(body))
 		if err != nil {
 			if errors.Is(err, convert.ErrUnavailable) {
 				fail(c, http.StatusServiceUnavailable, "转档服务不可用，暂时无法上传该格式，请稍后重试")

@@ -487,10 +487,17 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 	case strings.Contains(query, "status = '1' AND count > 0"):
 		rows := []map[string]interface{}{}
 		for _, user := range f.users {
-			if user.Status == "1" {
+			if user.Status == "1" && user.Count > 0 {
 				rows = append(rows, map[string]interface{}{"user_id": user.UserID, "user_name": user.UserName, "avatar": user.Avatar, "count": user.Count})
 			}
 		}
+		sort.Slice(rows, func(i, j int) bool {
+			left, right := toDatumInt64(rows[i]["count"]), toDatumInt64(rows[j]["count"])
+			if left != right {
+				return left > right
+			}
+			return toDatumInt64(rows[i]["user_id"]) < toDatumInt64(rows[j]["user_id"])
+		})
 		return rows, nil
 	case strings.Contains(query, "file_status = 1 AND del_flag = 0") && strings.Contains(query, "ORDER BY file_subject, file_school, file_type, file_year DESC, file_id"):
 		approved := []map[string]interface{}{}

@@ -131,9 +131,9 @@ func (s *Store) datumUpdateAvatar(c *gin.Context) {
 // service), points the account at the resulting URL and returns it.
 func (s *Store) datumUploadAvatar(c *gin.Context) {
 	userID, _ := datumUserIDFrom(c)
-	file, err := c.FormFile("file")
-	if err != nil {
-		fail(c, http.StatusBadRequest, "头像文件不能为空")
+	file, ok := datumMultipartFile(c, datumAvatarMaxSize, "头像文件不能为空")
+	defer cleanupDatumMultipart(c)
+	if !ok {
 		return
 	}
 	if file.Size <= 0 || file.Size > datumAvatarMaxSize {
@@ -413,8 +413,8 @@ func putDatumAvatar(ctx context.Context, objectKey string, body []byte, contentT
 	if datumEnvBool("KADMIN_MINIO_ENABLED") {
 		minio := storage.NewMinio(storage.MinioConfig{
 			Endpoints: []string{datumEnv("KADMIN_MINIO_ENDPOINT", "127.0.0.1:19000"), datumEnv("KADMIN_MINIO_INTERNAL_ENDPOINT", "minio:9000")},
-			AccessKey: datumEnv("KADMIN_MINIO_ACCESS_KEY", "kadmin_minio"),
-			SecretKey: datumEnv("KADMIN_MINIO_SECRET_KEY", "kadmin_minio_pwd"),
+			AccessKey: datumEnv("KADMIN_MINIO_ACCESS_KEY", ""),
+			SecretKey: datumEnv("KADMIN_MINIO_SECRET_KEY", ""),
 			Bucket:    datumEnv("KADMIN_MINIO_BUCKET", "kadmin"),
 			UseSSL:    datumEnvBool("KADMIN_MINIO_USE_SSL"),
 			Region:    datumEnv("KADMIN_MINIO_REGION", "us-east-1"),

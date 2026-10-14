@@ -369,9 +369,9 @@ func (s *Store) datumBookmarkUploadCover(c *gin.Context) {
 		fail(c, http.StatusNotFound, "书签不存在或无权修改")
 		return
 	}
-	file, err := c.FormFile("file")
-	if err != nil {
-		fail(c, http.StatusBadRequest, "封面文件不能为空")
+	file, ok := datumMultipartFile(c, datumBookmarkCoverMaxBytes, "封面文件不能为空")
+	defer cleanupDatumMultipart(c)
+	if !ok {
 		return
 	}
 	if file.Size <= 0 || file.Size > datumBookmarkCoverMaxBytes {
