@@ -495,6 +495,7 @@ import { computed, ref, reactive, watch, nextTick, onMounted, onUnmounted } from
 import { ElMessage } from 'element-plus'
 import logo from '@/assets/logo/logo.png'
 import { marked } from 'marked' // 引入 marked
+import DOMPurify from 'dompurify'
 import { normalizeAvatar } from '@/utils/avatar' // fxy 引入头像处理工具
 import { getUser } from '@/api/datum/user' // 引入获取平台用户信息接口
 import { normalizeFileUrl } from '@/utils/url'
@@ -1382,7 +1383,7 @@ const loadTextFile = async (url) => {
 const renderedTextContent = computed(() => {
   if (!currentFileObj.value || !textContent.value) return ''
   if (currentFileObj.value.fileExt === 'md') {
-    return marked.parse(textContent.value)
+    return DOMPurify.sanitize(marked.parse(textContent.value))
   }
   return textContent.value
 })

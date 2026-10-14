@@ -1,5 +1,6 @@
 import { app, shell, BrowserWindow, ipcMain, globalShortcut, dialog, net } from 'electron'
 import { join, dirname } from 'path'
+import { randomUUID } from 'node:crypto'
 import fs from 'fs'
 import { Blob } from 'buffer'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -7,9 +8,11 @@ import icon from '../../resources/icon.png?asset'
 import { apiRegistry,findApi } from './main-utils/apiRegistry'
 import { checkForUpdates, configureFromSettings, downloadUpdate, getPresetUpdateSources, getUpdateInfo, initUpdater, quitAndInstallUpdate } from './main-utils/updater'
 import { insertDownloadRecord, listDownloadRecords, deleteDownloadRecord, flushDb, closeDatabase, listNoticeReadIds, markNoticesRead } from './main-utils/database'
+import { downloadPartPaths, downloadURL, nextAvailableDownloadPath, safeDownloadName, strongETag } from './main-utils/download-path.mjs'
 
 // ================= 持久化设置与开机自启逻辑 =================
 const settingsPath = join(app.getPath('userData'), 'ptmj-settings.json')
+const activeDownloads = new Set()
 const defaultSettings = {
   autoStart: false,
   downloadPath: app.getPath('downloads'),
@@ -243,8 +246,14 @@ function createWindow() {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (/^https?:\/\//i.test(details.url)) {
+      void shell.openExternal(details.url)
+    }
     return { action: 'deny' }
+  })
+
+  mainWindow.webContents.on('will-navigate', (event) => {
+    event.preventDefault()
   })
 
   // 窗口状态监听
@@ -379,7 +388,8 @@ app.whenReady().then(() => {
     try {
       const settings = loadSettings()
       const saveDir = folderPath || settings.downloadPath || app.getPath('downloads')
-      const defaultSavePath = join(saveDir, fileName)
+      const safeFileName = safeDownloadName(fileName)
+      const defaultSavePath = join(saveDir, safeFileName)
 
       let finalFilePath = defaultSavePath
 
@@ -399,8 +409,8 @@ app.whenReady().then(() => {
         // 如果是静默下载，且文件已存在，则自动重命名（例如 test.pdf -> test (1).pdf）
         let counter = 1
         const path = require('path')
-        const ext = path.extname(fileName)
-        const base = path.basename(fileName, ext)
+        const ext = path.extname(safeFileName)
+        const base = path.basename(safeFileName, ext)
         
         while (fs.existsSync(finalFilePath)) {
           finalFilePath = join(saveDir, `${base} (${counter})${ext}`)
@@ -527,8 +537,11 @@ app.whenReady().then(() => {
 
   // ================= 核心：彻底接管下载（文件流直写方案） =================
   ipcMain.handle('download-file-directly', async (event, { url, fileName, token, folderPath, silent }) => {
+    let activePath = ''
     return new Promise((resolve, reject) => {
       try {
+        url = downloadURL(url)
+        fileName = safeDownloadName(fileName)
         // 1. 读取最新设置（folderPath/silent 可由调用方显式覆盖，批量下载用）
         const settings = loadSettings()
         const defaultPath = folderPath || settings.downloadPath || app.getPath('downloads')
@@ -549,13 +562,16 @@ app.whenReady().then(() => {
             return
           }
           finalSavePath = saveDialogResult
+        } else {
+          finalSavePath = nextAvailableDownloadPath(finalSavePath, path => fs.existsSync(path) || activeDownloads.has(path))
         }
 
-        // 3. 使用 Electron 的 net 模块发起请求
-        const request = net.request(url)
-        if (token) {
-          request.setHeader('Authorization', `Bearer ${token}`)
+        if (activeDownloads.has(finalSavePath)) {
+          reject(new Error('该文件正在下载中'))
+          return
         }
+        activePath = finalSavePath
+        activeDownloads.add(activePath)
 
         // 确保目标目录存在（静默下载路径可能指向尚未创建的子目录）
         try {
@@ -567,17 +583,19 @@ app.whenReady().then(() => {
         // 3. 断点续传：半成品写入 <final>.part；存在则携带 Range 从已收字节
         // 继续（服务端 /datum/download/file 响应 206 + Content-Range，并给出
         // 强 ETag 供 If-Range 校验）。下载完成后原子改名为目标文件。
-        const partPath = `${finalSavePath}.part`
+        const { partPath, metaPath } = downloadPartPaths(finalSavePath, url)
 
         const headerText = (value) => (Array.isArray(value) ? value[0] : value) || ''
 
-        const startRequest = (resumeFrom) => {
+        const startRequest = (resumeFrom, resumeETag = '') => {
           const request = net.request(url)
+          request.setHeader('Accept-Encoding', 'identity')
           if (token) {
             request.setHeader('Authorization', `Bearer ${token}`)
           }
           if (resumeFrom > 0) {
             request.setHeader('Range', `bytes=${resumeFrom}-`)
+            request.setHeader('If-Range', resumeETag)
           }
 
           request.on('response', (response) => {
@@ -586,6 +604,8 @@ app.whenReady().then(() => {
             if (status === 416 && resumeFrom > 0) {
               // 断点与服务端文件对不上（半成品可能已完整但未改名）：丢弃重下
               try { fs.rmSync(partPath, { force: true }) } catch (_) {}
+              try { fs.rmSync(metaPath, { force: true }) } catch (_) {}
+              response.destroy()
               startRequest(0)
               return
             }
@@ -621,25 +641,47 @@ app.whenReady().then(() => {
             let totalSize = 0
             if (status === 206) {
               const match = headerText(response.headers['content-range']).match(/bytes\s+(\d+)-(\d+)\/(\d+|\*)/i)
-              if (!match || parseInt(match[1], 10) !== resumeFrom) {
+              const rangeEnd = match ? Number(match[2]) : -1
+              const rangeTotal = match ? Number(match[3]) : -1
+              if (!resumeFrom || !match || !Number.isSafeInteger(rangeTotal) || rangeEnd < resumeFrom || rangeEnd !== rangeTotal - 1 || strongETag(response.headers.etag) !== resumeETag) {
                 // 无法确认续传起点：丢弃半成品，从头重下
                 try { fs.rmSync(partPath, { force: true }) } catch (_) {}
+                try { fs.rmSync(metaPath, { force: true }) } catch (_) {}
+                if (!resumeFrom) {
+                  reject(new Error('服务器返回了意外的分段响应'))
+                  return
+                }
+                response.destroy()
                 startRequest(0)
                 return
               }
               base = resumeFrom
               append = true
-              if (match[3] !== '*') totalSize = parseInt(match[3], 10)
+              totalSize = rangeTotal
             } else {
               totalSize = parseInt(headerText(response.headers['content-length']) || 0, 10)
             }
 
+            try {
+              const etag = strongETag(response.headers.etag)
+              if (etag) fs.writeFileSync(metaPath, JSON.stringify({ etag }))
+              else fs.rmSync(metaPath, { force: true })
+            } catch (metadataError) {
+              reject(metadataError)
+              return
+            }
+
             let received = 0
             const fileStream = fs.createWriteStream(partPath, { flags: append ? 'a' : 'w' })
+            fileStream.on('error', (error) => {
+              response.destroy()
+              reject(error)
+            })
+            fileStream.on('drain', () => response.resume())
 
             response.on('data', (chunk) => {
               received += chunk.length
-              fileStream.write(chunk)
+              if (!fileStream.write(chunk)) response.pause()
 
               // 计算进度并通过 IPC 发送给前端（含已续传部分）
               if (totalSize > 0) {
@@ -649,19 +691,36 @@ app.whenReady().then(() => {
             })
 
             response.on('end', () => {
+              if (totalSize > 0 && base + received !== totalSize) {
+                fileStream.destroy()
+                reject(new Error('下载内容不完整'))
+                return
+              }
               fileStream.end(() => {
                 try {
-                  // Windows 上 rename 不覆盖已存在文件，先清掉
-                  if (fs.existsSync(finalSavePath)) {
-                    fs.rmSync(finalSavePath, { force: true })
+                  if (useSilent) {
+                    finalSavePath = nextAvailableDownloadPath(finalSavePath, path => fs.existsSync(path) || (path !== activePath && activeDownloads.has(path)))
                   }
-                  fs.renameSync(partPath, finalSavePath)
+                  if (!useSilent && fs.existsSync(finalSavePath)) {
+                    const backupPath = `${finalSavePath}.${randomUUID()}.bak`
+                    fs.renameSync(finalSavePath, backupPath)
+                    try {
+                      fs.renameSync(partPath, finalSavePath)
+                    } catch (renameErr) {
+                      fs.renameSync(backupPath, finalSavePath)
+                      throw renameErr
+                    }
+                    fs.rmSync(backupPath, { force: true })
+                  } else {
+                    fs.renameSync(partPath, finalSavePath)
+                  }
+                  fs.rmSync(metaPath, { force: true })
                 } catch (renameErr) {
                   reject(renameErr)
                   return
                 }
                 console.log('文件流直写完成:', finalSavePath, append ? `(续传自 ${base} 字节)` : '')
-                resolve({ success: true, savedPath: finalSavePath })
+                resolve({ success: true, filePath: finalSavePath })
               })
             })
 
@@ -669,6 +728,10 @@ app.whenReady().then(() => {
               fileStream.destroy()
               // 保留 .part 半成品，下次下载从断点继续
               reject(err)
+            })
+            response.on('aborted', () => {
+              fileStream.destroy()
+              reject(new Error('下载连接中断'))
             })
           })
 
@@ -680,18 +743,30 @@ app.whenReady().then(() => {
         }
 
         let startByte = 0
+        let resumeETag = ''
         try {
           if (fs.existsSync(partPath)) {
             startByte = fs.statSync(partPath).size
+            if (fs.existsSync(metaPath)) {
+              resumeETag = strongETag(JSON.parse(fs.readFileSync(metaPath, 'utf8')).etag)
+            }
+            if (!resumeETag) {
+              fs.rmSync(partPath, { force: true })
+              fs.rmSync(metaPath, { force: true })
+              startByte = 0
+            }
           }
         } catch (_) {
           startByte = 0
+          resumeETag = ''
         }
-        startRequest(startByte)
+        startRequest(startByte, resumeETag)
       } catch (error) {
         console.error('底层下载任务异常:', error)
         reject(error)
       }
+    }).finally(() => {
+      if (activePath) activeDownloads.delete(activePath)
     })
   })
   // =========================================================

@@ -46,7 +46,7 @@
         </span>
       </div>
       <div class="notice-preview-divider"></div>
-      <div class="notice-preview-content" v-html="previewContent"></div>
+      <div class="notice-preview-content">{{ previewContent }}</div>
     </el-dialog>
   </div>
 </template>
@@ -298,6 +298,7 @@ function markAllRead() {
   line-height: 1.85;
   color: #2d3748;
   word-break: break-word;
+  white-space: pre-wrap;
 }
 .notice-preview-dialog .notice-preview-content img { max-width: 100%; border-radius: 4px; }
 .notice-preview-dialog .notice-preview-content p { margin: 0 0 1em; }
