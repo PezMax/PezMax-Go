@@ -91,6 +91,67 @@ func TestDatumPendingEbookPreviewRecognizesOwnerSession(t *testing.T) {
 	}
 }
 
+func TestDatumTextPreviewChecksAccessAndSize(t *testing.T) {
+	_, database, engine, ownerToken := seedActivityFixture(t)
+	database.files = nil
+	for _, file := range []struct {
+		id     int64
+		status int64
+	}{
+		{1001, 1}, {1002, 0}, {1003, 0}, {1004, 1}, {1005, 1},
+	} {
+		ownerID := int64(7)
+		if file.id == 1003 {
+			ownerID = 8
+		}
+		seedApprovedFile(database, file.id, ownerID, "preview.md", "math", 4, 2024, file.status)
+		row := database.files[len(database.files)-1]
+		row["file_url"] = "http://127.0.0.1:29000/ptmj/docs/preview.md"
+		row["file_format"] = "md"
+		row["file_size"] = int64(7)
+		if file.id == 1004 {
+			row["file_format"] = "pdf"
+		}
+		if file.id == 1005 {
+			row["file_size"] = int64(datumTextPreviewMaxSize + 1)
+		}
+	}
+	localRoot := t.TempDir()
+	t.Setenv("KADMIN_MINIO_ENABLED", "false")
+	t.Setenv("KADMIN_FILE_LOCAL_ROOT", localRoot)
+	target := filepath.Join(localRoot, "docs", "preview.md")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("# hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, fileID, token string
+		status              int
+	}{
+		{"approved public", "1001", "", http.StatusOK},
+		{"pending anonymous", "1002", "", http.StatusNotFound},
+		{"pending owner", "1002", ownerToken, http.StatusOK},
+		{"pending other owner", "1003", ownerToken, http.StatusNotFound},
+		{"non-text", "1004", "", http.StatusBadRequest},
+		{"too large", "1005", "", http.StatusRequestEntityTooLarge},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := datumJSON(t, engine, http.MethodGet, "/datum/file/content?fileId="+test.fileID, test.token, nil)
+			if response.Code != test.status {
+				t.Fatalf("status = %d, want %d; body = %s", response.Code, test.status, response.Body.String())
+			}
+			if test.status == http.StatusOK && response.Body.String() != "# hello" {
+				t.Fatalf("preview body = %q", response.Body.String())
+			}
+		})
+	}
+	if len(database.downloads) != 0 {
+		t.Fatal("text preview wrote download history")
+	}
+}
+
 // 改名、设置头像 URL、上传头像三条资料变更路径成功落库后，
 // 排行榜快照必须失效：旧 hash 请求返回更新数据与新 hash。
 func TestDatumProfileChangesInvalidateRankSnapshot(t *testing.T) {

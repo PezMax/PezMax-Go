@@ -235,7 +235,7 @@ function createWindow() {
       sandbox: false,           // 关闭沙箱
       contextIsolation: true,   // 开启上下文隔离（这是关键安全措施）
       nodeIntegration: false,   // 禁用 Node 集成
-      webSecurity: false,       // 禁用 Web 安全以允许从 file:// 协议跨域请求远程 API
+      webSecurity: true,
       allowRunningInsecureContent: true, // 允许在 file:// 中加载 http 内容
       plugins: true             // 开启插件支持（必须开启才能在 Electron 中原生预览 PDF）
     }

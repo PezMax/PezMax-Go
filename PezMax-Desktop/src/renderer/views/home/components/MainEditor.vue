@@ -496,6 +496,7 @@ import { ElMessage } from 'element-plus'
 import logo from '@/assets/logo/logo.png'
 import { marked } from 'marked' // 引入 marked
 import DOMPurify from 'dompurify'
+import request from '@/utils/request'
 import { normalizeAvatar } from '@/utils/avatar' // fxy 引入头像处理工具
 import { getUser } from '@/api/datum/user' // 引入获取平台用户信息接口
 import { normalizeFileUrl } from '@/utils/url'
@@ -1359,23 +1360,33 @@ const tocList = ref([])
 const activeHeading = ref('')
 let isScrolling = false // 防止点击导航触发双重高亮
 
-const loadTextFile = async (url) => {
-  if (!url) return
+let textLoadVersion = 0
+const loadTextFile = async (tab) => {
+  const version = ++textLoadVersion
   isLoadingText.value = true
   textContent.value = ''
   tocList.value = []
   activeHeading.value = ''
   
   try {
-    const response = await fetch(url)
-    if (!response.ok) throw new Error('网络请求失败')
-    const text = await response.text()
-    textContent.value = text
+    const file = tab.originalData || tab
+    const fileId = file.fileId ?? file.fileInfo?.fileId ?? file.ptmjFile?.fileId ?? tab.id
+    if (!/^\d+$/.test(String(fileId))) throw new Error('文件 ID 无效')
+    const blob = await request({
+      url: '/datum/file/content',
+      method: 'get',
+      params: { fileId },
+      responseType: 'blob',
+      skipErrorMsg: true,
+      timeout: 30000
+    })
+    const text = await blob.text()
+    if (version === textLoadVersion) textContent.value = text
   } catch (error) {
     console.error('加载文本文件失败:', error)
-    textContent.value = '加载失败: ' + error.message
+    if (version === textLoadVersion) textContent.value = '加载失败: ' + error.message
   } finally {
-    isLoadingText.value = false
+    if (version === textLoadVersion) isLoadingText.value = false
   }
 }
 
@@ -1394,11 +1405,17 @@ watch(
   (newTabId) => {
     const tab = props.openTabs.find(t => t.id === newTabId)
     if (tab && ['txt', 'md'].includes(tab.fileExt)) {
-      loadTextFile(tab.url)
+      loadTextFile(tab)
+    } else {
+      textLoadVersion++
+      textContent.value = ''
+      isLoadingText.value = false
     }
   },
   { immediate: true }
 )
+
+onUnmounted(() => { textLoadVersion++ })
 
 // 提取 MD 目录逻辑
 watch(renderedTextContent, async (newVal) => {

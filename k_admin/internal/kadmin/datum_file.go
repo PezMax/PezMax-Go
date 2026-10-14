@@ -43,6 +43,7 @@ const (
 	datumFileStateTTLKey    = "KADMIN_DATUM_STATE_TTL"
 	datumUploadMaxMBKey     = "KADMIN_DATUM_UPLOAD_MAX_MB"
 	datumMinioPublicBaseKey = "KADMIN_MINIO_PUBLIC_BASE"
+	datumTextPreviewMaxSize = 10 << 20
 )
 
 var datumFileTypeNames = map[int64]string{
@@ -214,7 +215,7 @@ func (s *Store) registerDatumFileRoutes(datumGroup *gin.RouterGroup) {
 }
 
 // datumFileGet dispatches the read-only file routes:
-// /list /tree /subjects /schools /schools/check /search /{fileId}
+// /list /tree /subjects /schools /schools/check /search /content /{fileId}
 func (s *Store) datumFileGet(c *gin.Context) {
 	rest := strings.Trim(c.Param("rest"), "/")
 	switch {
@@ -230,6 +231,8 @@ func (s *Store) datumFileGet(c *gin.Context) {
 		s.datumFileSchoolCheck(c)
 	case rest == "search":
 		s.datumFileSearch(c)
+	case rest == "content":
+		s.datumFileTextContent(c)
 	default:
 		if fileID, err := strconv.ParseInt(rest, 10, 64); err == nil && fileID > 0 {
 			c.Params = append(c.Params, gin.Param{Key: "fileId", Value: rest})
@@ -569,6 +572,58 @@ func (s *Store) datumFileDetail(c *gin.Context) {
 func (s *Store) datumTokenOwns(c *gin.Context, ownerID int64) bool {
 	userID, ok := s.datumUserIDOptional(c)
 	return ok && userID == ownerID
+}
+
+func (s *Store) datumFileTextContent(c *gin.Context) {
+	fileID := toDatumInt64(c.Query("fileId"))
+	if fileID <= 0 {
+		fail(c, http.StatusBadRequest, "文件 ID 不能为空")
+		return
+	}
+	file, found, err := datum.NewFileRepo(s.conn).FindByID(fileID)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "文件查询失败")
+		return
+	}
+	if !found || (file.FileStatus != 1 && !s.datumTokenOwns(c, file.UserID)) {
+		fail(c, http.StatusNotFound, "文件不存在或已删除")
+		return
+	}
+	if file.FileFormat != "txt" && file.FileFormat != "md" {
+		fail(c, http.StatusBadRequest, "仅支持文本文件预览")
+		return
+	}
+	if file.FileSize > datumTextPreviewMaxSize {
+		fail(c, http.StatusRequestEntityTooLarge, "文本文件过大，无法预览")
+		return
+	}
+	bucket, objectKey, err := fileurl.Parse(file.FileURL)
+	if err != nil {
+		fail(c, http.StatusNotFound, "文件内容不可用")
+		return
+	}
+	body, info, err := openDatumObject(c.Request.Context(), bucket, objectKey)
+	if err != nil {
+		fail(c, http.StatusNotFound, "文件内容不可用")
+		return
+	}
+	defer body.Close()
+	if info.Size > datumTextPreviewMaxSize {
+		fail(c, http.StatusRequestEntityTooLarge, "文本文件过大，无法预览")
+		return
+	}
+	content, err := io.ReadAll(io.LimitReader(body, datumTextPreviewMaxSize+1))
+	if err != nil {
+		fail(c, http.StatusServiceUnavailable, "文件读取失败")
+		return
+	}
+	if len(content) > datumTextPreviewMaxSize {
+		fail(c, http.StatusRequestEntityTooLarge, "文本文件过大，无法预览")
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Data(http.StatusOK, "text/plain; charset=utf-8", content)
 }
 
 func (s *Store) datumUserRank(c *gin.Context) {
