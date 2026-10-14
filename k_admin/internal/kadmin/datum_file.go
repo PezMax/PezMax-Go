@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/datum"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/convert"
@@ -665,9 +664,8 @@ var datumAllowedExts = map[string]bool{
 	"epub": true, "mobi": true, "azw3": true,
 }
 
-// datumFilePut stores bytes and returns the public URL; swappable in tests.
-var datumFilePut = func(ctx context.Context, objectKey string, body []byte, contentType string) (string, error) {
-	minio := storage.NewMinio(storage.MinioConfig{
+func datumObjectStore() *storage.Minio {
+	return storage.NewMinio(storage.MinioConfig{
 		Endpoints: []string{datumEnv("KADMIN_MINIO_ENDPOINT", "127.0.0.1:19000"), datumEnv("KADMIN_MINIO_INTERNAL_ENDPOINT", "minio:9000")},
 		AccessKey: datumEnv("KADMIN_MINIO_ACCESS_KEY", ""),
 		SecretKey: datumEnv("KADMIN_MINIO_SECRET_KEY", ""),
@@ -676,15 +674,37 @@ var datumFilePut = func(ctx context.Context, objectKey string, body []byte, cont
 		Region:    datumEnv("KADMIN_MINIO_REGION", "us-east-1"),
 		Timeout:   10 * time.Second,
 	})
-	if err := minio.Put(ctx, objectKey, bytes.NewReader(body), int64(len(body)), contentType); err != nil {
+}
+
+// datumFilePut streams an object and returns its public URL; swappable in tests.
+var datumFilePut = func(ctx context.Context, objectKey string, body io.Reader, size int64, contentType string) (string, error) {
+	minio := datumObjectStore()
+	if err := minio.Put(ctx, objectKey, body, size, contentType); err != nil {
 		return "", err
 	}
 	bucket := datumEnv("KADMIN_MINIO_BUCKET", "kadmin")
 	builder, err := fileurl.NewBuilder(bucket, datumEnv(datumMinioPublicBaseKey, datumMinioFallbackBase()))
 	if err != nil {
+		cleanupDatumObject(objectKey)
 		return "", err
 	}
-	return builder.ObjectURL(objectKey)
+	url, err := builder.ObjectURL(objectKey)
+	if err != nil {
+		cleanupDatumObject(objectKey)
+	}
+	return url, err
+}
+
+var datumFileDeleteObject = func(ctx context.Context, objectKey string) error {
+	return datumObjectStore().Delete(ctx, objectKey)
+}
+
+func cleanupDatumObject(objectKey string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := datumFileDeleteObject(ctx, objectKey); err != nil {
+		log.Printf("datum uploaded object cleanup failed: %v", err)
+	}
 }
 
 func (s *Store) fileConverter() *convert.Converter {
@@ -715,11 +735,6 @@ func (s *Store) datumFileUpload(c *gin.Context) {
 		return
 	}
 	defer opened.Close()
-	body, err := io.ReadAll(io.LimitReader(opened, file.Size+1))
-	if err != nil || int64(len(body)) != file.Size {
-		fail(c, http.StatusBadRequest, "文件读取失败")
-		return
-	}
 
 	fileName := strings.TrimSpace(c.PostForm("fileName"))
 	if fileName == "" {
@@ -767,13 +782,28 @@ func (s *Store) datumFileUpload(c *gin.Context) {
 		contentType = mimeByExt(ext)
 	}
 	if ext == "txt" || ext == "md" {
-		if !utf8.Valid(body) {
+		valid, err := validDatumUTF8(opened)
+		if err != nil {
+			fail(c, http.StatusBadRequest, "文件读取失败")
+			return
+		}
+		if !valid {
 			fail(c, http.StatusBadRequest, "文本文件仅支持 UTF-8 编码")
 			return
 		}
+		if _, err := opened.Seek(0, io.SeekStart); err != nil {
+			fail(c, http.StatusBadRequest, "文件读取失败")
+			return
+		}
 	}
+	var body io.Reader = opened
+	storedSize := file.Size
 	if datumConvertExts[ext] {
-		pdf, err := s.fileConverter().ToPDF(c.Request.Context(), fileName, bytes.NewReader(body))
+		if file.Size > datumUploadMaxBytesDef {
+			fail(c, http.StatusRequestEntityTooLarge, "转档文件不能超过 200MB")
+			return
+		}
+		pdf, err := s.fileConverter().ToPDF(c.Request.Context(), fileName, opened)
 		if err != nil {
 			if errors.Is(err, convert.ErrUnavailable) {
 				fail(c, http.StatusServiceUnavailable, "转档服务不可用，暂时无法上传该格式，请稍后重试")
@@ -782,7 +812,8 @@ func (s *Store) datumFileUpload(c *gin.Context) {
 			}
 			return
 		}
-		body = pdf
+		body = bytes.NewReader(pdf)
+		storedSize = int64(len(pdf))
 		ext = "pdf"
 		contentType = "application/pdf"
 	}
@@ -804,7 +835,7 @@ func (s *Store) datumFileUpload(c *gin.Context) {
 	objectSegments = append(objectSegments, baseName+"_"+unique+"."+ext)
 	objectKey := path.Join(objectSegments...)
 
-	fileURL, err := datumFilePut(c.Request.Context(), objectKey, body, contentType)
+	fileURL, err := datumFilePut(c.Request.Context(), objectKey, body, storedSize, contentType)
 	if err != nil {
 		log.Printf("datum file storage put failed: %v", err)
 		fail(c, http.StatusServiceUnavailable, "文件存储暂不可用，请稍后重试")
@@ -813,11 +844,12 @@ func (s *Store) datumFileUpload(c *gin.Context) {
 
 	repo := datum.NewFileRepo(s.conn)
 	fileID, err := repo.Insert(datum.FilePayload{
-		UserID: userID, FileName: fileName, FileURL: fileURL, FileSize: int64(len(body)),
+		UserID: userID, FileName: fileName, FileURL: fileURL, FileSize: storedSize,
 		FileFormat: ext, FileYear: year, FileType: fileType, FileSchool: school,
 		FileSubject: subject, FileStatus: 0, Remark: folderPath,
 	})
 	if err != nil {
+		cleanupDatumObject(objectKey)
 		fail(c, http.StatusInternalServerError, "上传失败")
 		return
 	}

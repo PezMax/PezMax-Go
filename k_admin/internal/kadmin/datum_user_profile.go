@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -177,6 +178,7 @@ func (s *Store) datumUploadAvatar(c *gin.Context) {
 		return
 	}
 	if err := (&datumUserRepo{conn: s.conn}).updateAvatar(userID, avatarURL); err != nil {
+		cleanupDatumAvatar(objectKey, storageName)
 		fail(c, http.StatusInternalServerError, "头像更新失败")
 		return
 	}
@@ -428,6 +430,7 @@ func putDatumAvatar(ctx context.Context, objectKey string, body []byte, contentT
 			}
 			// Stored remotely but the public base is unconfigured: fall
 			// through to the local copy so the returned URL is servable.
+			cleanupDatumObject(objectKey)
 		}
 	}
 	local := storage.NewLocal(datumEnv("KADMIN_DATUM_AVATAR_LOCAL_ROOT", datumAvatarLocalDir))
@@ -435,6 +438,18 @@ func putDatumAvatar(ctx context.Context, objectKey string, body []byte, contentT
 		return "", "", err
 	}
 	return "/api/uploads/" + storage.EscapePath(objectKey), "local", nil
+}
+
+func cleanupDatumAvatar(objectKey, storageName string) {
+	if storageName == "minio" {
+		cleanupDatumObject(objectKey)
+		return
+	}
+	if storageName == "local" {
+		if err := storage.NewLocal(datumEnv("KADMIN_DATUM_AVATAR_LOCAL_ROOT", datumAvatarLocalDir)).Delete(context.Background(), objectKey); err != nil {
+			log.Printf("datum avatar cleanup failed: %v", err)
+		}
+	}
 }
 
 func datumEnv(key, fallback string) string {

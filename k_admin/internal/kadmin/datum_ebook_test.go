@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -300,8 +301,12 @@ func TestDatumEbookUploadAndDelete(t *testing.T) {
 	// 替换存储函数：记录 objectKey，返回固定 URL
 	var putKeys []string
 	originalPut := datumFilePut
-	datumFilePut = func(ctx context.Context, objectKey string, body []byte, contentType string) (string, error) {
+	datumFilePut = func(ctx context.Context, objectKey string, body io.Reader, size int64, contentType string) (string, error) {
 		putKeys = append(putKeys, objectKey)
+		data, err := io.ReadAll(body)
+		if err != nil || int64(len(data)) != size || string(data) != "PK.epub-upload" {
+			t.Fatalf("stored ebook data = %q, size = %d, err = %v", data, size, err)
+		}
 		return "http://files.example.com/ptmj/" + objectKey, nil
 	}
 	defer func() { datumFilePut = originalPut }()
@@ -461,7 +466,9 @@ func TestOpenStoredObjectLocalFallback(t *testing.T) {
 		t.Fatalf("size = %d", info.Size)
 	}
 	// seekable：http.ServeContent 的 Range 断点续传依赖
-	if _, ok := body.(interface{ Seek(int64, int) (int64, error) }); !ok {
+	if _, ok := body.(interface {
+		Seek(int64, int) (int64, error)
+	}); !ok {
 		t.Fatalf("object stream is not seekable: %T", body)
 	}
 }

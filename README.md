@@ -306,7 +306,7 @@ Compose 的 app 服务**不读取宿主机的 `k_admin/.env`**，而是使用根
 | `KADMIN_JWT_REFRESH_TTL` | 管理端 refresh token 有效期，默认 `168h` |
 | `KADMIN_DATUM_SESSION_TTL` | 桌面会话有效期，默认 `120h` |
 | `KADMIN_DATUM_STATE_TTL` | 桌面文件树 / 排行缓存有效期，默认 `24h` |
-| `KADMIN_DATUM_UPLOAD_MAX_MB` | 资料 / 电子书单文件上传上限，默认 `200` MiB |
+| `KADMIN_DATUM_UPLOAD_MAX_MB` | 资料 / 电子书单文件上传上限，默认 `200` MiB；Office 转 PDF 仍限 `200` MiB |
 | `KADMIN_MINIO_ENABLED` | 管理文件模块的 MinIO 开关；桌面 datum 上传直接依赖 MinIO |
 | `KADMIN_MINIO_ENDPOINT/INTERNAL_ENDPOINT` | 后端访问 MinIO 的连接地址 |
 | `KADMIN_MINIO_ACCESS_KEY/SECRET_KEY/BUCKET` | MinIO 凭据与桶名 |
@@ -419,7 +419,7 @@ docker compose run --rm --no-deps --entrypoint /bin/sh minio-init -c 'mc alias s
 - 资料上传白名单包括 DOC、DOCX、PPT、PPTX、PDF、JPG/JPEG、PNG、WEBP、TXT、MD、EPUB、MOBI、AZW3。
 - DOC / DOCX / PPT / PPTX 转为 PDF 后存储；TXT / MD 必须使用 UTF-8 编码。
 - 电子书使用独立 `ptmj_ebook` 目录及 `/datum/ebook/*` 接口，上传支持 PDF / EPUB / MOBI / AZW3。
-- 默认单文件上限 200 MiB，可通过 `KADMIN_DATUM_UPLOAD_MAX_MB` 调整；外层反向代理的请求大小和超时也需配合。
+- 默认单文件上限 200 MiB，可通过 `KADMIN_DATUM_UPLOAD_MAX_MB` 调整；Office 转 PDF 的输入和输出仍各限 200 MiB。外层反向代理的请求大小和超时也需配合。
 - 新上传的资料和电子书进入待审核状态，公开列表展示已审核 / 已上架内容。
 
 客户端本地文件位于 Electron 的 `app.getPath('userData')`：`ptmj-downloads.db` 保存下载与通知已读记录，`ptmj-settings.json` 保存客户端设置；实际下载目录由客户端设置决定。
