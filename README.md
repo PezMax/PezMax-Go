@@ -147,38 +147,42 @@ Copy-Item .env.example .env
 Copy-Item k_admin/.env.example k_admin/.env
 ```
 
-仓库根目录 `.env` 供 Compose 使用；`go run .` 从 `k_admin` 启动时读取 `k_admin/.env`。**仅复制模板还不够**：两者默认库名、端口和凭据不同。使用仓库级 Compose 默认值时，将 `k_admin/.env` 的对应项调整为：
+仓库根目录 `.env` 供 Compose 使用；`go run .` 从 `k_admin` 启动时读取 `k_admin/.env`。两份环境文件均不应提交。复制模板后，先填写数据库、Redis、MinIO 密码和 JWT 密钥；Compose 缺少这些值会拒绝启动。已使用过仓库中旧示例凭据的部署还需轮换密码和 JWT 密钥，因为旧值仍存在于 Git 历史中。
+
+**仅复制模板还不够**：两者默认库名和端口不同。使用仓库级 Compose 默认值时，将 `k_admin/.env` 的对应项调整为（尖括号内容替换成根目录 `.env` 的相同值）：
 
 ```dotenv
 KADMIN_DB_HOST=127.0.0.1
 KADMIN_DB_PORT=25432
 KADMIN_DB_USER=postgres
-KADMIN_DB_PASSWORD=pezmax_dev_pwd
+KADMIN_DB_PASSWORD=<与 PEZMAX_DB_PASSWORD 相同>
 KADMIN_DB_NAME=pezmax
 
 KADMIN_APP_PORT=9033
+KADMIN_APP_HOST=127.0.0.1
 KADMIN_APP_DEBUG=true
 KADMIN_SWAGGER_ENABLED=false
 
 KADMIN_REDIS_HOST=127.0.0.1
 KADMIN_REDIS_PORT=26379
-KADMIN_REDIS_PASSWORD=pezmax_redis_pwd
+KADMIN_REDIS_PASSWORD=<与 PEZMAX_REDIS_PASSWORD 相同>
 KADMIN_REDIS_DB=0
 
-KADMIN_JWT_SECRET=8kF2xPqL9mN4vR7wJ1bY6tH3zA0c
+KADMIN_JWT_SECRET=<与根目录 KADMIN_JWT_SECRET 相同>
 KADMIN_DATUM_SESSION_TTL=120h
 
 KADMIN_MINIO_ENABLED=true
 KADMIN_MINIO_ENDPOINT=http://127.0.0.1:29000
 KADMIN_MINIO_INTERNAL_ENDPOINT=http://127.0.0.1:29000
 KADMIN_MINIO_PUBLIC_BASE=http://127.0.0.1:29000
-KADMIN_MINIO_ACCESS_KEY=pezmax_minio
-KADMIN_MINIO_SECRET_KEY=pezmax_minio_pwd
+KADMIN_MINIO_ACCESS_KEY=<与 PEZMAX_MINIO_ACCESS_KEY 相同>
+KADMIN_MINIO_SECRET_KEY=<与 PEZMAX_MINIO_SECRET_KEY 相同>
 KADMIN_MINIO_BUCKET=ptmj
 KADMIN_MINIO_USE_SSL=false
 ```
 
-这些是本地示例值。若修改根目录 `.env`，同步修改后端相应配置；上线前更换密码和 JWT 密钥。实际环境文件含凭据，请勿提交到仓库。
+PostgreSQL、Redis、MinIO 和 Compose 内后端的宿主机端口默认只绑定 `127.0.0.1`；容器间仍通过内部网络互通。需要其他机器直连时，为对应服务设置 `PEZMAX_DB_BIND_IP`、`PEZMAX_REDIS_BIND_IP`、`PEZMAX_MINIO_BIND_IP` 或 `PEZMAX_APP_BIND_IP` 为可信私网 IP，并配合防火墙。`edge` 仍按 `PEZMAX_EDGE_PORT` 对外提供入口。若远程桌面端必须直连 MinIO 预览，还需显式配置可访问的 `PEZMAX_MINIO_PUBLIC_BASE` 与绑定地址。
+宿主机直跑后端并用容器内的 edge 代理时，需把 `KADMIN_APP_HOST` 调整为可由容器访问的可信地址，而不能保持默认回环绑定。
 
 在仓库根目录启动依赖：
 

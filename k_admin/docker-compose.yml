@@ -8,11 +8,11 @@ services:
     environment:
       POSTGRES_DB: ${KADMIN_DB_NAME:-kadmin}
       POSTGRES_USER: ${KADMIN_DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${KADMIN_DB_PASSWORD:-kadmin_dev_pwd}
+      POSTGRES_PASSWORD: ${KADMIN_DB_PASSWORD:?Set KADMIN_DB_PASSWORD in .env}
       TZ: Asia/Shanghai
       PGTZ: Asia/Shanghai
     ports:
-      - "${KADMIN_DB_PORT:-15432}:5432"
+      - "${KADMIN_DB_BIND_IP:-127.0.0.1}:${KADMIN_DB_PORT:-15432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./tests/data/admin_pg.sql:/docker-entrypoint-initdb.d/10-admin_pg.sql:ro
@@ -30,15 +30,15 @@ services:
     container_name: kadmin-go-admin-redis
     restart: unless-stopped
     environment:
-      KADMIN_REDIS_PASSWORD: ${KADMIN_REDIS_PASSWORD:-kadmin_redis_pwd}
+      KADMIN_REDIS_PASSWORD: ${KADMIN_REDIS_PASSWORD:?Set KADMIN_REDIS_PASSWORD in .env}
     command:
       - redis-server
       - --appendonly
       - "yes"
       - --requirepass
-      - ${KADMIN_REDIS_PASSWORD:-kadmin_redis_pwd}
+      - ${KADMIN_REDIS_PASSWORD:?Set KADMIN_REDIS_PASSWORD in .env}
     ports:
-      - "${KADMIN_REDIS_PORT:-16379}:6379"
+      - "${KADMIN_REDIS_BIND_IP:-127.0.0.1}:${KADMIN_REDIS_PORT:-16379}:6379"
     volumes:
       - redis_data:/data
     networks:
@@ -57,8 +57,8 @@ services:
     profiles:
       - storage
     environment:
-      MINIO_ROOT_USER: ${KADMIN_MINIO_ACCESS_KEY:-kadmin_minio}
-      MINIO_ROOT_PASSWORD: ${KADMIN_MINIO_SECRET_KEY:-kadmin_minio_pwd}
+      MINIO_ROOT_USER: ${KADMIN_MINIO_ACCESS_KEY:?Set KADMIN_MINIO_ACCESS_KEY in .env}
+      MINIO_ROOT_PASSWORD: ${KADMIN_MINIO_SECRET_KEY:?Set KADMIN_MINIO_SECRET_KEY in .env}
       TZ: Asia/Shanghai
     command:
       - server
@@ -66,8 +66,8 @@ services:
       - --console-address
       - ":9001"
     ports:
-      - "${KADMIN_MINIO_API_PORT:-19000}:9000"
-      - "${KADMIN_MINIO_CONSOLE_PORT:-19001}:9001"
+      - "${KADMIN_MINIO_BIND_IP:-127.0.0.1}:${KADMIN_MINIO_API_PORT:-19000}:9000"
+      - "${KADMIN_MINIO_BIND_IP:-127.0.0.1}:${KADMIN_MINIO_CONSOLE_PORT:-19001}:9001"
     volumes:
       - minio_data:/data
     networks:
@@ -79,8 +79,8 @@ services:
     profiles:
       - storage
     environment:
-      MINIO_ROOT_USER: ${KADMIN_MINIO_ACCESS_KEY:-kadmin_minio}
-      MINIO_ROOT_PASSWORD: ${KADMIN_MINIO_SECRET_KEY:-kadmin_minio_pwd}
+      MINIO_ROOT_USER: ${KADMIN_MINIO_ACCESS_KEY:?Set KADMIN_MINIO_ACCESS_KEY in .env}
+      MINIO_ROOT_PASSWORD: ${KADMIN_MINIO_SECRET_KEY:?Set KADMIN_MINIO_SECRET_KEY in .env}
       MINIO_BUCKET: ${KADMIN_MINIO_BUCKET:-kadmin}
     entrypoint:
       - /bin/sh
@@ -100,7 +100,7 @@ services:
     profiles:
       - tools
     ports:
-      - "${KADMIN_ADMINER_PORT:-18080}:8080"
+      - "${KADMIN_ADMINER_BIND_IP:-127.0.0.1}:${KADMIN_ADMINER_PORT:-18080}:8080"
     networks:
       - backend
     depends_on:

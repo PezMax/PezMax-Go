@@ -57,8 +57,11 @@ func run() error {
 	if err := loadEnvironment(".env"); err != nil {
 		return fmt.Errorf("加载根目录 .env 失败: %w", err)
 	}
+	if err := validateCredentials(); err != nil {
+		return err
+	}
 
-	debug := getenvBool("KADMIN_APP_DEBUG", true)
+	debug := getenvBool("KADMIN_APP_DEBUG", false)
 	// Swagger 默认停用（接口文档不对外暴露），需要时显式 KADMIN_SWAGGER_ENABLED=true 开启。
 	swaggerEnabled := getenvBool("KADMIN_SWAGGER_ENABLED", false)
 	if debug {
@@ -74,7 +77,7 @@ func run() error {
 	// 资源、Swagger 与 JSON API 一并生效；详见 internal/kadmin/gzip.go。
 	r.Use(kadmin.GzipMiddleware())
 	e := engine.Default()
-	addr := ":" + getenv("KADMIN_APP_PORT", "9033")
+	addr := net.JoinHostPort(getenv("KADMIN_APP_HOST", "127.0.0.1"), getenv("KADMIN_APP_PORT", "9033"))
 
 	// ③ 配置
 	cfg := config.Config{
@@ -84,7 +87,7 @@ func run() error {
 				Host:            getenv("KADMIN_DB_HOST", "127.0.0.1"),
 				Port:            getenv("KADMIN_DB_PORT", "15432"),
 				User:            getenv("KADMIN_DB_USER", "postgres"),
-				Pwd:             getenv("KADMIN_DB_PASSWORD", "kadmin_dev_pwd"),
+				Pwd:             os.Getenv("KADMIN_DB_PASSWORD"),
 				Name:            getenv("KADMIN_DB_NAME", "kadmin"),
 				Driver:          config.DriverPostgresql,
 				MaxIdleConns:    50,
@@ -277,13 +280,32 @@ func getenvBool(key string, fallback bool) bool {
 	}
 }
 
+func validateCredentials() error {
+	for _, key := range []string{"KADMIN_DB_PASSWORD", "KADMIN_REDIS_PASSWORD"} {
+		if strings.TrimSpace(os.Getenv(key)) == "" {
+			return fmt.Errorf("必须配置 %s", key)
+		}
+	}
+	if len(os.Getenv("KADMIN_JWT_SECRET")) < 32 {
+		return errors.New("KADMIN_JWT_SECRET 必须至少 32 字节")
+	}
+	if getenvBool("KADMIN_MINIO_ENABLED", false) {
+		for _, key := range []string{"KADMIN_MINIO_ACCESS_KEY", "KADMIN_MINIO_SECRET_KEY"} {
+			if strings.TrimSpace(os.Getenv(key)) == "" {
+				return fmt.Errorf("启用 MinIO 时必须配置 %s", key)
+			}
+		}
+	}
+	return nil
+}
+
 func minioConfig() map[string]interface{} {
 	return map[string]interface{}{
 		"enabled":           getenvBool("KADMIN_MINIO_ENABLED", false),
 		"endpoint":          getenv("KADMIN_MINIO_ENDPOINT", "127.0.0.1:19000"),
 		"internal_endpoint": getenv("KADMIN_MINIO_INTERNAL_ENDPOINT", "minio:9000"),
-		"access_key":        getenv("KADMIN_MINIO_ACCESS_KEY", "kadmin_minio"),
-		"secret_key":        getenv("KADMIN_MINIO_SECRET_KEY", "kadmin_minio_pwd"),
+		"access_key":        os.Getenv("KADMIN_MINIO_ACCESS_KEY"),
+		"secret_key":        os.Getenv("KADMIN_MINIO_SECRET_KEY"),
 		"bucket":            getenv("KADMIN_MINIO_BUCKET", "kadmin"),
 		"use_ssl":           getenvBool("KADMIN_MINIO_USE_SSL", false),
 	}
