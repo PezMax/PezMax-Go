@@ -220,15 +220,21 @@ func (r *datumUserRepo) findByUserID(userID int64) (*datumUser, error) {
 	return r.scanUser(rows[0]), nil
 }
 
-func (r *datumUserRepo) create(userName, passwordHash, avatar string) (int64, error) {
-	rows, err := r.conn.Query(`INSERT INTO ptmj_user (user_name, password, avatar, status, count, create_time, update_time)
-		VALUES (?, ?, ?, '1', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING user_id`,
-		strings.TrimSpace(userName), passwordHash, avatar)
+func (r *datumUserRepo) createWithSecurity(userName, passwordHash, avatar, question, answer string) (int64, error) {
+	rows, err := r.conn.Query(`WITH created_user AS (
+		INSERT INTO ptmj_user (user_name, password, avatar, status, count, create_time, update_time)
+		VALUES (?, ?, ?, '1', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING user_id
+	), created_security AS (
+		INSERT INTO ptmj_security (user_id, question, answer, create_time, update_time)
+		SELECT user_id, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM created_user RETURNING user_id
+	)
+	SELECT user_id FROM created_security`,
+		strings.TrimSpace(userName), passwordHash, avatar, question, answer)
 	if err != nil {
 		return 0, err
 	}
 	if len(rows) == 0 {
-		return 0, errors.New("ptmj_user insert returned no id")
+		return 0, errors.New("registration insert returned no id")
 	}
 	return toDatumInt64(rows[0]["user_id"]), nil
 }
@@ -281,12 +287,6 @@ func (r *datumUserRepo) securityRow(userID int64) (question, answer string, foun
 		return "", "", false, nil
 	}
 	return toDatumString(rows[0]["question"]), toDatumString(rows[0]["answer"]), true, nil
-}
-
-func (r *datumUserRepo) createSecurity(userID int64, question, answer string) error {
-	_, err := r.conn.Exec(`INSERT INTO ptmj_security (user_id, question, answer, create_time, update_time)
-		VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, userID, question, answer)
-	return err
 }
 
 func toDatumInt64(value interface{}) int64 {
@@ -640,23 +640,19 @@ func (s *Store) datumRegister(c *gin.Context) {
 		answerHashes = append(answerHashes, hash)
 	}
 
-	userID, err := repo.create(req.Username, passwordHash, strings.TrimSpace(req.Avatar))
-	if err != nil {
-		if strings.Contains(err.Error(), "duplicate key") {
-			fail(c, http.StatusConflict, "用户名已存在，请更换后重试")
-			return
-		}
-		fail(c, http.StatusInternalServerError, "注册失败")
-		return
-	}
 	question := strings.Join([]string{
 		strings.TrimSpace(req.SecurityQuestionOne),
 		strings.TrimSpace(req.SecurityQuestionTwo),
 		strings.TrimSpace(req.SecurityQuestionThree),
 	}, "|")
 	answer := strings.Join(answerHashes, "|")
-	if err := repo.createSecurity(userID, question, answer); err != nil {
-		fail(c, http.StatusInternalServerError, "注册失败：密保初始化失败")
+	userID, err := repo.createWithSecurity(req.Username, passwordHash, strings.TrimSpace(req.Avatar), question, answer)
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key") {
+			fail(c, http.StatusConflict, "用户名已存在，请更换后重试")
+			return
+		}
+		fail(c, http.StatusInternalServerError, "注册失败")
 		return
 	}
 	success(c, gin.H{"userId": userID})

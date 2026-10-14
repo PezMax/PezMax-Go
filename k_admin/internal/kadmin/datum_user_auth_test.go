@@ -45,6 +45,7 @@ type fakeDatumDB struct {
 	nextDownloadID    int64
 	nextID            int64
 	seedSeq           int
+	securityInsertErr error
 }
 
 func newFakeDatumDB() *fakeDatumDB {
@@ -118,6 +119,19 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	switch {
+	case strings.Contains(query, "WITH created_user AS"):
+		userName := toDatumString(args[0])
+		if _, exists := f.users[strings.ToLower(userName)]; exists {
+			return nil, errFakeDuplicateKey
+		}
+		if f.securityInsertErr != nil {
+			return nil, f.securityInsertErr
+		}
+		f.nextID++
+		user := &datumUser{UserID: f.nextID, UserName: userName, Password: toDatumString(args[1]), Avatar: toDatumString(args[2]), Status: "1"}
+		f.users[strings.ToLower(userName)] = user
+		f.security[user.UserID] = [2]string{toDatumString(args[3]), toDatumString(args[4])}
+		return []map[string]interface{}{{"user_id": user.UserID}}, nil
 	case strings.Contains(query, "INSERT INTO ptmj_user") && strings.Contains(query, "remark"):
 		// createAdmin：携带 status/count/remark 的管理端建号
 		userName := toDatumString(args[0])
@@ -1362,6 +1376,25 @@ func TestDatumRegisterCreatesUserAndSecurity(t *testing.T) {
 	recorder = datumJSON(t, engine, http.MethodPost, "/datum/user/register", "", payload)
 	if recorder.Code != http.StatusConflict {
 		t.Fatalf("duplicate status = %d body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestDatumRegisterDoesNotLeaveUserWhenSecurityInsertFails(t *testing.T) {
+	store, db := newDatumAuthStore(t, nil)
+	db.securityInsertErr = errors.New("security insert failed")
+	seedDatumCaptcha(t, store, "cap-reg-fail")
+	response := datumJSON(t, datumEngine(t, store), http.MethodPost, "/datum/user/register", "", map[string]string{
+		"username": "bob", "password": "pass123", "confirmPassword": "pass123",
+		"securityQuestionOne": "q1", "securityAnswerOne": "a1",
+		"securityQuestionTwo": "q2", "securityAnswerTwo": "a2",
+		"securityQuestionThree": "q3", "securityAnswerThree": "a3",
+		"code": "123456", "uuid": "cap-reg-fail",
+	})
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("register status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if db.users["bob"] != nil || len(db.security) != 0 {
+		t.Fatal("failed registration left account or security data")
 	}
 }
 
