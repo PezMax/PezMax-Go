@@ -17,6 +17,25 @@ func TestSystemConfigPathUsesProjectRoot(t *testing.T) {
 	}
 }
 
+func TestDefaultAdminFallbackRequiresConfiguredPassword(t *testing.T) {
+	if got := defaultSystemConfigValues()["auth.default_password"]; got != "" {
+		t.Fatalf("default admin fallback password = %q, want empty", got)
+	}
+	t.Setenv(systemConfigPathEnv, filepath.Join(t.TempDir(), "system_config.json"))
+	store := &Store{}
+	if _, ok := store.checkConfiguredDefaultAdmin("admin", ""); ok {
+		t.Fatal("empty default admin password must not authenticate")
+	}
+	values := defaultSystemConfigValues()
+	values["auth.default_password"] = "admin"
+	if err := store.writeSystemConfig(values); err != nil {
+		t.Fatalf("write legacy default admin password: %v", err)
+	}
+	if _, ok := store.checkConfiguredDefaultAdmin("admin", "admin"); ok {
+		t.Fatal("legacy default admin password must not authenticate")
+	}
+}
+
 func TestSystemConfigRelativeEnvironmentPathUsesProjectRoot(t *testing.T) {
 	root := systemConfigProjectRoot()
 	want := filepath.Join(root, "custom", "settings.json")
