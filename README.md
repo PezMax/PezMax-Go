@@ -329,8 +329,8 @@ Compose 的 app 服务**不读取宿主机的 `k_admin/.env`**，而是使用根
 # 默认仅启动 PostgreSQL、Redis、MinIO 和建桶任务
 docker compose up -d
 
-# 构建并启动 Go 应用；自动等待依赖服务就绪
-docker compose --profile app up -d --build kadmin
+# 构建并启动 Go 应用与 Web 管理端；自动等待依赖服务就绪
+docker compose --profile app up -d --build kadmin admin-web
 
 # 查看后端状态与日志
 docker compose --profile app ps -a
@@ -341,14 +341,14 @@ docker compose logs --tail 100 kadmin
 
 默认对外应用端口为 9033，可通过 `PEZMAX_APP_PORT` 修改。`PEZMAX_MINIO_PUBLIC_BASE` 必须设置为**客户端机器也能访问**的地址；跨机器部署时不能保留 `127.0.0.1`。
 
-此 Compose 不构建或托管 Web 后台，也不分发桌面安装包。Web 后台需单独构建并由静态服务器托管；生产环境关闭 Go 调试模式时，在 Compose override 的 `services.kadmin.environment` 中加入 `KADMIN_APP_DEBUG: "false"`。
+Compose 同时托管 Web 管理端，默认使用与 Go 后端相同的绑定地址和 `18088` 端口，`/api` 反代到 Go 服务。桌面安装包仍需单独分发。生产环境关闭 Go 调试模式时，在 Compose override 的 `services.kadmin.environment` 中加入 `KADMIN_APP_DEBUG: "false"`。`Luminous` 的自动验证和部署见 [CI/CD 说明](./deploy/cd/README.md)。
 
 ### 可选 Nginx edge
 
 后端也在 Compose 中运行时：
 
 ```powershell
-docker compose --profile app --profile edge up -d --build kadmin edge
+docker compose --profile app --profile edge up -d --build kadmin admin-web edge
 ```
 
 默认代理 `kadmin:9033`，客户端可改为访问 `http://服务器地址:8080`。如果后端通过宿主机 `go run .` 运行，在根目录 `.env` 设置：
@@ -371,7 +371,7 @@ docker compose --profile edge up -d edge
 | `KADMIN_EDGE_DL_RATE_LOW` | `640k` | 4 个及以上时，每下载连接速率 |
 | `KADMIN_EDGE_DL_MAXCONN` | `16` | 下载总并发上限，另有每 IP 1 个下载连接限制 |
 
-限速作用于 `/datum/download/`，涵盖资料与电子书下载，单位按 Nginx 的字节/秒解释。该方案是按连接分档的软约束，**没有跨连接全局令牌桶，也没有 CDN / proxy_cache 缓存**。直接连接 9033 或对象存储不会经过 edge 的下载限流。
+下载分档作用于 `/datum/download/`，单位按 Nginx 的字节/秒解释；edge 容器另以 `tc` TBF 共享出口预算限制所有响应流量，默认 `8mbit`。直接连接 9033 或对象存储不会经过 edge 的限流，详见 [出口带宽说明](./deploy/README.md)。
 
 修改 edge 环境参数后重新执行 `docker compose --profile edge up -d edge`，使容器重建并应用模板。公网入口的 HTTPS 需由部署环境另行配置。
 
@@ -447,7 +447,7 @@ corepack pnpm build
 
 产物位于 `k_admin/admin-web/apps/web-antd/dist/`。用 Nginx 等静态服务器部署，并配置 SPA 路由回退与 `/api` 到 Go 后端的代理。上文 `VITE_GLOB_API_URL=/api` 适合前后端同域部署。
 
-子项目 `scripts/deploy/Dockerfile` 仍含 `playground/dist` 的模板路径，不能直接作为当前 Web 后台的完整部署流程；使用前需要改为实际产物目录并配置 API 代理。
+仓库级 Compose 使用 `k_admin/admin-web/Dockerfile` 构建生产镜像并配置 `/api` 代理。子项目原有的 `scripts/deploy/Dockerfile` 是上游模板，不用于本项目部署。
 
 ### 桌面应用
 

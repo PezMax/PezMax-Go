@@ -97,6 +97,14 @@ services:
     build:
       context: ./k_admin
       dockerfile: Dockerfile.app
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+      args:
+        HTTP_PROXY: ${PEZMAX_BUILD_PROXY:-}
+        HTTPS_PROXY: ${PEZMAX_BUILD_PROXY:-}
+        http_proxy: ${PEZMAX_BUILD_PROXY:-}
+        https_proxy: ${PEZMAX_BUILD_PROXY:-}
+    image: pezmax-go-kadmin:${PEZMAX_RELEASE_SHA:-local}
     container_name: pezmax-go-kadmin
     restart: unless-stopped
     profiles:
@@ -136,6 +144,29 @@ services:
       minio-init:
         condition: service_completed_successfully
 
+  admin-web:
+    build:
+      context: ./k_admin/admin-web
+      dockerfile: Dockerfile
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+      args:
+        HTTP_PROXY: ${PEZMAX_BUILD_PROXY:-}
+        HTTPS_PROXY: ${PEZMAX_BUILD_PROXY:-}
+        http_proxy: ${PEZMAX_BUILD_PROXY:-}
+        https_proxy: ${PEZMAX_BUILD_PROXY:-}
+    image: pezmax-go-admin-web:${PEZMAX_RELEASE_SHA:-local}
+    container_name: pezmax-go-admin-web
+    restart: unless-stopped
+    profiles:
+      - app
+    ports:
+      - "${PEZMAX_APP_BIND_IP:-127.0.0.1}:${PEZMAX_ADMIN_WEB_PORT:-18088}:80"
+    networks:
+      - backend
+    depends_on:
+      - kadmin
+
   # Nginx 边缘反代（可选）：出站 gzip + 大文件下载限并发/限速。
   # 上行受限的主机建议启用：docker compose --profile edge up -d edge
   # 后端在宿主机直跑（Go 直跑）时，把 KADMIN_EDGE_UPSTREAM 改为
@@ -145,9 +176,15 @@ services:
     build:
       context: ./deploy
       dockerfile: Dockerfile.edge
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
       args:
         ALPINE_MIRROR: ${KADMIN_EDGE_APK_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}
-    image: pezmax-go-edge:local
+        HTTP_PROXY: ${PEZMAX_BUILD_PROXY:-}
+        HTTPS_PROXY: ${PEZMAX_BUILD_PROXY:-}
+        http_proxy: ${PEZMAX_BUILD_PROXY:-}
+        https_proxy: ${PEZMAX_BUILD_PROXY:-}
+    image: pezmax-go-edge:${PEZMAX_RELEASE_SHA:-local}
     container_name: pezmax-go-edge
     restart: unless-stopped
     profiles:
