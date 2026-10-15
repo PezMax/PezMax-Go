@@ -14,7 +14,14 @@ RUN CGO_ENABLED=0 go build -trimpath -o /out/k_admin .
 # ---------- 运行阶段 ----------
 # writer 负责 doc/docx，impress 负责 ppt/pptx；Noto CJK 保证中文文档转档不缺字。
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ARG DEBIAN_MIRROR=
+RUN if [ -n "$DEBIAN_MIRROR" ]; then \
+        sed -i "s|http://deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+    fi \
+    && env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+        apt-get -o Acquire::Retries=5 update \
+    && env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+        apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
         ca-certificates \
         libreoffice-writer \
         libreoffice-impress \

@@ -40,7 +40,9 @@ sudo systemctl start pezmax-cd.service
 The server's bundled `/usr/local/bin/git` lacks HTTPS support, so the poller
 uses `/usr/bin/git` and `PEZMAX_GIT_PROXY` (default
 `http://127.0.0.1:7890`). The service unit sets `PEZMAX_BUILD_PROXY` to
-`http://host.docker.internal:7890` for Docker build steps. The build needs
+`http://host.docker.internal:7890` for Docker build steps and
+`PEZMAX_DEBIAN_MIRROR` to the directly reachable Aliyun Debian mirror. Apt
+still validates signed Debian repository metadata and package hashes. The build needs
 Docker Compose v2, Python 3,
 `curl`, `tar`, `flock`, and adequate disk space. The admin site is exposed on
 port `18088` at the same bind address as the Go API; override the port with

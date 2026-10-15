@@ -100,6 +100,7 @@ services:
       extra_hosts:
         - "host.docker.internal:host-gateway"
       args:
+        DEBIAN_MIRROR: ${PEZMAX_DEBIAN_MIRROR:-}
         HTTP_PROXY: ${PEZMAX_BUILD_PROXY:-}
         HTTPS_PROXY: ${PEZMAX_BUILD_PROXY:-}
         http_proxy: ${PEZMAX_BUILD_PROXY:-}
