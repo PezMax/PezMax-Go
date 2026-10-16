@@ -10,12 +10,15 @@
 
       <transition name="view-fade" mode="out-in">
         <template v-if="activeView === 'rank'">
-          <RankView />
+          <div class="loading-region rank-loading-region">
+            <RankView />
+            <GlobalLoader :visible="isAppLoading" :text="appLoadingText" />
+          </div>
         </template>
 
         <template v-else>
           <!-- 包装一个容器让 transition 能正确处理平级组件 -->
-          <div ref="rootRef" class="ide-main-content-wrapper">
+          <div ref="rootRef" class="ide-main-content-wrapper loading-region">
             <SidePanel
               :active-view="activeView"
               :width="panelWidth"
@@ -54,6 +57,7 @@
               @report-bookmark="openBookmarkReportDialog"
               @toggle-favorite="toggleFavorite"
             />
+            <GlobalLoader :visible="isAppLoading" :text="appLoadingText" />
           </div>
         </template>
       </transition>
@@ -85,8 +89,6 @@
     <SettingsModal v-model="settingsVisible" />
     <DonateModal v-model="donateVisible" />
 
-    <!-- 全局美观加载动画 -->
-    <GlobalLoader :visible="isAppLoading" :text="appLoadingText" />
     <ReportFileDialog
       v-model="reportDialogVisible"
       :file-info="reportFileInfo"
@@ -1739,6 +1741,16 @@ html.dark.has-custom-bg {
   display: flex;
   overflow: hidden;
   gap: 8px; /* 继承原来的间距 */
+}
+.loading-region {
+  position: relative;
+}
+
+.rank-loading-region {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
 }
 
 /* 页面切换的丝滑过渡动画 */
