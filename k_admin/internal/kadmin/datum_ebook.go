@@ -361,14 +361,14 @@ var datumEbookTypeNames = map[int64]string{1: "教材", 2: "教辅/参考书", 3
 // ptmj_user.count 排行榜计数器，由后台审核工作台（kind=ebook）通过/驳回。
 func (s *Store) datumEbookUpload(c *gin.Context) {
 	userID, _ := datumUserIDFrom(c)
-	file, err := c.FormFile("file")
-	if err != nil {
-		fail(c, http.StatusBadRequest, "文件不能为空")
-		return
-	}
 	maxBytes := int(datumUploadMaxBytesDef >> 20)
 	if parsed, err := strconv.Atoi(strings.TrimSpace(os.Getenv(datumUploadMaxMBKey))); err == nil && parsed > 0 && parsed <= 4096 {
 		maxBytes = parsed
+	}
+	file, ok := datumMultipartFile(c, int64(maxBytes)<<20, "文件不能为空")
+	defer cleanupDatumMultipart(c)
+	if !ok {
+		return
 	}
 	if file.Size <= 0 || file.Size > int64(maxBytes)<<20 {
 		fail(c, http.StatusBadRequest, fmt.Sprintf("文件过大：不能超过 %dMB", maxBytes))
@@ -380,11 +380,6 @@ func (s *Store) datumEbookUpload(c *gin.Context) {
 		return
 	}
 	defer opened.Close()
-	body, err := io.ReadAll(io.LimitReader(opened, file.Size+1))
-	if err != nil || int64(len(body)) != file.Size {
-		fail(c, http.StatusBadRequest, "文件读取失败")
-		return
-	}
 
 	ebookName := strings.TrimSpace(c.PostForm("ebookName"))
 	if ebookName == "" {
@@ -432,7 +427,7 @@ func (s *Store) datumEbookUpload(c *gin.Context) {
 	}
 	baseName := strings.TrimSuffix(path.Base(ebookName), path.Ext(ebookName))
 	objectKey := path.Join("ebook", subject, fmt.Sprintf("%s_%s.%s", baseName, unique, ext))
-	ebookURL, err := datumFilePut(c.Request.Context(), objectKey, body, contentType)
+	ebookURL, err := datumFilePut(c.Request.Context(), objectKey, opened, file.Size, contentType)
 	if err != nil {
 		log.Printf("datum ebook storage put failed: %v", err)
 		fail(c, http.StatusServiceUnavailable, "文件存储暂不可用，请稍后重试")
@@ -441,10 +436,11 @@ func (s *Store) datumEbookUpload(c *gin.Context) {
 
 	ebookID, err := datum.NewEbookRepo(s.conn).Insert(datum.EbookPayload{
 		UserID: userID, EbookName: ebookName, Author: author, Publisher: publisher,
-		EbookURL: ebookURL, EbookSize: int64(len(body)), EbookFormat: ext,
+		EbookURL: ebookURL, EbookSize: file.Size, EbookFormat: ext,
 		EbookSubject: subject, EbookType: ebookType,
 	})
 	if err != nil {
+		cleanupDatumObject(objectKey)
 		fail(c, http.StatusInternalServerError, "上传失败")
 		return
 	}

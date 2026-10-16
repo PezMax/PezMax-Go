@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/datum"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/convert"
@@ -43,6 +42,7 @@ const (
 	datumFileStateTTLKey    = "KADMIN_DATUM_STATE_TTL"
 	datumUploadMaxMBKey     = "KADMIN_DATUM_UPLOAD_MAX_MB"
 	datumMinioPublicBaseKey = "KADMIN_MINIO_PUBLIC_BASE"
+	datumTextPreviewMaxSize = 10 << 20
 )
 
 var datumFileTypeNames = map[int64]string{
@@ -214,7 +214,7 @@ func (s *Store) registerDatumFileRoutes(datumGroup *gin.RouterGroup) {
 }
 
 // datumFileGet dispatches the read-only file routes:
-// /list /tree /subjects /schools /schools/check /search /{fileId}
+// /list /tree /subjects /schools /schools/check /search /content /{fileId}
 func (s *Store) datumFileGet(c *gin.Context) {
 	rest := strings.Trim(c.Param("rest"), "/")
 	switch {
@@ -230,6 +230,8 @@ func (s *Store) datumFileGet(c *gin.Context) {
 		s.datumFileSchoolCheck(c)
 	case rest == "search":
 		s.datumFileSearch(c)
+	case rest == "content":
+		s.datumFileTextContent(c)
 	default:
 		if fileID, err := strconv.ParseInt(rest, 10, 64); err == nil && fileID > 0 {
 			c.Params = append(c.Params, gin.Param{Key: "fileId", Value: rest})
@@ -571,6 +573,58 @@ func (s *Store) datumTokenOwns(c *gin.Context, ownerID int64) bool {
 	return ok && userID == ownerID
 }
 
+func (s *Store) datumFileTextContent(c *gin.Context) {
+	fileID := toDatumInt64(c.Query("fileId"))
+	if fileID <= 0 {
+		fail(c, http.StatusBadRequest, "文件 ID 不能为空")
+		return
+	}
+	file, found, err := datum.NewFileRepo(s.conn).FindByID(fileID)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "文件查询失败")
+		return
+	}
+	if !found || (file.FileStatus != 1 && !s.datumTokenOwns(c, file.UserID)) {
+		fail(c, http.StatusNotFound, "文件不存在或已删除")
+		return
+	}
+	if file.FileFormat != "txt" && file.FileFormat != "md" {
+		fail(c, http.StatusBadRequest, "仅支持文本文件预览")
+		return
+	}
+	if file.FileSize > datumTextPreviewMaxSize {
+		fail(c, http.StatusRequestEntityTooLarge, "文本文件过大，无法预览")
+		return
+	}
+	bucket, objectKey, err := fileurl.Parse(file.FileURL)
+	if err != nil {
+		fail(c, http.StatusNotFound, "文件内容不可用")
+		return
+	}
+	body, info, err := openDatumObject(c.Request.Context(), bucket, objectKey)
+	if err != nil {
+		fail(c, http.StatusNotFound, "文件内容不可用")
+		return
+	}
+	defer body.Close()
+	if info.Size > datumTextPreviewMaxSize {
+		fail(c, http.StatusRequestEntityTooLarge, "文本文件过大，无法预览")
+		return
+	}
+	content, err := io.ReadAll(io.LimitReader(body, datumTextPreviewMaxSize+1))
+	if err != nil {
+		fail(c, http.StatusServiceUnavailable, "文件读取失败")
+		return
+	}
+	if len(content) > datumTextPreviewMaxSize {
+		fail(c, http.StatusRequestEntityTooLarge, "文本文件过大，无法预览")
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Data(http.StatusOK, "text/plain; charset=utf-8", content)
+}
+
 func (s *Store) datumUserRank(c *gin.Context) {
 	entry, _, err := s.stateStore().load(s.rankStateKey(), s.computeDatumRank)
 	if err != nil {
@@ -610,38 +664,66 @@ var datumAllowedExts = map[string]bool{
 	"epub": true, "mobi": true, "azw3": true,
 }
 
-// datumFilePut stores bytes and returns the public URL; swappable in tests.
-var datumFilePut = func(ctx context.Context, objectKey string, body []byte, contentType string) (string, error) {
-	minio := storage.NewMinio(storage.MinioConfig{
+func datumObjectStore() *storage.Minio {
+	return storage.NewMinio(storage.MinioConfig{
 		Endpoints: []string{datumEnv("KADMIN_MINIO_ENDPOINT", "127.0.0.1:19000"), datumEnv("KADMIN_MINIO_INTERNAL_ENDPOINT", "minio:9000")},
-		AccessKey: datumEnv("KADMIN_MINIO_ACCESS_KEY", "kadmin_minio"),
-		SecretKey: datumEnv("KADMIN_MINIO_SECRET_KEY", "kadmin_minio_pwd"),
+		AccessKey: datumEnv("KADMIN_MINIO_ACCESS_KEY", ""),
+		SecretKey: datumEnv("KADMIN_MINIO_SECRET_KEY", ""),
 		Bucket:    datumEnv("KADMIN_MINIO_BUCKET", "kadmin"),
 		UseSSL:    datumEnvBool("KADMIN_MINIO_USE_SSL"),
 		Region:    datumEnv("KADMIN_MINIO_REGION", "us-east-1"),
 		Timeout:   10 * time.Second,
 	})
-	if err := minio.Put(ctx, objectKey, bytes.NewReader(body), int64(len(body)), contentType); err != nil {
+}
+
+// datumFilePut streams an object and returns its public URL; swappable in tests.
+var datumFilePut = func(ctx context.Context, objectKey string, body io.Reader, size int64, contentType string) (string, error) {
+	minio := datumObjectStore()
+	if err := minio.Put(ctx, objectKey, body, size, contentType); err != nil {
 		return "", err
 	}
 	bucket := datumEnv("KADMIN_MINIO_BUCKET", "kadmin")
 	builder, err := fileurl.NewBuilder(bucket, datumEnv(datumMinioPublicBaseKey, datumMinioFallbackBase()))
 	if err != nil {
+		cleanupDatumObject(objectKey)
 		return "", err
 	}
-	return builder.ObjectURL(objectKey)
+	url, err := builder.ObjectURL(objectKey)
+	if err != nil {
+		cleanupDatumObject(objectKey)
+	}
+	return url, err
+}
+
+var datumFileDeleteObject = func(ctx context.Context, objectKey string) error {
+	return datumObjectStore().Delete(ctx, objectKey)
+}
+
+func cleanupDatumObject(objectKey string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := datumFileDeleteObject(ctx, objectKey); err != nil {
+		log.Printf("datum uploaded object cleanup failed: %v", err)
+	}
+}
+
+func (s *Store) fileConverter() *convert.Converter {
+	s.converterOnce.Do(func() {
+		s.datumConverter = convert.New(convert.ConfigFromEnv(datumEnv))
+	})
+	return s.datumConverter
 }
 
 func (s *Store) datumFileUpload(c *gin.Context) {
 	userID, _ := datumUserIDFrom(c)
-	file, err := c.FormFile("file")
-	if err != nil {
-		fail(c, http.StatusBadRequest, "文件不能为空")
-		return
-	}
 	maxBytes := int(datumUploadMaxBytesDef >> 20)
 	if parsed, err := strconv.Atoi(strings.TrimSpace(os.Getenv(datumUploadMaxMBKey))); err == nil && parsed > 0 && parsed <= 4096 {
 		maxBytes = parsed
+	}
+	file, ok := datumMultipartFile(c, int64(maxBytes)<<20, "文件不能为空")
+	defer cleanupDatumMultipart(c)
+	if !ok {
+		return
 	}
 	if file.Size <= 0 || file.Size > int64(maxBytes)<<20 {
 		fail(c, http.StatusBadRequest, fmt.Sprintf("文件过大：不能超过 %dMB", maxBytes))
@@ -653,11 +735,6 @@ func (s *Store) datumFileUpload(c *gin.Context) {
 		return
 	}
 	defer opened.Close()
-	body, err := io.ReadAll(io.LimitReader(opened, file.Size+1))
-	if err != nil || int64(len(body)) != file.Size {
-		fail(c, http.StatusBadRequest, "文件读取失败")
-		return
-	}
 
 	fileName := strings.TrimSpace(c.PostForm("fileName"))
 	if fileName == "" {
@@ -705,14 +782,28 @@ func (s *Store) datumFileUpload(c *gin.Context) {
 		contentType = mimeByExt(ext)
 	}
 	if ext == "txt" || ext == "md" {
-		if !utf8.Valid(body) {
+		valid, err := validDatumUTF8(opened)
+		if err != nil {
+			fail(c, http.StatusBadRequest, "文件读取失败")
+			return
+		}
+		if !valid {
 			fail(c, http.StatusBadRequest, "文本文件仅支持 UTF-8 编码")
 			return
 		}
+		if _, err := opened.Seek(0, io.SeekStart); err != nil {
+			fail(c, http.StatusBadRequest, "文件读取失败")
+			return
+		}
 	}
+	var body io.Reader = opened
+	storedSize := file.Size
 	if datumConvertExts[ext] {
-		converter := convert.New(convert.ConfigFromEnv(datumEnv))
-		pdf, err := converter.ToPDF(c.Request.Context(), fileName, bytes.NewReader(body))
+		if file.Size > datumUploadMaxBytesDef {
+			fail(c, http.StatusRequestEntityTooLarge, "转档文件不能超过 200MB")
+			return
+		}
+		pdf, err := s.fileConverter().ToPDF(c.Request.Context(), fileName, opened)
 		if err != nil {
 			if errors.Is(err, convert.ErrUnavailable) {
 				fail(c, http.StatusServiceUnavailable, "转档服务不可用，暂时无法上传该格式，请稍后重试")
@@ -721,7 +812,8 @@ func (s *Store) datumFileUpload(c *gin.Context) {
 			}
 			return
 		}
-		body = pdf
+		body = bytes.NewReader(pdf)
+		storedSize = int64(len(pdf))
 		ext = "pdf"
 		contentType = "application/pdf"
 	}
@@ -743,7 +835,7 @@ func (s *Store) datumFileUpload(c *gin.Context) {
 	objectSegments = append(objectSegments, baseName+"_"+unique+"."+ext)
 	objectKey := path.Join(objectSegments...)
 
-	fileURL, err := datumFilePut(c.Request.Context(), objectKey, body, contentType)
+	fileURL, err := datumFilePut(c.Request.Context(), objectKey, body, storedSize, contentType)
 	if err != nil {
 		log.Printf("datum file storage put failed: %v", err)
 		fail(c, http.StatusServiceUnavailable, "文件存储暂不可用，请稍后重试")
@@ -752,11 +844,12 @@ func (s *Store) datumFileUpload(c *gin.Context) {
 
 	repo := datum.NewFileRepo(s.conn)
 	fileID, err := repo.Insert(datum.FilePayload{
-		UserID: userID, FileName: fileName, FileURL: fileURL, FileSize: int64(len(body)),
+		UserID: userID, FileName: fileName, FileURL: fileURL, FileSize: storedSize,
 		FileFormat: ext, FileYear: year, FileType: fileType, FileSchool: school,
 		FileSubject: subject, FileStatus: 0, Remark: folderPath,
 	})
 	if err != nil {
+		cleanupDatumObject(objectKey)
 		fail(c, http.StatusInternalServerError, "上传失败")
 		return
 	}

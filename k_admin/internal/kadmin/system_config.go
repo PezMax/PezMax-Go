@@ -68,7 +68,7 @@ var systemConfigMetas = []systemConfigMeta{
 		Key:         "auth.default_password",
 		Label:       "默认密码",
 		Type:        "password",
-		Default:     "admin",
+		Default:     "",
 		Description: "本地默认管理员密码",
 		Order:       20,
 	},
@@ -232,7 +232,7 @@ func (s *Store) checkConfiguredDefaultAdmin(username, password string) (models.U
 
 	configUsername := strings.TrimSpace(values["auth.default_username"])
 	configPassword := values["auth.default_password"]
-	if configUsername == "" || username != configUsername || password != configPassword {
+	if configUsername == "" || configPassword == "" || configPassword == "admin" || username != configUsername || password != configPassword {
 		return models.User(), false
 	}
 

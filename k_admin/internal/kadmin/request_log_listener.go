@@ -312,7 +312,7 @@ func sensitiveLogField(field string) bool {
 		}
 		return -1
 	}, field)
-	for _, keyword := range []string{"password", "passwd", "token", "authorization", "cookie", "secret", "apikey", "captcha", "content"} {
+	for _, keyword := range []string{"password", "passwd", "token", "authorization", "cookie", "secret", "apikey", "captcha", "content", "answer"} {
 		if strings.Contains(normalized, keyword) {
 			return true
 		}

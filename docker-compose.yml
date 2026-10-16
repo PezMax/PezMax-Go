@@ -8,11 +8,11 @@ services:
     environment:
       POSTGRES_DB: ${PEZMAX_DB_NAME:-pezmax}
       POSTGRES_USER: ${PEZMAX_DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${PEZMAX_DB_PASSWORD:-pezmax_dev_pwd}
+      POSTGRES_PASSWORD: ${PEZMAX_DB_PASSWORD:?Set PEZMAX_DB_PASSWORD in .env}
       TZ: Asia/Shanghai
       PGTZ: Asia/Shanghai
     ports:
-      - "${PEZMAX_DB_PORT:-25432}:5432"
+      - "${PEZMAX_DB_BIND_IP:-127.0.0.1}:${PEZMAX_DB_PORT:-25432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./k_admin/tests/data/admin_pg.sql:/docker-entrypoint-initdb.d/10-admin_pg.sql:ro
@@ -31,15 +31,15 @@ services:
     container_name: pezmax-go-redis
     restart: unless-stopped
     environment:
-      PEZMAX_REDIS_PASSWORD: ${PEZMAX_REDIS_PASSWORD:-pezmax_redis_pwd}
+      PEZMAX_REDIS_PASSWORD: ${PEZMAX_REDIS_PASSWORD:?Set PEZMAX_REDIS_PASSWORD in .env}
     command:
       - redis-server
       - --appendonly
       - "yes"
       - --requirepass
-      - ${PEZMAX_REDIS_PASSWORD:-pezmax_redis_pwd}
+      - ${PEZMAX_REDIS_PASSWORD:?Set PEZMAX_REDIS_PASSWORD in .env}
     ports:
-      - "${PEZMAX_REDIS_PORT:-26379}:6379"
+      - "${PEZMAX_REDIS_BIND_IP:-127.0.0.1}:${PEZMAX_REDIS_PORT:-26379}:6379"
     volumes:
       - redis_data:/data
     networks:
@@ -56,8 +56,8 @@ services:
     container_name: pezmax-go-minio
     restart: unless-stopped
     environment:
-      MINIO_ROOT_USER: ${PEZMAX_MINIO_ACCESS_KEY:-pezmax_minio}
-      MINIO_ROOT_PASSWORD: ${PEZMAX_MINIO_SECRET_KEY:-pezmax_minio_pwd}
+      MINIO_ROOT_USER: ${PEZMAX_MINIO_ACCESS_KEY:?Set PEZMAX_MINIO_ACCESS_KEY in .env}
+      MINIO_ROOT_PASSWORD: ${PEZMAX_MINIO_SECRET_KEY:?Set PEZMAX_MINIO_SECRET_KEY in .env}
       TZ: Asia/Shanghai
     command:
       - server
@@ -65,8 +65,8 @@ services:
       - --console-address
       - ":9001"
     ports:
-      - "${PEZMAX_MINIO_API_PORT:-29000}:9000"
-      - "${PEZMAX_MINIO_CONSOLE_PORT:-29001}:9001"
+      - "${PEZMAX_MINIO_BIND_IP:-127.0.0.1}:${PEZMAX_MINIO_API_PORT:-29000}:9000"
+      - "${PEZMAX_MINIO_BIND_IP:-127.0.0.1}:${PEZMAX_MINIO_CONSOLE_PORT:-29001}:9001"
     volumes:
       - minio_data:/data
     networks:
@@ -76,8 +76,8 @@ services:
     image: minio/minio:latest
     container_name: pezmax-go-minio-init
     environment:
-      MINIO_ROOT_USER: ${PEZMAX_MINIO_ACCESS_KEY:-pezmax_minio}
-      MINIO_ROOT_PASSWORD: ${PEZMAX_MINIO_SECRET_KEY:-pezmax_minio_pwd}
+      MINIO_ROOT_USER: ${PEZMAX_MINIO_ACCESS_KEY:?Set PEZMAX_MINIO_ACCESS_KEY in .env}
+      MINIO_ROOT_PASSWORD: ${PEZMAX_MINIO_SECRET_KEY:?Set PEZMAX_MINIO_SECRET_KEY in .env}
       MINIO_BUCKET: ${PEZMAX_MINIO_BUCKET:-ptmj}
     entrypoint:
       - /bin/sh
@@ -97,6 +97,15 @@ services:
     build:
       context: ./k_admin
       dockerfile: Dockerfile.app
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+      args:
+        DEBIAN_MIRROR: ${PEZMAX_DEBIAN_MIRROR:-}
+        HTTP_PROXY: ${PEZMAX_BUILD_PROXY:-}
+        HTTPS_PROXY: ${PEZMAX_BUILD_PROXY:-}
+        http_proxy: ${PEZMAX_BUILD_PROXY:-}
+        https_proxy: ${PEZMAX_BUILD_PROXY:-}
+    image: pezmax-go-kadmin:${PEZMAX_RELEASE_SHA:-local}
     container_name: pezmax-go-kadmin
     restart: unless-stopped
     profiles:
@@ -106,23 +115,24 @@ services:
       KADMIN_DB_PORT: "5432"
       KADMIN_DB_NAME: ${PEZMAX_DB_NAME:-pezmax}
       KADMIN_DB_USER: ${PEZMAX_DB_USER:-postgres}
-      KADMIN_DB_PASSWORD: ${PEZMAX_DB_PASSWORD:-pezmax_dev_pwd}
+      KADMIN_DB_PASSWORD: ${PEZMAX_DB_PASSWORD:?Set PEZMAX_DB_PASSWORD in .env}
       KADMIN_REDIS_HOST: redis
       KADMIN_REDIS_PORT: "6379"
-      KADMIN_REDIS_PASSWORD: ${PEZMAX_REDIS_PASSWORD:-pezmax_redis_pwd}
-      KADMIN_JWT_SECRET: ${KADMIN_JWT_SECRET:-8kF2xPqL9mN4vR7wJ1bY6tH3zA0c}
+      KADMIN_REDIS_PASSWORD: ${PEZMAX_REDIS_PASSWORD:?Set PEZMAX_REDIS_PASSWORD in .env}
+      KADMIN_JWT_SECRET: ${KADMIN_JWT_SECRET:?Set KADMIN_JWT_SECRET in .env}
+      KADMIN_APP_HOST: "0.0.0.0"
       KADMIN_APP_PORT: "9033"
       KADMIN_MINIO_ENABLED: "true"
       KADMIN_MINIO_ENDPOINT: http://minio:9000
       KADMIN_MINIO_INTERNAL_ENDPOINT: http://minio:9000
       KADMIN_MINIO_PUBLIC_BASE: ${PEZMAX_MINIO_PUBLIC_BASE:-http://127.0.0.1:29000}
-      KADMIN_MINIO_ACCESS_KEY: ${PEZMAX_MINIO_ACCESS_KEY:-pezmax_minio}
-      KADMIN_MINIO_SECRET_KEY: ${PEZMAX_MINIO_SECRET_KEY:-pezmax_minio_pwd}
+      KADMIN_MINIO_ACCESS_KEY: ${PEZMAX_MINIO_ACCESS_KEY:?Set PEZMAX_MINIO_ACCESS_KEY in .env}
+      KADMIN_MINIO_SECRET_KEY: ${PEZMAX_MINIO_SECRET_KEY:?Set PEZMAX_MINIO_SECRET_KEY in .env}
       KADMIN_MINIO_BUCKET: ${PEZMAX_MINIO_BUCKET:-ptmj}
       KADMIN_DATUM_SESSION_TTL: 120h
       TZ: Asia/Shanghai
     ports:
-      - "${PEZMAX_APP_PORT:-9033}:9033"
+      - "${PEZMAX_APP_BIND_IP:-127.0.0.1}:${PEZMAX_APP_PORT:-9033}:9033"
     volumes:
       - kadmin_uploads:/app/uploads
     networks:
@@ -135,6 +145,29 @@ services:
       minio-init:
         condition: service_completed_successfully
 
+  admin-web:
+    build:
+      context: ./k_admin/admin-web
+      dockerfile: Dockerfile
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+      args:
+        HTTP_PROXY: ${PEZMAX_BUILD_PROXY:-}
+        HTTPS_PROXY: ${PEZMAX_BUILD_PROXY:-}
+        http_proxy: ${PEZMAX_BUILD_PROXY:-}
+        https_proxy: ${PEZMAX_BUILD_PROXY:-}
+    image: pezmax-go-admin-web:${PEZMAX_RELEASE_SHA:-local}
+    container_name: pezmax-go-admin-web
+    restart: unless-stopped
+    profiles:
+      - app
+    ports:
+      - "${PEZMAX_APP_BIND_IP:-127.0.0.1}:${PEZMAX_ADMIN_WEB_PORT:-18088}:80"
+    networks:
+      - backend
+    depends_on:
+      - kadmin
+
   # Nginx 边缘反代（可选）：出站 gzip + 大文件下载限并发/限速。
   # 上行受限的主机建议启用：docker compose --profile edge up -d edge
   # 后端在宿主机直跑（Go 直跑）时，把 KADMIN_EDGE_UPSTREAM 改为
@@ -144,9 +177,15 @@ services:
     build:
       context: ./deploy
       dockerfile: Dockerfile.edge
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
       args:
         ALPINE_MIRROR: ${KADMIN_EDGE_APK_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}
-    image: pezmax-go-edge:local
+        HTTP_PROXY: ${PEZMAX_BUILD_PROXY:-}
+        HTTPS_PROXY: ${PEZMAX_BUILD_PROXY:-}
+        http_proxy: ${PEZMAX_BUILD_PROXY:-}
+        https_proxy: ${PEZMAX_BUILD_PROXY:-}
+    image: pezmax-go-edge:${PEZMAX_RELEASE_SHA:-local}
     container_name: pezmax-go-edge
     restart: unless-stopped
     profiles:

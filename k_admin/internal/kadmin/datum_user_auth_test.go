@@ -45,6 +45,7 @@ type fakeDatumDB struct {
 	nextDownloadID    int64
 	nextID            int64
 	seedSeq           int
+	securityInsertErr error
 }
 
 func newFakeDatumDB() *fakeDatumDB {
@@ -118,6 +119,19 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	switch {
+	case strings.Contains(query, "WITH created_user AS"):
+		userName := toDatumString(args[0])
+		if _, exists := f.users[strings.ToLower(userName)]; exists {
+			return nil, errFakeDuplicateKey
+		}
+		if f.securityInsertErr != nil {
+			return nil, f.securityInsertErr
+		}
+		f.nextID++
+		user := &datumUser{UserID: f.nextID, UserName: userName, Password: toDatumString(args[1]), Avatar: toDatumString(args[2]), Status: "1"}
+		f.users[strings.ToLower(userName)] = user
+		f.security[user.UserID] = [2]string{toDatumString(args[3]), toDatumString(args[4])}
+		return []map[string]interface{}{{"user_id": user.UserID}}, nil
 	case strings.Contains(query, "INSERT INTO ptmj_user") && strings.Contains(query, "remark"):
 		// createAdmin：携带 status/count/remark 的管理端建号
 		userName := toDatumString(args[0])
@@ -487,10 +501,17 @@ func (f *fakeDatumDB) Query(query string, args ...interface{}) ([]map[string]int
 	case strings.Contains(query, "status = '1' AND count > 0"):
 		rows := []map[string]interface{}{}
 		for _, user := range f.users {
-			if user.Status == "1" {
+			if user.Status == "1" && user.Count > 0 {
 				rows = append(rows, map[string]interface{}{"user_id": user.UserID, "user_name": user.UserName, "avatar": user.Avatar, "count": user.Count})
 			}
 		}
+		sort.Slice(rows, func(i, j int) bool {
+			left, right := toDatumInt64(rows[i]["count"]), toDatumInt64(rows[j]["count"])
+			if left != right {
+				return left > right
+			}
+			return toDatumInt64(rows[i]["user_id"]) < toDatumInt64(rows[j]["user_id"])
+		})
 		return rows, nil
 	case strings.Contains(query, "file_status = 1 AND del_flag = 0") && strings.Contains(query, "ORDER BY file_subject, file_school, file_type, file_year DESC, file_id"):
 		approved := []map[string]interface{}{}
@@ -1358,6 +1379,25 @@ func TestDatumRegisterCreatesUserAndSecurity(t *testing.T) {
 	}
 }
 
+func TestDatumRegisterDoesNotLeaveUserWhenSecurityInsertFails(t *testing.T) {
+	store, db := newDatumAuthStore(t, nil)
+	db.securityInsertErr = errors.New("security insert failed")
+	seedDatumCaptcha(t, store, "cap-reg-fail")
+	response := datumJSON(t, datumEngine(t, store), http.MethodPost, "/datum/user/register", "", map[string]string{
+		"username": "bob", "password": "pass123", "confirmPassword": "pass123",
+		"securityQuestionOne": "q1", "securityAnswerOne": "a1",
+		"securityQuestionTwo": "q2", "securityAnswerTwo": "a2",
+		"securityQuestionThree": "q3", "securityAnswerThree": "a3",
+		"code": "123456", "uuid": "cap-reg-fail",
+	})
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("register status = %d, body = %s", response.Code, response.Body.String())
+	}
+	if db.users["bob"] != nil || len(db.security) != 0 {
+		t.Fatal("failed registration left account or security data")
+	}
+}
+
 func TestDatumGetInfoAndLogout(t *testing.T) {
 	store, db := newDatumAuthStore(t, nil)
 	seedDatumUser(t, db, "alice", "secret5", "1", false)
@@ -1400,6 +1440,7 @@ func TestDatumPasswordRecoveryFlow(t *testing.T) {
 	store, db := newDatumAuthStore(t, nil)
 	seedDatumUser(t, db, "alice", "old-pass-1", "1", true)
 	engine := datumEngine(t, store)
+	previousToken := profileLogin(t, store, engine, "alice", "old-pass-1", "cap-login-before-reset")
 
 	// 第一步：验证码校验并返回密保问题，签发重置工单
 	seedDatumCaptcha(t, store, "cap-step1")
@@ -1423,6 +1464,9 @@ func TestDatumPasswordRecoveryFlow(t *testing.T) {
 	}
 	if verifyDatumSecret(db.users["alice"].Password, "old-pass-1") || !verifyDatumSecret(db.users["alice"].Password, "new-pass-9") {
 		t.Fatal("password was not updated")
+	}
+	if rec := datumJSON(t, engine, http.MethodGet, "/datum/user/getInfo", previousToken, nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("session after recovery = %d", rec.Code)
 	}
 
 	// 工单已被消费：重放同一请求 → 400

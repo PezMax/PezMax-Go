@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -131,9 +132,9 @@ func (s *Store) datumUpdateAvatar(c *gin.Context) {
 // service), points the account at the resulting URL and returns it.
 func (s *Store) datumUploadAvatar(c *gin.Context) {
 	userID, _ := datumUserIDFrom(c)
-	file, err := c.FormFile("file")
-	if err != nil {
-		fail(c, http.StatusBadRequest, "头像文件不能为空")
+	file, ok := datumMultipartFile(c, datumAvatarMaxSize, "头像文件不能为空")
+	defer cleanupDatumMultipart(c)
+	if !ok {
 		return
 	}
 	if file.Size <= 0 || file.Size > datumAvatarMaxSize {
@@ -177,6 +178,7 @@ func (s *Store) datumUploadAvatar(c *gin.Context) {
 		return
 	}
 	if err := (&datumUserRepo{conn: s.conn}).updateAvatar(userID, avatarURL); err != nil {
+		cleanupDatumAvatar(objectKey, storageName)
 		fail(c, http.StatusInternalServerError, "头像更新失败")
 		return
 	}
@@ -298,6 +300,7 @@ func (s *Store) datumGetSecurity(c *gin.Context) {
 
 type datumUpdateSecurityRequest struct {
 	datumSecurityAnswerSet
+	Password              string `json:"password"`
 	SecurityQuestionOne   string `json:"securityQuestionOne"`
 	SecurityQuestionTwo   string `json:"securityQuestionTwo"`
 	SecurityQuestionThree string `json:"securityQuestionThree"`
@@ -307,6 +310,15 @@ func (s *Store) datumUpdateSecurity(c *gin.Context) {
 	userID, _ := datumUserIDFrom(c)
 	var req datumUpdateSecurityRequest
 	_ = c.ShouldBind(&req)
+	user, err := (&datumUserRepo{conn: s.conn}).findByUserID(userID)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "账号查询失败")
+		return
+	}
+	if !verifyDatumSecret(user.Password, req.Password) {
+		fail(c, http.StatusBadRequest, "密码错误")
+		return
+	}
 	questions := []string{
 		strings.TrimSpace(req.SecurityQuestionOne),
 		strings.TrimSpace(req.SecurityQuestionTwo),
@@ -403,8 +415,8 @@ func putDatumAvatar(ctx context.Context, objectKey string, body []byte, contentT
 	if datumEnvBool("KADMIN_MINIO_ENABLED") {
 		minio := storage.NewMinio(storage.MinioConfig{
 			Endpoints: []string{datumEnv("KADMIN_MINIO_ENDPOINT", "127.0.0.1:19000"), datumEnv("KADMIN_MINIO_INTERNAL_ENDPOINT", "minio:9000")},
-			AccessKey: datumEnv("KADMIN_MINIO_ACCESS_KEY", "kadmin_minio"),
-			SecretKey: datumEnv("KADMIN_MINIO_SECRET_KEY", "kadmin_minio_pwd"),
+			AccessKey: datumEnv("KADMIN_MINIO_ACCESS_KEY", ""),
+			SecretKey: datumEnv("KADMIN_MINIO_SECRET_KEY", ""),
 			Bucket:    datumEnv("KADMIN_MINIO_BUCKET", "kadmin"),
 			UseSSL:    datumEnvBool("KADMIN_MINIO_USE_SSL"),
 			Region:    datumEnv("KADMIN_MINIO_REGION", "us-east-1"),
@@ -418,6 +430,7 @@ func putDatumAvatar(ctx context.Context, objectKey string, body []byte, contentT
 			}
 			// Stored remotely but the public base is unconfigured: fall
 			// through to the local copy so the returned URL is servable.
+			cleanupDatumObject(objectKey)
 		}
 	}
 	local := storage.NewLocal(datumEnv("KADMIN_DATUM_AVATAR_LOCAL_ROOT", datumAvatarLocalDir))
@@ -425,6 +438,18 @@ func putDatumAvatar(ctx context.Context, objectKey string, body []byte, contentT
 		return "", "", err
 	}
 	return "/api/uploads/" + storage.EscapePath(objectKey), "local", nil
+}
+
+func cleanupDatumAvatar(objectKey, storageName string) {
+	if storageName == "minio" {
+		cleanupDatumObject(objectKey)
+		return
+	}
+	if storageName == "local" {
+		if err := storage.NewLocal(datumEnv("KADMIN_DATUM_AVATAR_LOCAL_ROOT", datumAvatarLocalDir)).Delete(context.Background(), objectKey); err != nil {
+			log.Printf("datum avatar cleanup failed: %v", err)
+		}
+	}
 }
 
 func datumEnv(key, fallback string) string {

@@ -101,3 +101,33 @@ func TestLoadEnvironmentAllowsMissingFile(t *testing.T) {
 		t.Fatalf("missing environment file should be optional: %v", err)
 	}
 }
+
+func TestValidateCredentials(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		key      string
+		value    string
+		wantFail bool
+	}{
+		{name: "valid"},
+		{name: "missing database password", key: "KADMIN_DB_PASSWORD", wantFail: true},
+		{name: "missing redis password", key: "KADMIN_REDIS_PASSWORD", wantFail: true},
+		{name: "short jwt secret", key: "KADMIN_JWT_SECRET", value: "short", wantFail: true},
+		{name: "missing minio secret", key: "KADMIN_MINIO_SECRET_KEY", wantFail: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("KADMIN_DB_PASSWORD", "database-password")
+			t.Setenv("KADMIN_REDIS_PASSWORD", "redis-password")
+			t.Setenv("KADMIN_JWT_SECRET", strings.Repeat("x", 32))
+			t.Setenv("KADMIN_MINIO_ENABLED", "true")
+			t.Setenv("KADMIN_MINIO_ACCESS_KEY", "minio-user")
+			t.Setenv("KADMIN_MINIO_SECRET_KEY", "minio-password")
+			if test.key != "" {
+				t.Setenv(test.key, test.value)
+			}
+			if err := validateCredentials(); (err != nil) != test.wantFail {
+				t.Fatalf("validateCredentials() error = %v, want failure %v", err, test.wantFail)
+			}
+		})
+	}
+}

@@ -1,6 +1,7 @@
 package kadmin
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"log"
@@ -369,9 +370,9 @@ func (s *Store) datumBookmarkUploadCover(c *gin.Context) {
 		fail(c, http.StatusNotFound, "书签不存在或无权修改")
 		return
 	}
-	file, err := c.FormFile("file")
-	if err != nil {
-		fail(c, http.StatusBadRequest, "封面文件不能为空")
+	file, ok := datumMultipartFile(c, datumBookmarkCoverMaxBytes, "封面文件不能为空")
+	defer cleanupDatumMultipart(c)
+	if !ok {
 		return
 	}
 	if file.Size <= 0 || file.Size > datumBookmarkCoverMaxBytes {
@@ -410,13 +411,14 @@ func (s *Store) datumBookmarkUploadCover(c *gin.Context) {
 		return
 	}
 	objectKey := path.Join("bookmarks", strconv.FormatInt(bookmarkID, 10), time.Now().Format("20060102"), randomName+ext)
-	coverURL, err := datumFilePut(c.Request.Context(), objectKey, body, contentType)
+	coverURL, err := datumFilePut(c.Request.Context(), objectKey, bytes.NewReader(body), int64(len(body)), contentType)
 	if err != nil {
 		log.Printf("datum bookmark cover storage put failed: %v", err)
 		fail(c, http.StatusServiceUnavailable, "封面存储暂不可用，请稍后重试")
 		return
 	}
 	if err := repo.UpdateCover(bookmarkID, userID, coverURL); err != nil {
+		cleanupDatumObject(objectKey)
 		if errors.Is(err, datum.ErrNotFound) {
 			fail(c, http.StatusNotFound, "书签不存在或无权修改")
 			return

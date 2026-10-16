@@ -79,19 +79,20 @@ KAdmin 是一个前后端分离的后台管理项目。后端复用 [GoAdmin](ht
 
 ### 1. 启动依赖服务
 
-项目的本地默认值已经与 `docker-compose.yml` 对齐，可以直接启动 PostgreSQL 和 Redis：
-
-```powershell
-docker compose up -d postgres redis
-```
-
 根目录 `.env` 同时供 Docker Compose 与本地 Go 后端使用，可从模板创建：
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-`go run .` 会自动加载根目录 `.env`，但不会覆盖已由操作系统或启动命令注入的环境变量。未创建 `.env` 时继续使用代码和 Docker Compose 中的本地默认值；生产环境必须显式替换数据库密码、Redis 密码、`KADMIN_JWT_SECRET` 等敏感配置。
+在 `.env` 中填写数据库和 Redis 密码、至少 32 字节的随机 `KADMIN_JWT_SECRET`；启用 MinIO 时还要填写访问密钥。Compose 缺少相应凭据会拒绝启动，`go run .` 也会在缺少后端凭据时退出。`.env` 不应提交到仓库，曾使用旧示例凭据的部署应轮换密码和密钥。依赖服务默认仅绑定本机回环地址，需要远程直连时才设置对应的 `KADMIN_*_BIND_IP` 为可信私网 IP。
+
+```powershell
+docker compose up -d postgres redis
+```
+
+`go run .` 会自动加载根目录 `.env`，但不会覆盖已由操作系统或启动命令注入的环境变量。
+直跑后端默认监听 `127.0.0.1:9033`；仅在需要供可信网络或容器代理访问时设置 `KADMIN_APP_HOST` 为合适的地址，并配置防火墙。Compose 内的后端已显式监听容器网络。
 
 ### 2. 启动后端
 
@@ -112,7 +113,7 @@ go run .
 - Swagger 文档：`http://127.0.0.1:9033/swagger/index.html`
 - 根地址：`http://127.0.0.1:9033/`，会跳转到 `/admin`
 
-Swagger 默认在调试模式下启用，可通过进程环境变量显式控制：
+Swagger 默认关闭，可通过进程环境变量显式启用：
 
 ```powershell
 $env:KADMIN_SWAGGER_ENABLED = 'true'

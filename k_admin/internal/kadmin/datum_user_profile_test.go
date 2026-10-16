@@ -178,6 +178,7 @@ func TestDatumPasswordVerifyAndUpdate(t *testing.T) {
 	seedDatumUser(t, db, "alice", "secret5", "1", false)
 	engine := datumEngine(t, store)
 	token := profileLogin(t, store, engine, "alice", "secret5", "cap-1")
+	otherToken := profileLogin(t, store, engine, "alice", "secret5", "cap-2")
 
 	// 错误密码 → 400
 	recorder := datumJSON(t, engine, http.MethodPost, "/datum/desktop/user/profile/password/verify", token, map[string]string{"password": "wrong"})
@@ -209,10 +210,17 @@ func TestDatumPasswordVerifyAndUpdate(t *testing.T) {
 		t.Fatal("password hash not updated")
 	}
 
-	// 旧密码修改后不再有效
+	// 改密后所有旧会话都必须失效。
 	recorder = datumJSON(t, engine, http.MethodPost, "/datum/desktop/user/profile/password/verify", token, map[string]string{"password": "secret5"})
-	if recorder.Code != http.StatusBadRequest {
+	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("stale verify status = %d", recorder.Code)
+	}
+	if recorder = datumJSON(t, engine, http.MethodGet, "/datum/user/getInfo", otherToken, nil); recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("other session after password change = %d", recorder.Code)
+	}
+	newToken := profileLogin(t, store, engine, "alice", "brand-new-1", "cap-3")
+	if recorder = datumJSON(t, engine, http.MethodGet, "/datum/user/getInfo", newToken, nil); recorder.Code != http.StatusOK {
+		t.Fatalf("new session after password change = %d", recorder.Code)
 	}
 }
 
@@ -251,6 +259,15 @@ func TestDatumSecurityReadUpdateAndAnswerVerify(t *testing.T) {
 		"securityQuestionTwo": "新问题2", "securityAnswerTwo": "n2",
 		"securityQuestionThree": "新问题3", "securityAnswerThree": "n3",
 	})
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("security update without password = %d", recorder.Code)
+	}
+	recorder = datumJSON(t, engine, http.MethodPut, "/datum/desktop/user/profile/security", token, map[string]string{
+		"password":            "secret5",
+		"securityQuestionOne": "新问题1", "securityAnswerOne": "n1",
+		"securityQuestionTwo": "新问题2", "securityAnswerTwo": "n2",
+		"securityQuestionThree": "新问题3", "securityAnswerThree": "n3",
+	})
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("security update status = %d body %s", recorder.Code, recorder.Body.String())
 	}
@@ -274,8 +291,12 @@ func TestDatumSecurityReadUpdateAndAnswerVerify(t *testing.T) {
 	if !verifyDatumSecret(db.users["alice"].Password, "reset-by-sec-1") {
 		t.Fatal("password not reset")
 	}
+	if recorder = datumJSON(t, engine, http.MethodGet, "/datum/user/getInfo", token, nil); recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("session after security reset = %d", recorder.Code)
+	}
+	newToken := profileLogin(t, store, engine, "alice", "reset-by-sec-1", "cap-2")
 	// 错误答案 → 400
-	recorder = datumJSON(t, engine, http.MethodPut, "/datum/desktop/user/profile/password/by-security", token, map[string]string{
+	recorder = datumJSON(t, engine, http.MethodPut, "/datum/desktop/user/profile/password/by-security", newToken, map[string]string{
 		"securityAnswerOne": "bad", "securityAnswerTwo": "n2", "securityAnswerThree": "n3",
 		"newPassword": "another-new-1",
 	})

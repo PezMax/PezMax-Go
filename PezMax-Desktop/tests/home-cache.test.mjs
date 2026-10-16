@@ -5,6 +5,7 @@ import { createContext, SourceTextModule, SyntheticModule } from 'node:vm'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import * as Vue from 'vue'
 import * as VueRouter from 'vue-router'
+import { sortFileTree } from '../src/renderer/utils/fileTreeSort.mjs'
 
 // Use the real SFCs, router and Vue lifecycle with a DOM-free renderer. Child
 // views and backend/Electron APIs are isolated so this runs without a login.
@@ -178,6 +179,7 @@ async function createWorkspace({ treeResponses = [], initialTreeCache, realTreeU
             getStorageItem: sessionStorage.getItem,
             setStorageItem: sessionStorage.setItem
         },
+        '@/utils/fileTreeSort.mjs': { sortFileTree },
         '@/utils/url': { normalizeFileUrl: (url) => url },
         '@/utils/avatar': { normalizeAvatar: (avatar) => avatar },
         '@/utils/pagination': { fetchAllPages: (api) => api() },
@@ -616,9 +618,9 @@ test('switching files in an open drawer ignores the earlier pending detail respo
     })
     t.after(workspace.dispose)
     const panel = workspace.instances.get('SidePanel')
-    panel.emit('open-info', {}, panel.props.fileTreeData[0])
+    panel.emit('open-info', {}, panel.props.fileTreeData.find((node) => node.fileInfo.fileId === 42))
     await workspace.flush()
-    panel.emit('open-info', {}, panel.props.fileTreeData[1])
+    panel.emit('open-info', {}, panel.props.fileTreeData.find((node) => node.fileInfo.fileId === 43))
     await workspace.flush()
     resolveFirst({ code: 0, data: { fileId: 42, fileName: '过时详情.pdf', fileSchool: '过时大学' } })
     await workspace.flush()

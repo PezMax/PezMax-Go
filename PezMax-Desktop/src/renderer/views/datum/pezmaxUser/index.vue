@@ -599,6 +599,7 @@ const submitSecurityEdit = () => securityEditRef.value?.validate(async (valid) =
   savingSecurity.value = true
   try {
     await updateDesktopSecurity({
+      password: securityVerifyForm.password,
       securityQuestionOne: securityEditForm.securityQuestion1,
       securityAnswerOne: securityEditForm.securityAnswer1,
       securityQuestionTwo: securityEditForm.securityQuestion2,
@@ -641,8 +642,9 @@ const submitPasswordEdit = () => passwordEditRef.value?.validate(async (valid) =
     passwordVerifyForm.oldPassword = ''
     passwordEditForm.newPassword = ''
     passwordEditForm.confirmNewPassword = ''
-    activeSection.value = 'account'
-    ElMessage.success('密码已更新')
+    ElMessage.success('密码已更新，请重新登录')
+    await userStore.logOut()
+    router.push(PTMJ_AUTH_ROUTES.login)
   } finally {
     savingPassword.value = false
   }

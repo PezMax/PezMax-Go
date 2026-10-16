@@ -6,6 +6,15 @@ Run from `PezMax-Go` with Docker Desktop using Linux containers:
 pwsh -NoProfile -File ./deploy/tests/test-edge-egress.ps1
 ```
 
+On a Linux Docker host with the edge image already built, run:
+
+```sh
+EDGE_TEST_IMAGE=pezmax-go-edge:local bash ./deploy/tests/test-edge-egress.sh
+```
+
+The Linux script keeps its per-client logs and `tc` samples in the temporary
+directory printed at exit. It does not publish ports or modify the running edge.
+
 The script builds `deploy/Dockerfile.edge` into a unique temporary tag. To use
 an image that has already been built:
 

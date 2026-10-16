@@ -28,8 +28,8 @@ func loadFileStorageSettings() fileStorageSettings {
 		MinioEnabled:     envBool("KADMIN_MINIO_ENABLED", false),
 		Minio: storage.MinioConfig{
 			Endpoints:  uniqueStrings([]string{envString("KADMIN_MINIO_ENDPOINT", "127.0.0.1:19000"), envString("KADMIN_MINIO_INTERNAL_ENDPOINT", "minio:9000")}),
-			AccessKey:  envString("KADMIN_MINIO_ACCESS_KEY", "kadmin_minio"),
-			SecretKey:  envString("KADMIN_MINIO_SECRET_KEY", "kadmin_minio_pwd"),
+			AccessKey:  envString("KADMIN_MINIO_ACCESS_KEY", ""),
+			SecretKey:  envString("KADMIN_MINIO_SECRET_KEY", ""),
 			Bucket:     envString("KADMIN_MINIO_BUCKET", "kadmin"),
 			UseSSL:     envBool("KADMIN_MINIO_USE_SSL", false),
 			Region:     envString("KADMIN_MINIO_REGION", minioRegion),

@@ -224,12 +224,19 @@ function selectActiveResult() {
   }
 }
 
+function escapeHtml(text) {
+  return text.replace(/[&<>"']/g, char => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[char])
+}
+
 function highlightText(text) {
   if (!text) return ''
-  if (!search.value) return text
-  const keyword = escapeRegExp(search.value)
+  const escaped = escapeHtml(text)
+  if (!search.value) return escaped
+  const keyword = escapeRegExp(escapeHtml(search.value))
   const reg = new RegExp(`(${keyword})`, 'gi')
-  return text.replace(reg, '<span class="highlight">$1</span>')
+  return escaped.replace(reg, '<span class="highlight">$1</span>')
 }
 
 function escapeRegExp(str) {

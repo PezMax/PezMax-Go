@@ -35,6 +35,7 @@ const (
 	defaultBin         = "soffice"
 	defaultTimeout     = 2 * time.Minute
 	defaultConcurrency = 2
+	maxPDFBytes        = 200 << 20
 )
 
 type Config struct {
@@ -115,12 +116,17 @@ func (c *Converter) ToPDF(ctx context.Context, sourceName string, source io.Read
 	defer os.RemoveAll(workDir)
 
 	inputPath := filepath.Join(workDir, "source"+extension)
-	payload, err := io.ReadAll(source)
+	input, err := os.OpenFile(inputPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("stage conversion source: %w", err)
+	}
+	_, err = io.Copy(input, source)
+	closeErr := input.Close()
 	if err != nil {
 		return nil, fmt.Errorf("read conversion source: %w", err)
 	}
-	if err := os.WriteFile(inputPath, payload, 0o600); err != nil {
-		return nil, fmt.Errorf("stage conversion source: %w", err)
+	if closeErr != nil {
+		return nil, fmt.Errorf("stage conversion source: %w", closeErr)
 	}
 
 	select {
@@ -155,6 +161,9 @@ func (c *Converter) ToPDF(ctx context.Context, sourceName string, source io.Read
 	}
 
 	pdfPath := filepath.Join(workDir, "source.pdf")
+	if info, err := os.Stat(pdfPath); err == nil && info.Size() > maxPDFBytes {
+		return nil, fmt.Errorf("%w: PDF exceeds %d bytes", ErrConversionFailed, maxPDFBytes)
+	}
 	pdf, err := os.ReadFile(pdfPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: no PDF produced: %s", ErrConversionFailed, tail(output))

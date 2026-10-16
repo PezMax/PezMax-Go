@@ -28,7 +28,7 @@ func TestDatumDisabledUserRejectsExistingSessions(t *testing.T) {
 			tokens := make([]string, 2)
 			for i := range tokens {
 				var err error
-				tokens[i], _, err = store.datum.IssueSession(7)
+				tokens[i], _, err = store.datum.IssueSession(7, db.users["alice"].Password)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -69,7 +69,7 @@ func TestDatumDisabledUserRejectsExistingSessions(t *testing.T) {
 func TestDatumDeletedUserRejectsExistingSession(t *testing.T) {
 	store, db := newDatumAuthStore(t, nil)
 	seedDatumUser(t, db, "alice", "secret5", "1", false)
-	token, _, err := store.datum.IssueSession(7)
+	token, _, err := store.datum.IssueSession(7, db.users["alice"].Password)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func (d unavailableDatumAccountDB) Query(_ string, _ ...interface{}) ([]map[stri
 func TestDatumAccountLookupFailurePreservesSession(t *testing.T) {
 	store, db := newDatumAuthStore(t, nil)
 	seedDatumUser(t, db, "alice", "secret5", "1", false)
-	token, _, err := store.datum.IssueSession(7)
+	token, _, err := store.datum.IssueSession(7, db.users["alice"].Password)
 	if err != nil {
 		t.Fatal(err)
 	}
