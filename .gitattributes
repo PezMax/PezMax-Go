@@ -1,3 +1,6 @@
 # Shell scripts are run by Linux containers, including Windows checkouts.
 deploy/*.sh text eol=lf
 deploy/tests/*.sh text eol=lf
+deploy/cd/*.sh text eol=lf
+deploy/cd/*.service text eol=lf
+deploy/cd/*.timer text eol=lf

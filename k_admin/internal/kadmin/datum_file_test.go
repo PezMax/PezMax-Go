@@ -3,6 +3,7 @@ package kadmin
 import (
 	"bytes"
 	"context"
+	"io"
 
 	"mime/multipart"
 	"net/http"
@@ -140,8 +141,12 @@ func TestDatumFileUploadInvalidatesTreeAndCounts(t *testing.T) {
 	// 替换存储函数：记录 objectKey，返回固定 URL
 	var putKeys []string
 	originalPut := datumFilePut
-	datumFilePut = func(ctx context.Context, objectKey string, body []byte, contentType string) (string, error) {
+	datumFilePut = func(ctx context.Context, objectKey string, body io.Reader, size int64, contentType string) (string, error) {
 		putKeys = append(putKeys, objectKey)
+		data, err := io.ReadAll(body)
+		if err != nil || int64(len(data)) != size || string(data) != "hello 世界" {
+			t.Fatalf("stored file data = %q, size = %d, err = %v", data, size, err)
+		}
 		return "http://files.example.com/ptmj/" + objectKey, nil
 	}
 	defer func() { datumFilePut = originalPut }()

@@ -71,7 +71,7 @@ func newAuthServiceFromEnv() *authService {
 		refreshTTL: authDurationEnv("KADMIN_JWT_REFRESH_TTL", defaultRefreshTokenTTL),
 		secret: []byte(authStringEnv(
 			"KADMIN_JWT_SECRET",
-			"kadmin-vbenapi-dev-secret-change-me",
+			"",
 		)),
 	}
 }
@@ -87,7 +87,7 @@ func newAuthRedisClientFromEnv() *authRedisClient {
 	return &authRedisClient{
 		address:  address,
 		db:       authIntEnv("KADMIN_REDIS_DB", 0),
-		password: authStringEnv("KADMIN_REDIS_PASSWORD", "kadmin_redis_pwd"),
+		password: authStringEnv("KADMIN_REDIS_PASSWORD", ""),
 		timeout:  2 * time.Second,
 	}
 }

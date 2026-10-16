@@ -1,0 +1,12 @@
+[Unit]
+Description=Check PezMax Luminous CI for a deployable commit
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+RandomizedDelaySec=30s
+Persistent=true
+Unit=pezmax-cd.service
+
+[Install]
+WantedBy=timers.target

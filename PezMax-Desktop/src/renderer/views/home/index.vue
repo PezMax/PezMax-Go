@@ -149,6 +149,7 @@ import SidePanel from './components/SidePanel.vue'
 import MainEditor from './components/MainEditor.vue'
 import FileInfoDrawer from './components/FileInfoDrawer.vue'
 import SettingsModal from './components/SettingsModal.vue'
+import { sortFileTree } from '@/utils/fileTreeSort.mjs'
 import DonateModal from './components/DonateModal.vue'
 import RankView from '@/views/rank/index.vue'
 import { getFileTree } from '@/api/datum/file'
@@ -715,15 +716,16 @@ const fetchTreeData = async () => {
     const cachedHash = (cached && cached.hash) || ''
     if (cached && Array.isArray(cached.tree) && cached.tree.length > 0) {
       // 先展示本地缓存，界面立即可用；后台再校验哈希
-      allFileTreeData.value = cached.tree
-      fileTreeData.value = cached.tree
+      const sortedCache = sortFileTree(cached.tree)
+      allFileTreeData.value = sortedCache
+      fileTreeData.value = sortedCache
     }
     const res = await getFileTree(cachedHash ? { hash: cachedHash } : undefined)
     if (res.code === 200 || res.code === 0) {
       if (res.unchanged && Array.isArray(cached?.tree)) {
         return // 哈希一致：继续使用本地树
       }
-      const tree = formatTreeData(res.data)
+      const tree = sortFileTree(formatTreeData(res.data))
       allFileTreeData.value = tree
       fileTreeData.value = tree
       if (res.hash) {

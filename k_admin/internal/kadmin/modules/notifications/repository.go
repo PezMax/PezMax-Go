@@ -224,17 +224,19 @@ func toTimeString(value interface{}) string {
 		return ""
 	}
 	if parsed, ok := value.(time.Time); ok {
-		return parsed.In(time.Local).Format("2006-01-02 15:04:05")
+		return parsed.Format(time.RFC3339)
 	}
 	text := strings.TrimSpace(toString(value))
 	for _, layout := range []string{
 		time.RFC3339Nano,
 		"2006-01-02 15:04:05.999999999-07",
-		"2006-01-02 15:04:05",
 	} {
 		if parsed, err := time.Parse(layout, text); err == nil {
-			return parsed.In(time.Local).Format("2006-01-02 15:04:05")
+			return parsed.Format(time.RFC3339)
 		}
+	}
+	if parsed, err := time.ParseInLocation("2006-01-02 15:04:05", text, time.Local); err == nil {
+		return parsed.Format(time.RFC3339)
 	}
 	return text
 }

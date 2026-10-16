@@ -1,0 +1,85 @@
+name: PezMax CI
+
+on:
+  push:
+    branches: [main, Luminous]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TZ: Asia/Shanghai
+
+concurrency:
+  group: pezmax-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: k_admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: k_admin/go.mod
+          cache-dependency-path: k_admin/go.sum
+      - run: go test ./internal/kadmin/...
+      - run: go build -o /tmp/pezmax-kadmin .
+
+  admin-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: k_admin/admin-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable
+      - run: corepack pnpm install --frozen-lockfile
+      - run: corepack pnpm build
+
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: PezMax-Desktop
+    env:
+      npm_config_registry: https://registry.npmjs.org
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run test:system
+      - run: npm run build
+
+  images-and-egress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [backend, admin-web, desktop]
+    env:
+      PEZMAX_DB_PASSWORD: ci-only
+      PEZMAX_REDIS_PASSWORD: ci-only
+      PEZMAX_MINIO_ACCESS_KEY: ci-only
+      PEZMAX_MINIO_SECRET_KEY: ci-only
+      KADMIN_JWT_SECRET: ci-only
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n deploy/cd/deploy-luminous.sh deploy/tests/test-edge-egress.sh
+      - run: docker compose --profile app --profile edge config --quiet
+      - run: docker build -t pezmax-go-kadmin:ci -f k_admin/Dockerfile.app k_admin
+      - run: docker build -t pezmax-go-admin-web:ci -f k_admin/admin-web/Dockerfile k_admin/admin-web
+      - run: docker build -t pezmax-go-edge:ci -f deploy/Dockerfile.edge deploy
+      - run: docker pull nginx:1.27-alpine
+      - run: EDGE_TEST_IMAGE=pezmax-go-edge:ci bash deploy/tests/test-edge-egress.sh

@@ -145,10 +145,10 @@ func (s *Sampler) SetEnabled(enabled bool, updatedBy int64) (Status, error) {
 		s.mu.Unlock()
 		s.signal()
 	} else {
-		s.drain()
 		s.mu.Lock()
 		s.enabled = false
 		s.mu.Unlock()
+		s.drain()
 	}
 	return s.Status(), nil
 }
@@ -183,6 +183,10 @@ func (s *Sampler) Observe(event models.OperationLogEvent) {
 	}
 
 	s.mu.Lock()
+	if !s.enabled {
+		s.mu.Unlock()
+		return
+	}
 	key := metricKey{bucket: s.now().Truncate(bucketSize).Unix(), route: route, method: method, status: status}
 	aggregate := s.aggregates[key]
 	if aggregate == nil {
@@ -242,10 +246,19 @@ func (s *Sampler) signal() {
 // flush drains pending aggregates into the summary table and prunes expired
 // buckets. It only writes while sampling is enabled.
 func (s *Sampler) flush() {
-	if !s.isEnabled() {
+	s.mu.RLock()
+	enabled := s.enabled
+	hasPending := len(s.aggregates) > 0
+	s.mu.RUnlock()
+	if !enabled && !hasPending {
 		return
 	}
-	s.drain()
+	if !s.drain() {
+		return
+	}
+	if !enabled {
+		return
+	}
 	if err := s.buckets.PruneBefore(s.now().Add(-time.Duration(defaultRetentionDays) * 24 * time.Hour)); err != nil {
 		s.recordError(err)
 	}
@@ -257,13 +270,13 @@ func (s *Sampler) flush() {
 // drain swaps the pending aggregates out and writes them; it is used by both
 // the flush loop and SetEnabled(false) so no sampled data is lost on shutdown
 // or on disabling.
-func (s *Sampler) drain() {
+func (s *Sampler) drain() bool {
 	s.mu.Lock()
 	pending := s.aggregates
 	s.aggregates = make(map[metricKey]*metricAggregate)
 	s.mu.Unlock()
 	if len(pending) == 0 {
-		return
+		return true
 	}
 	for key, aggregate := range pending {
 		row := bucketAggregate{
@@ -276,10 +289,28 @@ func (s *Sampler) drain() {
 			maxDurationMs:   aggregate.maxDurationMs,
 		}
 		if err := s.buckets.UpsertBucket(time.Unix(key.bucket, 0).UTC(), row); err != nil {
+			s.mu.Lock()
+			for retryKey, retry := range pending {
+				current := s.aggregates[retryKey]
+				if current == nil {
+					copied := *retry
+					s.aggregates[retryKey] = &copied
+					continue
+				}
+				current.requestCount += retry.requestCount
+				current.errorCount += retry.errorCount
+				current.totalDurationMs += retry.totalDurationMs
+				if retry.maxDurationMs > current.maxDurationMs {
+					current.maxDurationMs = retry.maxDurationMs
+				}
+			}
+			s.mu.Unlock()
 			s.recordError(err)
-			return
+			return false
 		}
+		delete(pending, key)
 	}
+	return true
 }
 
 func (s *Sampler) recordError(err error) {

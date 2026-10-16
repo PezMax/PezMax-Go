@@ -1,0 +1,11 @@
+[Unit]
+Description=Deploy CI-verified PezMax Luminous commits
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+Environment=PEZMAX_BUILD_PROXY=http://host.docker.internal:7890
+Environment=PEZMAX_DEBIAN_MIRROR=http://mirrors.aliyun.com
+ExecStart=/usr/local/sbin/pezmax-cd
+TimeoutStartSec=45min

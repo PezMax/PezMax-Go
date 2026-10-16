@@ -24,7 +24,7 @@
         </div>
         <div class="notification-title">{{ title }}</div>
       </div>
-      <div class="notification-body" v-html="formattedContent"></div>
+      <div class="notification-body">{{ content }}</div>
       <!-- 操作按钮（仅在非通知中心打开时显示） -->
       <div v-if="!fromNotificationCenter" class="notification-buttons">
         <!-- 版本更新通知 -->
@@ -77,7 +77,6 @@ const isInMaintenancePeriod = computed(() => {
   return new Date() >= new Date(maintenanceStartTime.value)
 })
 
-const formattedContent = computed(() => content.value?.replace(/\n/g, '<br/>') || '')
 
 const canClose = computed(() => {
   if (notifyType.value === '1' && forceUpdate.value === '1') return false

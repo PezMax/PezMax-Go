@@ -14,6 +14,7 @@ import (
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/loginlogs"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/monitor"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/notifications"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/convert"
 	"github.com/GoAdminGroup/go-admin/modules/db"
 	"github.com/gin-gonic/gin"
 )
@@ -35,6 +36,8 @@ type Store struct {
 	loginLogs      *loginlogs.Manager
 	monitor        *monitor.Manager
 	loadRank       *loadrank.Sampler
+	datumConverter *convert.Converter
+	converterOnce  sync.Once
 }
 
 type Runtime struct {

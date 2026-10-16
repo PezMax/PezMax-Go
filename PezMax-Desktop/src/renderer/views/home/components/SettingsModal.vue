@@ -507,7 +507,7 @@
                       <div class="setting-item">
                         <div class="setting-info">
                           <span class="setting-label">清除本地缓存</span>
-                          <span class="setting-desc">释放磁盘空间，清理 HTTP 缓存、Cookies 与临时数据</span>
+                          <span class="setting-desc">清理 HTTP 缓存、文件树和排行榜临时数据，保留个人设置</span>
                         </div>
                         <el-button
                           type="danger"
@@ -593,6 +593,7 @@ import { Close, Setting, Monitor, Lock, InfoFilled, Check, WarningFilled, Downlo
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { applyIdeAccentColor, applyIdeThemeState, applyWorkspaceBackgroundSettings, resolveEditorVisibilityValue } from '@/utils/ideAppearance'
 import { getToken } from '@/utils/auth'
+import { clearApplicationCaches } from '@/utils/appCache.mjs'
 import logo from '@/assets/logo/logo.png'
 import UpdateCard from './UpdateCard.vue'
 
@@ -1032,7 +1033,7 @@ const isClearingCache = ref(false)
 const handleClearCache = async () => {
   try {
     await ElMessageBox.confirm(
-      '确定要清除本地缓存吗？这会清理 HTTP 缓存、Cookies 等临时数据，但会保留您的个性化设置。',
+      '确定要清除本地缓存吗？清理后页面会刷新，您的个性化设置会保留。',
       '提示',
       {
         confirmButtonText: '确定清理',
@@ -1045,17 +1046,14 @@ const handleClearCache = async () => {
 
     if (window.electronAPI && window.electronAPI.clearAppCache) {
       const res = await window.electronAPI.clearAppCache()
-      if (res.success) {
-        ElMessage.success('本地缓存已成功清理')
-      } else {
+      if (!res?.success) {
         ElMessage.error('清理失败: ' + (res.msg || '未知错误'))
+        return
       }
-    } else {
-      // 浏览器环境下的降级处理
-      localStorage.removeItem('processedNotifications')
-      // 注意：Web 环境下无法像 Electron 那样彻底清除缓存
-      ElMessage.success('本地临时数据已清理')
     }
+    clearApplicationCaches(localStorage, sessionStorage)
+    ElMessage.success('本地缓存已清理，正在刷新页面')
+    window.location.reload()
   } catch (error) {
     if (error !== 'cancel') {
       console.error('清除缓存异常:', error)
@@ -1064,29 +1062,26 @@ const handleClearCache = async () => {
   } finally {
     isClearingCache.value = false
   }
-  const scrollToUpdateCard = () => {
-    updateCardRef.value?.scrollIntoView({behavior: 'smooth', block: 'nearest'})
-  }
+}
+
+const scrollToUpdateCard = () => {
+  updateCardRef.value?.scrollIntoView({behavior: 'smooth', block: 'nearest'})
+}
 
 // 监听弹窗打开，初始化滑块位置
-  watch(() => props.modelValue, (newVal) => {
-    if (newVal) {
-      nextTick(() => {
-        // 找到 active 的 item 并初始化滑块
-        const activeIndex = navItems.findIndex(item => item.id === activeTab.value)
-        if (activeIndex !== -1 && navRef.value) {
-          const targetEls = navRef.value.querySelectorAll('.nav-item')
-          if (targetEls[activeIndex]) {
-            updateSlider(activeIndex, targetEls[activeIndex])
-          }
-        }
-      })
-    } else {
-      // 弹窗关闭时隐藏滑块避免闪烁
-      sliderStyle.opacity = 0
-    }
-  })
-}
+watch(() => props.modelValue, (newVal) => {
+  if (newVal) {
+    nextTick(() => {
+      const activeIndex = navItems.findIndex(item => item.id === activeTab.value)
+      if (activeIndex !== -1 && navRef.value) {
+        const targetEls = navRef.value.querySelectorAll('.nav-item')
+        if (targetEls[activeIndex]) updateSlider(activeIndex, targetEls[activeIndex])
+      }
+    })
+  } else {
+    sliderStyle.opacity = 0
+  }
+})
 </script>
 
 <style scoped lang="scss">

@@ -3,6 +3,7 @@ package kadmin
 import (
 	"bytes"
 	"context"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -301,7 +302,7 @@ func TestDatumBookmarkUploadCover(t *testing.T) {
 
 	var putKeys []string
 	originalPut := datumFilePut
-	datumFilePut = func(_ context.Context, objectKey string, _ []byte, _ string) (string, error) {
+	datumFilePut = func(_ context.Context, objectKey string, _ io.Reader, _ int64, _ string) (string, error) {
 		putKeys = append(putKeys, objectKey)
 		return "https://cdn.example.com/ptmj/" + objectKey, nil
 	}

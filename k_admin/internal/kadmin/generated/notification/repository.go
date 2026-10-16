@@ -280,7 +280,7 @@ func timeText(value interface{}) string {
 		return ""
 	}
 	if parsed, ok := value.(time.Time); ok {
-		return parsed.In(time.Local).Format("2006-01-02 15:04:05")
+		return parsed.Format("2006-01-02 15:04:05")
 	}
 	text := strings.TrimSpace(toString(value))
 	for _, layout := range []string{
@@ -289,7 +289,7 @@ func timeText(value interface{}) string {
 		"2006-01-02 15:04:05",
 	} {
 		if parsed, err := time.Parse(layout, text); err == nil {
-			return parsed.In(time.Local).Format("2006-01-02 15:04:05")
+			return parsed.Format("2006-01-02 15:04:05")
 		}
 	}
 	return text
