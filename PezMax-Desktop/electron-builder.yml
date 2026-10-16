@@ -16,7 +16,7 @@ win:
   # 发布时可用: npx electron-builder --win --publish always
   publish:
     - provider: generic
-      url: https://github.com/Torchman005/PezMax-Desktop/releases/latest/download
+      url: https://gh-proxy.com/https://github.com/PezMax/PezMax-Go/releases/latest/download
       channel: latest
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
@@ -40,7 +40,7 @@ mac:
   # macOS 更新发布目标（支持差分更新）
   publish:
     - provider: generic
-      url: https://github.com/Torchman005/PezMax-Desktop/releases/latest/download
+      url: https://gh-proxy.com/https://github.com/PezMax/PezMax-Go/releases/latest/download
       channel: latest
 dmg:
   artifactName: ${name}-${version}.${ext}
@@ -54,7 +54,7 @@ linux:
   # Linux 更新发布目标（AppImage 支持差分更新）
   publish:
     - provider: generic
-      url: https://github.com/Torchman005/PezMax-Desktop/releases/latest/download
+      url: https://gh-proxy.com/https://github.com/PezMax/PezMax-Go/releases/latest/download
       channel: latest
 appImage:
   artifactName: ${name}-${version}.${ext}
@@ -62,6 +62,6 @@ npmRebuild: false
 # 全局发布配置（兜底）- 指向 GitHub Releases 最新版本
 publish:
   provider: generic
-  url: https://github.com/Torchman005/PezMax-Desktop/releases/latest/download
+  url: https://gh-proxy.com/https://github.com/PezMax/PezMax-Go/releases/latest/download
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/
