@@ -124,3 +124,40 @@ func TestGzipMiddlewareSkipsSmallKnownLength(t *testing.T) {
 		t.Fatalf("body = %q, want %q", recorder.Body.String(), "ok")
 	}
 }
+
+func TestGzipMiddlewareNegotiatesEncodingQuality(t *testing.T) {
+	router := newGzipTestRouter(t)
+	for _, tc := range []struct {
+		name, encoding string
+		compressed     bool
+	}{
+		{"explicitly disabled", "gzip;q=0", false},
+		{"disabled despite wildcard", "gzip;q=0, *;q=1", false},
+		{"positive quality", "br, gzip;q=0.5", true},
+		{"wildcard", "br, *;q=0.5", true},
+		{"disabled wildcard", "*;q=0", false},
+		{"invalid quality", "gzip;q=invalid", false},
+		{"quality outside range", "gzip;q=2", false},
+		{"mixed casing", "GZIP; Q=0", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := doGzipRequest(t, router, "/text", map[string]string{"Accept-Encoding": tc.encoding})
+			if got := recorder.Header().Get("Content-Encoding") == "gzip"; got != tc.compressed {
+				t.Fatalf("Accept-Encoding %q: compressed = %v, want %v", tc.encoding, got, tc.compressed)
+			}
+			if !tc.compressed && recorder.Body.String() != strings.Repeat("a", 2048) {
+				t.Fatal("identity response should remain readable")
+			}
+		})
+	}
+}
+
+func TestGzipMiddlewareVariesIdentityResponses(t *testing.T) {
+	router := newGzipTestRouter(t)
+	for _, encoding := range []string{"", "identity", "gzip;q=0"} {
+		recorder := doGzipRequest(t, router, "/text", map[string]string{"Accept-Encoding": encoding})
+		if !strings.Contains(recorder.Header().Get("Vary"), "Accept-Encoding") {
+			t.Fatalf("Accept-Encoding %q: identity response must vary by Accept-Encoding", encoding)
+		}
+	}
+}

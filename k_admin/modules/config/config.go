@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -82,9 +83,12 @@ func (d Database) GetDSN() string {
 
 func (d Database) ParamStr() string {
 	p := ""
-	if d.Params == nil {
-		d.Params = make(map[string]string)
+	// Rendering a DSN must not mutate the caller's shared configuration map.
+	params := make(map[string]string, len(d.Params)+1)
+	for key, value := range d.Params {
+		params[key] = value
 	}
+	d.Params = params
 	if d.Driver == DriverMysql || d.Driver == DriverSqlite || d.Driver == DriverOceanBase {
 		if d.Driver == DriverMysql || d.Driver == DriverOceanBase {
 			if _, ok := d.Params["charset"]; !ok {
@@ -93,8 +97,8 @@ func (d Database) ParamStr() string {
 		}
 		if len(d.Params) > 0 {
 			p = "?"
-			for k, v := range d.Params {
-				p += k + "=" + v + "&"
+			for _, key := range sortedParamKeys(d.Params) {
+				p += key + "=" + d.Params[key] + "&"
 			}
 			p = p[:len(p)-1]
 		}
@@ -103,8 +107,8 @@ func (d Database) ParamStr() string {
 		if _, ok := d.Params["encrypt"]; !ok {
 			d.Params["encrypt"] = "disable"
 		}
-		for k, v := range d.Params {
-			p += k + "=" + v + ";"
+		for _, key := range sortedParamKeys(d.Params) {
+			p += key + "=" + d.Params[key] + ";"
 		}
 		p = p[:len(p)-1]
 	}
@@ -113,12 +117,21 @@ func (d Database) ParamStr() string {
 			d.Params["sslmode"] = "disable"
 		}
 		p = " "
-		for k, v := range d.Params {
-			p += k + "=" + v + " "
+		for _, key := range sortedParamKeys(d.Params) {
+			p += key + "=" + d.Params[key] + " "
 		}
 		p = p[:len(p)-1]
 	}
 	return p
+}
+
+func sortedParamKeys(params map[string]string) []string {
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // DatabaseList is a map of Database.
@@ -406,8 +419,7 @@ type Config struct {
 
 	URLFormat URLFormat `json:"url_format,omitempty" yaml:"url_format,omitempty" ini:"url_format,omitempty"`
 
-	prefix string       `json:"-" yaml:"-" ini:"-"`
-	lock   sync.RWMutex `json:"-" yaml:"-" ini:"-"`
+	prefix string `json:"-" yaml:"-" ini:"-"`
 }
 
 type Logger struct {
@@ -603,8 +615,8 @@ func (c *Config) PrefixFixSlash() string {
 
 func (c *Config) Copy() *Config {
 
-	c.lock.RLock()
-	defer c.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 
 	var (
 		newCfg   = new(Config)
@@ -634,8 +646,8 @@ func (c *Config) Copy() *Config {
 }
 
 func (c *Config) ToMap() map[string]string {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 
 	var (
 		m     = make(map[string]string)
@@ -713,8 +725,8 @@ func (c *Config) ToMap() map[string]string {
 }
 
 func (c *Config) Update(m map[string]string) error {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	configLock.Lock()
+	defer configLock.Unlock()
 	rType := reflect.TypeOf(c).Elem()
 	rVal := reflect.ValueOf(c).Elem()
 	for i := 0; i < rType.NumField(); i++ {
@@ -823,6 +835,10 @@ var (
 	_global        = new(Config)
 	count          uint32
 	initializeLock sync.Mutex
+	// Configuration readers return Config values. Keep synchronization outside
+	// those values so deserialization never copies a mutex. Configuration writes
+	// are infrequent; one shared lock also protects snapshots of the global state.
+	configLock sync.RWMutex
 )
 
 // ReadFromJson read the Config from a JSON file.
@@ -1020,9 +1036,8 @@ func PrefixFixSlash() string {
 
 // Get gets the config.
 func Get() *Config {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
-
+	// Copy holds the read lock. Taking it here again can deadlock if a writer
+	// becomes pending between the two read locks.
 	return _global.Copy().EraseSens()
 }
 
@@ -1041,258 +1056,258 @@ func GetDatabases() DatabaseList {
 }
 
 func GetDomain() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.Domain
 }
 
 func GetLanguage() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.Language
 }
 
 func GetAppID() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.AppID
 }
 
 func GetUrlPrefix() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.UrlPrefix
 }
 
 func GetOpenAdminApi() bool {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.OpenAdminApi
 }
 
 func GetAllowDelOperationLog() bool {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.AllowDelOperationLog
 }
 
 func GetOperationLogOff() bool {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.OperationLogOff
 }
 
 func GetCustom500HTML() template.HTML {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.Custom500HTML
 }
 
 func GetCustom404HTML() template.HTML {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.Custom404HTML
 }
 
 func GetCustom403HTML() template.HTML {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.Custom403HTML
 }
 
 func GetTheme() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.Theme
 }
 
 func GetStore() Store {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.Store
 }
 
 func GetTitle() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.Title
 }
 
 func GetAssetRootPath() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.AssetRootPath
 }
 
 func GetLogo() template.HTML {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.Logo
 }
 
 func GetSiteOff() bool {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.SiteOff
 }
 
 func GetMiniLogo() template.HTML {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.MiniLogo
 }
 
 func GetIndexUrl() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.IndexUrl
 }
 
 func GetLoginUrl() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.LoginUrl
 }
 
 func GetDebug() bool {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.Debug
 }
 
 func GetEnv() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.Env
 }
 
 func GetInfoLogPath() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.InfoLogPath
 }
 
 func GetErrorLogPath() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.ErrorLogPath
 }
 
 func GetAccessLogPath() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.AccessLogPath
 }
 
 func GetSqlLog() bool {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.SqlLog
 }
 
 func GetAccessLogOff() bool {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.AccessLogOff
 }
 func GetInfoLogOff() bool {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.InfoLogOff
 }
 func GetErrorLogOff() bool {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.ErrorLogOff
 }
 
 func GetColorScheme() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.ColorScheme
 }
 
 func GetSessionLifeTime() int {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.SessionLifeTime
 }
 
 func GetAssetUrl() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.AssetUrl
 }
 
 func GetFileUploadEngine() FileUploadEngine {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.FileUploadEngine
 }
 
 func GetCustomHeadHtml() template.HTML {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.CustomHeadHtml
 }
 
 func GetCustomFootHtml() template.HTML {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.CustomFootHtml
 }
 
 func GetFooterInfo() template.HTML {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.FooterInfo
 }
 
 func GetLoginTitle() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.LoginTitle
 }
 
 func GetLoginLogo() template.HTML {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.LoginLogo
 }
 
 func GetAuthUserTable() string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.AuthUserTable
 }
 
 func GetExtra() map[string]interface{} {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.Extra
 }
 
 func GetAnimation() PageAnimation {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.Animation
 }
 
 func GetNoLimitLoginIP() bool {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.NoLimitLoginIP
 }
 
 func GetHideVisitorUserCenterEntrance() bool {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.HideVisitorUserCenterEntrance
 }
 
 func GetExcludeThemeComponents() []string {
-	_global.lock.RLock()
-	defer _global.lock.RUnlock()
+	configLock.RLock()
+	defer configLock.RUnlock()
 	return _global.ExcludeThemeComponents
 }
 

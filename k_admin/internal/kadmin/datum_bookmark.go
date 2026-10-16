@@ -64,6 +64,10 @@ func (s *Store) datumBookmarkGet(c *gin.Context) {
 // ---------------------------------------------------------------------------
 
 func (s *Store) datumBookmarkList(c *gin.Context) {
+	userID, ok := s.datumOwnerListUser(c)
+	if !ok {
+		return
+	}
 	page, size := datumPageParams(c)
 	keyword := strings.TrimSpace(c.Query("keyword"))
 	if keyword == "" {
@@ -78,11 +82,9 @@ func (s *Store) datumBookmarkList(c *gin.Context) {
 		Collection:   c.Query("collection"),
 		URL:          c.Query("url"),
 		Keyword:      keyword,
-		// 与文件列表同例：匿名仅出已审核；带 userId 时出该用户全部状态（我的书签管理）
-		OnlyApproved: strings.TrimSpace(c.Query("userId")) == "",
-	}
-	if raw := strings.TrimSpace(c.Query("userId")); raw != "" {
-		filter.UserID = toDatumInt64(raw)
+		// 我的书签管理凭属主会话读取全部状态；公开目录只出已审核。
+		UserID:       userID,
+		OnlyApproved: userID == 0,
 	}
 	result, err := datum.NewBookmarkRepo(s.conn).List(filter)
 	if err != nil {

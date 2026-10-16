@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -310,6 +311,18 @@ func (h *handler) download(c *gin.Context) {
 // renderWithRegistry renders the module artifacts plus the shared registry
 // file that wires every generated module into the KAdmin API group.
 func (h *handler) renderWithRegistry(config TableConfig) ([]Artifact, error) {
+	if err := validateConfig(config); err != nil {
+		return nil, err
+	}
+	// Recheck the table rather than trusting editable imported column flags:
+	// legacy configs or a schema change must never collapse a composite key.
+	keys, err := h.introspector.primaryKeyColumns(config.TableName)
+	if err != nil {
+		return nil, err
+	}
+	if len(keys) > 1 {
+		return nil, fmt.Errorf("table %s has a composite primary key; safe CRUD generation currently requires a single primary key", config.TableName)
+	}
 	existing, err := h.repository.generatedModules()
 	if err != nil {
 		return nil, err

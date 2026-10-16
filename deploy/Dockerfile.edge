@@ -1,0 +1,22 @@
+FROM nginx:1.27-alpine
+
+ARG ALPINE_MIRROR=https://dl-cdn.alpinelinux.org/alpine
+
+# tc lives in Alpine's main repository; avoid downloading the unrelated
+# community index for this small runtime dependency.
+RUN grep '/main$' /etc/apk/repositories \
+        | sed "s|https://dl-cdn.alpinelinux.org/alpine|${ALPINE_MIRROR}|" > /tmp/edge-apk-repositories \
+    && apk --timeout 30 add --no-cache --repositories-file /tmp/edge-apk-repositories iproute2-tc \
+    && rm /tmp/edge-apk-repositories
+
+COPY 35-egress-limit.sh /docker-entrypoint.d/35-egress-limit.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.d/35-egress-limit.sh \
+    && chmod +x /docker-entrypoint.d/35-egress-limit.sh
+
+ENV KADMIN_EDGE_EGRESS_RATE=8mbit \
+    KADMIN_EDGE_EGRESS_BURST_BYTES=32768
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD tc qdisc show dev eth0 | grep -q '^qdisc tbf 1: root' \
+        && tc qdisc show dev eth0 | grep -q '^qdisc fq_codel 10: parent 1:1' \
+        && wget -q -O /dev/null http://127.0.0.1/stub_status

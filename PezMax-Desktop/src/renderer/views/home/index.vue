@@ -143,7 +143,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, watch } from 'vue'
 import ActivityBar from './components/ActivityBar.vue'
 import SidePanel from './components/SidePanel.vue'
 import MainEditor from './components/MainEditor.vue'
@@ -168,6 +168,8 @@ import { fetchAllPages } from '@/utils/pagination'
 import { Document } from '@element-plus/icons-vue'
 import { listFavorite, addFavorite, delFavorite } from '@/api/datum/favorite'
 import { listBookmarkFavorite, addBookmarkFavorite, delBookmarkFavorite } from '@/api/datum/bookmarkFavorite'
+
+defineOptions({ name: 'HomeWorkspace' })
 
 // const activeView = ref('explorer')
 // 状态管理
@@ -213,6 +215,17 @@ const favoriteFileIdList = computed(() => Array.from(favoriteFileIds.value))
 const favoriteBookmarkIdList = computed(() => Array.from(favoriteBookmarkIds.value))
 const favoriteEbookIdList = computed(() => Array.from(favoriteEbookIds.value))
 const favoriteLoadingFileIdList = computed(() => Array.from(favoriteLoadingIds.value))
+
+// 收藏页也能修改收藏；缓存期间直接同步事件，恢复主页时无需重新拉取列表。
+const handleFavoriteUpdated = ({ detail }) => {
+  if (!detail) return
+  const ids = detail.type === 'ebook' ? favoriteEbookIds.value
+    : detail.type === 'bookmark' ? favoriteBookmarkIds.value : favoriteFileIds.value
+  const id = detail.ebookId ?? detail.bookmarkId ?? detail.fileId
+  if (id === undefined || id === null || id === '') return
+  if (detail.favorited) ids.add(String(id))
+  else ids.delete(String(id))
+}
 
 // fxy 下载进度条相关状态
 const isDownloading = ref(false)
@@ -435,13 +448,13 @@ const getFileId = (file) => {
   if (isBookmarkItem(file)) return ''
   const source = file?.originalData || file
   // 按照优先级从各种可能的嵌套结构中寻找 ID
-  const id = source?.fileId ?? 
-             source?.id ?? 
-             source?.fileInfo?.fileId ?? 
-             source?.fileInfo?.id ?? 
-             source?.ptmjFile?.fileId ?? 
-             source?.ptmjFile?.id
-             
+  const id = source?.fileId ??
+             source?.fileInfo?.fileId ??
+             source?.ptmjFile?.fileId ??
+             source?.fileInfo?.id ??
+             source?.ptmjFile?.id ??
+             source?.id
+
   return id === undefined || id === null || id === '' ? '' : String(id)
 }
 
@@ -687,15 +700,18 @@ const handleNotificationAcknowledge = () => {
 }
 
 // lxq 获取并格式化后端返回的文件树
-// 哈希缓存：本地保存 {hash, tree}，请求携带 hash；服务端未变化时返回 unchanged，
+// 哈希缓存：本地保存 {version, hash, tree}，请求携带 hash；服务端未变化时返回 unchanged，
 // 直接复用本地树避免重新渲染，哈希变化（树内容更新）时才接收新数据。
 const TREE_CACHE_KEY = 'ptmj_file_tree_cache'
+const TREE_CACHE_VERSION = 2
 const fetchTreeData = async () => {
   try {
     let cached = null
     try {
       cached = JSON.parse(getStorageItem(TREE_CACHE_KEY) || 'null')
     } catch { cached = null }
+    // 旧缓存缺少叶子 fileInfo，不能继续用旧 hash 跳过重新格式化。
+    if (cached?.version !== TREE_CACHE_VERSION) cached = null
     const cachedHash = (cached && cached.hash) || ''
     if (cached && Array.isArray(cached.tree) && cached.tree.length > 0) {
       // 先展示本地缓存，界面立即可用；后台再校验哈希
@@ -711,7 +727,7 @@ const fetchTreeData = async () => {
       allFileTreeData.value = tree
       fileTreeData.value = tree
       if (res.hash) {
-        setStorageItem(TREE_CACHE_KEY, JSON.stringify({ hash: res.hash, tree }))
+        setStorageItem(TREE_CACHE_KEY, JSON.stringify({ version: TREE_CACHE_VERSION, hash: res.hash, tree }))
       }
     } else {
       ElMessage.error(res.msg || '获取文件树失败')
@@ -895,32 +911,33 @@ const openLocalPreview = async (files) => {
 }
 
 onMounted(async () => {
+  window.addEventListener('favorite-updated', handleFavoriteUpdated)
   isAppLoading.value = true
   appLoadingText.value = 'Synchronizing Space...'
 
   await fetchTreeData()
   await refreshFavoriteIds()
   await loadPopupNotifications()
+
+  setTimeout(() => {
+    isAppLoading.value = false
+  }, 400)
+})
+
+// 首次进入和缓存恢复时都处理跨页面预览，不重复执行工作区初始化。
+onActivated(() => {
   window.addEventListener('showNotification', handleShowNotification)
-  // 本地文件拖放预览（窗口级，上传视图除外）
+  window.addEventListener('keydown', handleGlobalKeydown)
   window.addEventListener('dragenter', onWinDragEnter)
   window.addEventListener('dragover', onWinDragOver)
   window.addEventListener('dragleave', onWinDragLeave)
   window.addEventListener('drop', onWinDrop)
 
-  setTimeout(() => {
-    isAppLoading.value = false
-  }, 400)
-
-  // 检查是否有从其他页面（如收藏页）跳转过来需要打开的文件
   const pendingFile = sessionStorage.getItem('pendingOpenFile')
   if (pendingFile) {
     sessionStorage.removeItem('pendingOpenFile')
     try {
-      const fileData = JSON.parse(pendingFile)
-      setTimeout(() => {
-        handleNodeClick(fileData)
-      }, 600)
+      handleNodeClick(JSON.parse(pendingFile))
     } catch (e) {
       console.warn('解析待打开文件数据失败:', e)
     }
@@ -952,10 +969,6 @@ const forceChangeView = (view) => {
 
   // 使用 router.push 而不是直接修改 activeView.value，以保持与 URL 同步并触发监听器
   router.push({ path: '/index', query: { view: view } })
-  
-  if (view === 'explorer') {
-    fetchTreeData()
-  }
   
   setTimeout(() => {
     isAppLoading.value = false
@@ -1014,6 +1027,8 @@ const formatTreeData = (nodes) => {
       url,
       // 如果后端把真正的后缀名存在了 fileFormat 中
       fileExt: entity.fileFormat || '',
+      // 侧边栏状态、详情抽屉和预览标签共用完整文件实体。
+      ...(finalIsFile ? { fileInfo: entity } : {}),
       children: finalIsFile ? null : formatTreeData(node.children)
     }
   })
@@ -1024,9 +1039,13 @@ watch(activeView, (v) => {
 })
 
 watch(
-  () => route.query.view,
-  (v) => {
-    activeView.value = normalizeView(v)
+  () => [route.path, route.query.view],
+  ([path, view], [previousPath]) => {
+    if (path !== '/index') return
+    // 普通返回保留当前视图；显式的 view 参数仍可切换上传、电子书等栏目。
+    if (view !== undefined || previousPath === '/index') {
+      activeView.value = normalizeView(view)
+    }
   }
 )
 
@@ -1152,6 +1171,7 @@ const handleNodeClick = (data) => {
 // ptmj_file_download 记录、datum 会话鉴权、nginx 边缘限速对全部下载生效。
 const baseURL = import.meta.env.VITE_APP_BASE_API
 let activeDownloadFileName = ''
+let removeDownloadProgressListener = null
 
 const handleDownload = async (fileData) => {
   if (!fileData) {
@@ -1263,7 +1283,7 @@ const handleDownload = async (fileData) => {
 
 // 下载进度：主进程按 fileName 回推 download-progress，只刷新当前那个下载
 onMounted(() => {
-  window.electronAPI?.onDownloadProgress?.((data) => {
+  removeDownloadProgressListener = window.electronAPI?.onDownloadProgress?.((data) => {
     if (!isDownloading.value || !data || data.fileName !== activeDownloadFileName) return
     downloadPercent.value = Number(data.progress) || 0
   })
@@ -1302,26 +1322,20 @@ const handleGlobalKeydown = (e) => {
   }
 }
 
-onMounted(() => {
-  window.addEventListener('keydown', handleGlobalKeydown)
-
-  // fxy 注册下载进度监听器
-  if (window.electronAPI?.onDownloadProgress) {
-    window.electronAPI.onDownloadProgress((data) => {
-      if (data && data.progress !== undefined) {
-        downloadPercent.value = parseFloat(data.progress)
-      }
-    })
-  }
-})
-
-onUnmounted(() => {
+const removeWorkspaceListeners = () => {
+  window.removeEventListener('showNotification', handleShowNotification)
   window.removeEventListener('keydown', handleGlobalKeydown)
   window.removeEventListener('dragenter', onWinDragEnter)
   window.removeEventListener('dragover', onWinDragOver)
   window.removeEventListener('dragleave', onWinDragLeave)
   window.removeEventListener('drop', onWinDrop)
-})
+  localDragDepth = 0
+  localDragActive.value = false
+  stopResize()
+}
+
+onDeactivated(removeWorkspaceListeners)
+onUnmounted(removeWorkspaceListeners)
 
 // 关闭 Tab
 const closeTab = (id) => {
@@ -1359,13 +1373,12 @@ const stopResize = () => {
 }
 
 onUnmounted(() => {
-  document.removeEventListener('mousemove', handleMouseMove)
-  document.removeEventListener('mouseup', stopResize)
+  window.removeEventListener('favorite-updated', handleFavoriteUpdated)
+  removeDownloadProgressListener?.()
   // lxq  组件卸载时清理搜索防抖定时器，避免销毁后继续触发请求
   if (searchTimer) {
     clearTimeout(searchTimer)
   }
-  window.removeEventListener('showNotification', handleShowNotification)
 })
 </script>
 

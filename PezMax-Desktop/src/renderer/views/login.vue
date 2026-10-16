@@ -326,8 +326,13 @@ onMounted(() => {
 
 .scene-stage {
   position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 246px);
+  gap: 18px 0;
+  padding: 24px 26px 28px 38px;
+  box-sizing: border-box;
   width: min(100%, 520px);
-  height: 336px;
+  min-height: 336px;
   border-radius: 30px;
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.5));
   border: 1px solid rgba(255, 255, 255, 0.94);
@@ -388,11 +393,12 @@ onMounted(() => {
 }
 
 .stage-panel {
-  position: absolute;
-  right: 26px;
-  top: 34px;
-  width: 246px;
-  height: 222px;
+  position: relative;
+  grid-column: 2;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  animation: floatCard 6.8s ease-in-out infinite;
 }
 
 .stage-line {
@@ -412,7 +418,7 @@ onMounted(() => {
 }
 
 .benefit-card {
-  position: absolute;
+  position: relative;
   border-radius: 22px;
   border: 1px solid rgba(255, 255, 255, 0.94);
   background: rgba(255, 255, 255, 0.84);
@@ -421,17 +427,13 @@ onMounted(() => {
 }
 
 .benefit-main {
-  left: 0;
-  right: 0;
-  top: 18px;
-  padding: 18px 18px 16px;
-  animation: floatCard 6.8s ease-in-out infinite;
+  padding: 14px 16px;
 }
 
 .benefit-main strong {
   display: block;
-  margin: 10px 0 8px;
-  font-size: 22px;
+  margin: 8px 0 6px;
+  font-size: 20px;
   line-height: 1.2;
   color: var(--text-main);
 }
@@ -439,7 +441,7 @@ onMounted(() => {
 .benefit-main p {
   margin: 0;
   font-size: 13px;
-  line-height: 1.7;
+  line-height: 1.6;
   color: var(--text-sub);
 }
 
@@ -459,38 +461,28 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 176px;
-  padding: 12px 14px;
+  padding: 8px 14px;
   font-size: 13px;
   color: var(--text-sub);
 }
 
-.benefit-left {
-  left: 0;
-  bottom: 8px;
-  animation: floatCard 6.8s ease-in-out infinite;
-  animation-delay: 1s;
-}
-
-.benefit-right {
-  right: 0;
-  bottom: 44px;
-  animation: floatCard 6.8s ease-in-out infinite;
-  animation-delay: 2s;
+.benefit-sub p {
+  margin: 0;
+  line-height: 1.5;
 }
 
 .mini-dot {
   width: 10px;
   height: 10px;
+  flex-shrink: 0;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
   box-shadow: 0 0 0 6px rgba(90, 165, 255, 0.08);
 }
 
 .feature-list {
-  position: absolute;
-  left: 38px;
-  bottom: 28px;
+  position: relative;
+  grid-column: 1 / -1;
   display: flex;
   gap: 10px;
   flex-wrap: wrap;

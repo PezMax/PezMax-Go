@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -36,6 +37,7 @@ import (
 
 const (
 	datumStateTTLDefault    = 24 * time.Hour
+	datumTreeStateVersion   = 1
 	datumUploadMaxBytesDef  = 200 << 20 // 200MB
 	datumSearchLimit        = 50
 	datumFileStateTTLKey    = "KADMIN_DATUM_STATE_TTL"
@@ -55,13 +57,16 @@ var datumConvertExts = map[string]bool{"doc": true, "docx": true, "ppt": true, "
 // ---------------------------------------------------------------------------
 
 type datumStateEntry struct {
+	Version int             `json:"version,omitempty"`
 	Hash    string          `json:"hash"`
 	Payload json.RawMessage `json:"payload"`
 }
 
 type datumStateStore struct {
-	redis redisDoer
-	ttl   time.Duration
+	redis   redisDoer
+	ttl     time.Duration
+	mu      *sync.Mutex
+	version int
 }
 
 func newDatumStateStore(redis redisDoer) *datumStateStore {
@@ -69,44 +74,103 @@ func newDatumStateStore(redis redisDoer) *datumStateStore {
 	if parsed, err := time.ParseDuration(strings.TrimSpace(os.Getenv(datumFileStateTTLKey))); err == nil && parsed > time.Minute {
 		ttl = parsed
 	}
-	return &datumStateStore{redis: redis, ttl: ttl}
+	return &datumStateStore{redis: redis, ttl: ttl, mu: &sync.Mutex{}}
 }
 
 // load returns the cached entry, computing it when missing or expired. A new
 // random 64-bit hash is minted on every recompute, so content changes are
 // always visible to clients comparing hashes.
 func (s *datumStateStore) load(key string, compute func() (interface{}, error)) (datumStateEntry, bool, error) {
+	// Hot reads can keep using the current snapshot during an early refresh.
+	if entry, found, err := s.cached(key); err != nil || found {
+		return entry, false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// A request or the warmer may have filled the cache while we waited.
+	if entry, found, err := s.cached(key); err != nil || found {
+		return entry, false, err
+	}
+	entry, err := s.rebuild(key, compute, nil)
+	return entry, err == nil, err
+}
+
+func (s *datumStateStore) cached(key string) (datumStateEntry, bool, error) {
 	if raw, err := s.redis.do("GET", key); err == nil {
 		if text, ok := raw.(string); ok {
 			var entry datumStateEntry
-			if json.Unmarshal([]byte(text), &entry) == nil && entry.Hash != "" && len(entry.Payload) > 0 {
-				return entry, false, nil
+			if json.Unmarshal([]byte(text), &entry) == nil && entry.Version == s.version && entry.Hash != "" && len(entry.Payload) > 0 {
+				return entry, true, nil
 			}
 		}
 	} else if !errors.Is(err, errRedisNil) {
 		return datumStateEntry{}, false, err
 	}
+	return datumStateEntry{}, false, nil
+}
+
+// warm fills missing entries and refreshes ones approaching expiration without
+// deleting the old snapshot. A failed refresh leaves that snapshot available.
+func (s *datumStateStore) warm(key string, compute func() (interface{}, error), refreshBefore time.Duration) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, found, err := s.cached(key)
+	if err != nil {
+		return false, err
+	}
+	if found {
+		if refreshBefore <= 0 {
+			return false, nil
+		}
+		rawTTL, err := s.redis.do("TTL", key)
+		if err != nil {
+			return false, err
+		}
+		ttl, ok := rawTTL.(int64)
+		if !ok {
+			return false, fmt.Errorf("缓存 %s 的 TTL 响应无效", key)
+		}
+		if ttl > int64(refreshBefore/time.Second) {
+			return false, nil
+		}
+	}
+	_, err = s.rebuild(key, compute, &entry)
+	return err == nil, err
+}
+
+func (s *datumStateStore) rebuild(key string, compute func() (interface{}, error), previous *datumStateEntry) (datumStateEntry, error) {
 	payload, err := compute()
 	if err != nil {
-		return datumStateEntry{}, false, err
+		return datumStateEntry{}, err
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		return datumStateEntry{}, false, err
+		return datumStateEntry{}, err
 	}
 	hash, err := randomHex(8) // 64-bit
 	if err != nil {
-		return datumStateEntry{}, false, err
+		return datumStateEntry{}, err
 	}
-	entry := datumStateEntry{Hash: hash, Payload: encoded}
-	blob, _ := json.Marshal(entry)
+	// Proactive refreshes of identical content keep clients' local copies valid.
+	if previous != nil && previous.Hash != "" && bytes.Equal(previous.Payload, encoded) {
+		hash = previous.Hash
+	}
+	entry := datumStateEntry{Version: s.version, Hash: hash, Payload: encoded}
+	blob, err := json.Marshal(entry)
+	if err != nil {
+		return datumStateEntry{}, err
+	}
 	if _, err := s.redis.do("SET", key, string(blob), "EX", durationSeconds(s.ttl)); err != nil {
-		return datumStateEntry{}, false, err
+		return datumStateEntry{}, err
 	}
-	return entry, true, nil
+	return entry, nil
 }
 
 func (s *datumStateStore) invalidate(keys ...string) {
+	// A mutation's DEL must run after any in-flight rebuild has published its
+	// snapshot, so that an older snapshot cannot undo the invalidation.
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, key := range keys {
 		_, _ = s.redis.do("DEL", key)
 	}
@@ -177,7 +241,17 @@ func (s *Store) datumFileGet(c *gin.Context) {
 }
 
 func (s *Store) stateStore() *datumStateStore {
-	return newDatumStateStore(s.datum.redis)
+	state := newDatumStateStore(s.datum.redis)
+	state.mu = &s.datumStateMu
+	return state
+}
+
+// Keep the existing Redis key while replacing cached payloads created by older
+// tree layouts. Ranking entries retain their existing unversioned protocol.
+func (s *Store) treeStateStore() *datumStateStore {
+	state := s.stateStore()
+	state.version = datumTreeStateVersion
+	return state
 }
 func (s *Store) treeStateKey() string  { return s.datum.keyPrefix + ":tree-state" }
 func (s *Store) rankStateKey() string  { return s.datum.keyPrefix + ":rank-state" }
@@ -216,7 +290,30 @@ func datumPageParams(c *gin.Context) (int, int) {
 	return page, size
 }
 
+// Owner lists include pending/rejected rows, so the requested owner must be
+// the current datum session user. Public lists omit userId and stay approved-only.
+func (s *Store) datumOwnerListUser(c *gin.Context) (int64, bool) {
+	raw := strings.TrimSpace(c.Query("userId"))
+	if raw == "" {
+		return 0, true
+	}
+	userID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || userID <= 0 {
+		fail(c, http.StatusBadRequest, "用户 ID 不正确")
+		return 0, false
+	}
+	s.requireDatumAuth()(c)
+	if c.IsAborted() {
+		return 0, false
+	}
+	return datumSessionUser(c, userID)
+}
+
 func (s *Store) datumFileList(c *gin.Context) {
+	userID, ok := s.datumOwnerListUser(c)
+	if !ok {
+		return
+	}
 	page, size := datumPageParams(c)
 	filter := datum.FileFilter{
 		Page:         page,
@@ -226,10 +323,8 @@ func (s *Store) datumFileList(c *gin.Context) {
 		FileSchool:   c.Query("fileSchool"),
 		FileYear:     datumQueryInt(c, "fileYear"),
 		Keyword:      c.Query("keyword"),
-		OnlyApproved: strings.TrimSpace(c.Query("userId")) == "",
-	}
-	if raw := strings.TrimSpace(c.Query("userId")); raw != "" {
-		filter.UserID = toDatumInt64(raw)
+		UserID:       userID,
+		OnlyApproved: userID == 0,
 	}
 	result, err := datum.NewFileRepo(s.conn).List(filter)
 	if err != nil {
@@ -252,7 +347,7 @@ func (s *Store) datumFileList(c *gin.Context) {
 }
 
 func (s *Store) datumFileTree(c *gin.Context) {
-	entry, _, err := s.stateStore().load(s.treeStateKey(), s.computeDatumTree)
+	entry, _, err := s.treeStateStore().load(s.treeStateKey(), s.computeDatumTree)
 	if err != nil {
 		fail(c, http.StatusServiceUnavailable, "文件树暂不可用，请稍后重试")
 		return
@@ -265,62 +360,61 @@ func (s *Store) computeDatumTree() (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	type yearNode struct {
-		Label string  `json:"label"`
-		Type  string  `json:"type"`
-		Year  int64   `json:"year"`
-		Files []gin.H `json:"children"`
-	}
-	type subjectNode struct {
-		Label string     `json:"label"`
-		Type  string     `json:"type"`
-		Years []yearNode `json:"children"`
-	}
-	type typeNode struct {
+	type folderNode struct {
+		ID       string        `json:"id"`
 		Label    string        `json:"label"`
 		Type     string        `json:"type"`
-		FileType int64         `json:"fileType"`
-		Subjects []subjectNode `json:"children"`
+		Children []interface{} `json:"children"`
 	}
 
-	types := map[int64]*typeNode{}
+	// Restore the explorer's subject -> school -> type -> year hierarchy,
+	// followed by any custom directories stored in remark by folder uploads.
+	tree := make([]*folderNode, 0)
+	folders := make(map[string]*folderNode)
 	for _, file := range files {
-		typeItem := types[file.FileType]
-		if typeItem == nil {
-			typeItem = &typeNode{Label: datumFileTypeName(file.FileType), Type: "folder", FileType: file.FileType}
-			types[file.FileType] = typeItem
+		subject, school := strings.TrimSpace(file.FileSubject), strings.TrimSpace(file.FileSchool)
+		if subject == "" {
+			subject = "未知科目"
 		}
-		var subjectItem *subjectNode
-		for index := range typeItem.Subjects {
-			if typeItem.Subjects[index].Label == file.FileSubject {
-				subjectItem = &typeItem.Subjects[index]
-				break
+		if school == "" {
+			school = "未知学校"
+		}
+		year := file.FileYear
+		if year <= 0 {
+			year = int64(time.Now().Year())
+		}
+		parts := []string{subject, school, datumFileTypeName(file.FileType), strconv.FormatInt(year, 10)}
+		for _, part := range strings.Split(file.Remark, "/") {
+			if name := strings.TrimSpace(part); name != "" {
+				parts = append(parts, name)
 			}
 		}
-		if subjectItem == nil {
-			typeItem.Subjects = append(typeItem.Subjects, subjectNode{Label: file.FileSubject, Type: "folder"})
-			subjectItem = &typeItem.Subjects[len(typeItem.Subjects)-1]
-		}
-		yearLabel := strconv.FormatInt(file.FileYear, 10)
-		var yearItem *yearNode
-		for index := range subjectItem.Years {
-			if subjectItem.Years[index].Label == yearLabel {
-				yearItem = &subjectItem.Years[index]
-				break
+		var parent *folderNode
+		for index, label := range parts {
+			// Encoding path components separately avoids collisions between a
+			// label containing '/' and two adjacent directory components.
+			encodedPath, _ := json.Marshal(parts[:index+1])
+			key := string(encodedPath)
+			folder := folders[key]
+			if folder == nil {
+				folder = &folderNode{
+					ID: "folder-" + tokenHash(key), Label: label,
+					Type: "folder", Children: make([]interface{}, 0),
+				}
+				folders[key] = folder
+				if parent == nil {
+					tree = append(tree, folder)
+				} else {
+					parent.Children = append(parent.Children, folder)
+				}
 			}
+			parent = folder
 		}
-		if yearItem == nil {
-			subjectItem.Years = append(subjectItem.Years, yearNode{Label: yearLabel, Type: "folder", Year: file.FileYear})
-			yearItem = &subjectItem.Years[len(subjectItem.Years)-1]
-		}
-		yearItem.Files = append(yearItem.Files, datumFilePayload(file))
+		leaf := datumFilePayload(file)
+		leaf["id"] = "file-" + strconv.FormatInt(file.FileID, 10)
+		leaf["children"] = []interface{}{}
+		parent.Children = append(parent.Children, leaf)
 	}
-
-	tree := make([]typeNode, 0, len(types))
-	for _, value := range types {
-		tree = append(tree, *value)
-	}
-	sort.Slice(tree, func(i, j int) bool { return tree[i].FileType < tree[j].FileType })
 	return tree, nil
 }
 
@@ -345,7 +439,13 @@ func datumFilePayload(file datum.File) gin.H {
 		"fileSchool":  file.FileSchool,
 		"fileSubject": file.FileSubject,
 		"fileStatus":  file.FileStatus,
+		"reviewer":    file.Reviewer,
+		"delFlag":     file.DelFlag,
 		"userId":      file.UserID,
+		"createBy":    file.CreateBy,
+		"createTime":  file.CreateTime,
+		"updateBy":    file.UpdateBy,
+		"updateTime":  file.UpdateTime,
 		"remark":      file.Remark,
 		"type":        "file",
 	}
@@ -467,34 +567,32 @@ func (s *Store) datumFileDetail(c *gin.Context) {
 }
 
 func (s *Store) datumTokenOwns(c *gin.Context, ownerID int64) bool {
-	token := tokenFromRequest(c)
-	if token == "" || s.datum == nil {
-		return false
-	}
-	userID, err := s.datum.ResolveSession(token)
-	return err == nil && userID == ownerID
+	userID, ok := s.datumUserIDOptional(c)
+	return ok && userID == ownerID
 }
 
 func (s *Store) datumUserRank(c *gin.Context) {
-	entry, _, err := s.stateStore().load(s.rankStateKey(), func() (interface{}, error) {
-		ranks, err := datum.NewUserStats(s.conn).TopUploaders(50)
-		if err != nil {
-			return nil, err
-		}
-		rows := make([]gin.H, 0, len(ranks))
-		for _, rank := range ranks {
-			rows = append(rows, gin.H{
-				"userId": rank.UserID, "userName": rank.UserName,
-				"avatar": rank.Avatar, "count": rank.Uploads, "uploads": rank.Uploads,
-			})
-		}
-		return rows, nil
-	})
+	entry, _, err := s.stateStore().load(s.rankStateKey(), s.computeDatumRank)
 	if err != nil {
 		fail(c, http.StatusServiceUnavailable, "排行榜暂不可用，请稍后重试")
 		return
 	}
 	respondState(c, entry, strings.TrimSpace(c.Query("hash")), false)
+}
+
+func (s *Store) computeDatumRank() (interface{}, error) {
+	ranks, err := datum.NewUserStats(s.conn).TopUploaders(50)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]gin.H, 0, len(ranks))
+	for _, rank := range ranks {
+		rows = append(rows, gin.H{
+			"userId": rank.UserID, "userName": rank.UserName,
+			"avatar": rank.Avatar, "count": rank.Uploads, "uploads": rank.Uploads,
+		})
+	}
+	return rows, nil
 }
 
 func (s *Store) datumRankCachePurge(c *gin.Context) {
