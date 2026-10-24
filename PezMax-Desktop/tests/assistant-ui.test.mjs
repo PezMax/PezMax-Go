@@ -126,13 +126,10 @@ test('welcome prompts keep the question while opening settings, and IME Enter ne
                     calls.push(method)
                     if (method === 'getConfig') return { ...config }
                     if (method === 'save') return { ...config, hasApiKey: true }
-                    if (method === 'complete')
-                        return { role: 'assistant', content: input.messages.at(-1).content }
+                    if (method === 'run')
+                        return { content: input.question, messages: [], resources: [], reports: [] }
                 },
-                searchAssistantResources: async () => ({
-                    resources: [],
-                    modelResult: { reports: [] }
-                })
+                onAssistantProgress: () => () => {}
             }
         }
     )
@@ -143,7 +140,7 @@ test('welcome prompts keep the question while opening settings, and IME Enter ne
         assert.equal(ui.settingsOpen.value, true)
         await ui.submit()
         assert.equal(ui.draft.value, '高等数学试卷')
-        assert.equal(calls.includes('complete'), false)
+        assert.equal(calls.includes('run'), false)
         await ui.session.saveSettings({ ...config, apiKey: 'local-fixture' })
         ui.settingsOpen.value = false
         let prevented = false
@@ -156,7 +153,7 @@ test('welcome prompts keep the question while opening settings, and IME Enter ne
         })
         await page.flush()
         assert.equal(prevented, false)
-        assert.equal(calls.includes('complete'), false)
+        assert.equal(calls.includes('run'), false)
         ui.handleComposerKey({
             key: 'Enter',
             shiftKey: false,

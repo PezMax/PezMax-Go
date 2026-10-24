@@ -313,6 +313,7 @@ ipcMain.handle('call-api', async (event, apiName, ...args) => {
 
 // 清理资源
 app.on('will-quit', () => {
+  assistantBridge?.dispose()
   // 注销所有全局快捷键
   globalShortcut.unregisterAll()
   // 关闭 SQLite 数据库
@@ -324,7 +325,8 @@ app.on('will-quit', () => {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   assistantBridge = registerAssistantIpc({
-    ipcMain, getWindow: () => mainWindow, app, safeStorage, net,
+    ipcMain, getWindow: () => mainWindow, app, safeStorage,
+    catalogBaseUrl: __PEZMAX_CATALOG_BASE_URL__,
     rendererUrl: is.dev && process.env['ELECTRON_RENDERER_URL']
       ? process.env['ELECTRON_RENDERER_URL']
       : pathToFileURL(join(__dirname, '../renderer/index.html')).href

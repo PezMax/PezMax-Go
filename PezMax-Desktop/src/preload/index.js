@@ -16,7 +16,12 @@ if (process.contextIsolated) {
         getConfig: (context) => ipcRenderer.invoke('assistant:getConfig', context),
         save: (context, input) => ipcRenderer.invoke('assistant:save', context, input),
         clear: (context) => ipcRenderer.invoke('assistant:clear', context),
-        complete: (context, input) => ipcRenderer.invoke('assistant:complete', context, input),
+        run: (context, input) => ipcRenderer.invoke('assistant:run', context, input),
+        onProgress: (callback) => {
+          const listener = (_event, data) => callback(data)
+          ipcRenderer.on('assistant:progress', listener)
+          return () => ipcRenderer.removeListener('assistant:progress', listener)
+        },
         cancel: (context, requestId) => ipcRenderer.invoke('assistant:cancel', context, { requestId }),
         release: () => ipcRenderer.invoke('assistant:release')
       },

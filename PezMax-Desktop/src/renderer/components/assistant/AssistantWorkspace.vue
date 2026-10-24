@@ -280,7 +280,7 @@ import {
     StopOutlined
 } from '@ant-design/icons-vue'
 import useUserStore from '@/store/modules/user'
-import { assistantCall, searchAssistantResources } from '@/api/assistant'
+import { assistantCall, onAssistantProgress } from '@/api/assistant'
 import { createAssistantSession, createAssistantState } from '@/utils/assistant-session.mjs'
 import AssistantSettings from './AssistantSettings.vue'
 import AssistantTheme from './AssistantTheme.vue'
@@ -292,7 +292,7 @@ const signedIn = computed(() => !!userStore.token && !!userStore.id)
 const state = reactive(createAssistantState())
 const session = createAssistantSession({
     call: assistantCall,
-    search: searchAssistantResources,
+    subscribe: onAssistantProgress,
     state
 })
 const settingsOpen = ref(false)
@@ -374,7 +374,8 @@ watch(
                           import.meta.env.VITE_APP_TARGET_URL ||
                           import.meta.env.VITE_APP_BASE_API ||
                           'pezmax',
-                      userId: String(userStore.id)
+                      userId: String(userStore.id),
+                      token: userStore.token
                   }
                 : null
         )

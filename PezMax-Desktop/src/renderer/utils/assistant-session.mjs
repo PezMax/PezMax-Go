@@ -1,5 +1,3 @@
-import { runResourceAssistant } from './assistant-runner.mjs'
-
 const emptyConfig = () => ({
     baseUrl: '',
     model: '',
@@ -24,15 +22,18 @@ export function createAssistantState() {
 
 // The state may be Vue-reactive; credentials and provider history never enter it.
 // An epoch rejects late responses after logout, account changes or unmounting.
-export function createAssistantSession({ call, search, state = createAssistantState() }) {
+export function createAssistantSession({ call, subscribe = () => () => {}, state = createAssistantState() }) {
     let context = null,
         epoch = 0,
         history = [],
         controller = null,
-        activeRequest = ''
+        activeRequest = '',
+        removeProgress = null
 
     function abortWork() {
         controller?.abort()
+        removeProgress?.()
+        removeProgress = null
         if (context && activeRequest) void call('cancel', context, activeRequest).catch(() => {})
     }
 
@@ -81,7 +82,7 @@ export function createAssistantSession({ call, search, state = createAssistantSt
             saved = true
             if (testConnection) {
                 activeRequest = requestId()
-                await call('complete', scope, { requestId: activeRequest, test: true })
+                await call('run', scope, { requestId: activeRequest, test: true })
                 if (version !== epoch) throw new Error('账号已切换，请重新打开模型设置')
             }
             return testConnection
@@ -136,31 +137,25 @@ export function createAssistantSession({ call, search, state = createAssistantSt
         const turn = state.turns.at(-1)
         state.busy = true
         state.stopping = false
+        activeRequest = turn.id
+        let unsubscribe = () => {}
         try {
-            const result = await runResourceAssistant({
-                history,
-                question: prompt,
-                signal: abort.signal,
-                search,
-                complete: async (messages) => {
-                    activeRequest = requestId()
-                    try {
-                        return await call('complete', scope, { requestId: activeRequest, messages })
-                    } finally {
-                        if (version === epoch) activeRequest = ''
-                    }
-                },
-                onProgress: (event) => {
-                    if (version !== epoch) return
-                    if (event.status) turn.status = event.status
-                    if (event.resources) turn.resources = event.resources
-                    if (event.report) turn.reports.push(...event.report)
-                }
+            unsubscribe = subscribe((event) => {
+                if (version !== epoch || abort.signal.aborted || event.requestId !== turn.id) return
+                if (event.status) turn.status = event.status
+                if (event.resources) turn.resources = event.resources
+                if (event.report) turn.reports.push(...event.report)
+            })
+            removeProgress = unsubscribe
+            const result = await call('run', scope, {
+                requestId: activeRequest, history, question: prompt, platformToken: scope.token
             })
             if (version !== epoch) return
+            if (abort.signal.aborted) throw new Error('已停止生成')
             history = result.messages
             turn.content = result.content
             turn.resources = result.resources
+            turn.reports = result.reports
             turn.phase = 'done'
         } catch (error) {
             if (version !== epoch) return
@@ -169,11 +164,13 @@ export function createAssistantSession({ call, search, state = createAssistantSt
                 ? '已停止生成，已找到的资源仍可打开。'
                 : error.message || '本次请求失败，请重试'
         } finally {
+            unsubscribe()
             if (version === epoch) {
                 state.busy = false
                 state.stopping = false
                 controller = null
                 activeRequest = ''
+                removeProgress = null
             }
         }
     }

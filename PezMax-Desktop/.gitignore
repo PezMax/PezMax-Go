@@ -6,3 +6,4 @@ out
 *.log*
 auto-imports.d.ts
 .trae
+.verification/

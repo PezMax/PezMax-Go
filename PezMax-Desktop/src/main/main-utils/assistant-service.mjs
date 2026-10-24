@@ -1,31 +1,18 @@
-import { SEARCH_TOOL, assistantSystemPrompt, normalizeProviderConfig } from '../../shared/assistant-protocol.mjs'
+import { normalizeProviderConfig } from '../../shared/assistant-protocol.mjs'
 
-const MAX_RESPONSE_BYTES = 512 * 1024
-
-function safeMessages(messages) {
-  if (!Array.isArray(messages) || !messages.length || messages.length > 40) throw new Error('对话过长，请开始新对话')
-  if (JSON.stringify(messages).length > 120000) throw new Error('对话内容过长，请开始新对话')
-  return messages.map(message => {
-    if (!['user', 'assistant', 'tool'].includes(message?.role)) throw new Error('对话格式不正确')
-    const result = { role: message.role, content: typeof message.content === 'string' ? message.content : '' }
-    if (message.role === 'tool') {
-      if (typeof message.tool_call_id !== 'string' || message.tool_call_id.length > 160) throw new Error('工具结果格式不正确')
-      result.tool_call_id = message.tool_call_id
-    }
-    if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
-      if (message.tool_calls.length > 4) throw new Error('模型请求的搜索次数过多')
-      result.tool_calls = message.tool_calls.map(call => {
-        if (typeof call.id !== 'string' || call.id.length > 160 || typeof call.function?.arguments !== 'string' || call.function.arguments.length > 4000) throw new Error('模型工具调用格式不正确')
-        return { id: call.id, type: 'function', function: { name: String(call.function.name).slice(0, 80), arguments: call.function.arguments } }
-      })
-    }
-    return result
-  })
+function redact(value, secrets) {
+  if (typeof value === 'string') {
+    for (const secret of secrets) if (secret) value = value.split(secret).join('[已隐藏密钥]')
+    return value
+  }
+  if (Array.isArray(value)) return value.map(item => redact(item, secrets))
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redact(item, secrets)]))
+  return value
 }
 
-// Dependencies are injected so all credential, cancellation and network paths
-// can be tested with local fixtures. The renderer never receives the key.
-export function createAssistantService({ readConfig, writeConfig, encryption, fetchImpl, timeoutMs = 60000 }) {
+// Electron owns the OS key vault and worker lifecycle. Model calls, tools,
+// history validation and graph execution belong to the Python module.
+export function createAssistantService({ readConfig, writeConfig, encryption, runAgent, catalogBaseUrl, timeoutMs = 180000 }) {
   const sessions = new Map()
   const requests = new Map()
   let saved
@@ -36,7 +23,7 @@ export function createAssistantService({ readConfig, writeConfig, encryption, fe
       const stored = saved[scope] || {}
       let apiKey = ''
       if (stored.encryptedKey && encryption.isAvailable()) {
-        try { apiKey = encryption.decrypt(stored.encryptedKey) } catch { /* key belongs to another OS profile; require re-entry */ }
+        try { apiKey = encryption.decrypt(stored.encryptedKey) } catch { /* another OS profile; require re-entry */ }
       }
       sessions.set(scope, { baseUrl: stored.baseUrl || '', model: stored.model || '', apiKey, remember: !!apiKey })
     }
@@ -79,64 +66,40 @@ export function createAssistantService({ readConfig, writeConfig, encryption, fe
     for (const request of requests.values()) if (request.scope === scope) request.controller.abort()
     sessions.delete(scope)
   }
-  async function complete(scope, { requestId, messages, test = false }, owner) {
-    const config = { ...profile(scope) }
-    if (!config.apiKey) throw new Error('请先在模型设置中填写 API Key')
-    normalizeProviderConfig(config)
+  async function run(scope, input, owner, onProgress) {
+    const current = profile(scope)
+    if (!current.apiKey) throw new Error('请先在模型设置中填写 API Key')
+    const config = normalizeProviderConfig({ ...current })
+    const { requestId, question, history = [], test = false, platformToken = '' } = input || {}
     if (typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(requestId)) throw new Error('请求标识无效')
     if (requests.has(requestId) || [...requests.values()].some(request => request.owner === owner)) throw new Error('请等待当前请求结束，或先停止生成')
-    const history = test ? [{ role: 'user', content: '请简短回复“连接成功”，不要调用工具。' }] : safeMessages(messages)
+    if (!test && (typeof platformToken !== 'string' || !platformToken || platformToken.length > 8192 || /[\r\n\x00]/.test(platformToken))) throw new Error('请先登录再使用找资料助手')
     const controller = new AbortController()
     let timedOut = false
     const timer = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
     requests.set(requestId, { controller, owner, scope })
+    const secrets = [config.apiKey, platformToken]
     try {
-      const response = await fetchImpl(`${config.baseUrl}/chat/completions`, {
-        method: 'POST', redirect: 'error', signal: controller.signal,
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
-        body: JSON.stringify({ model: config.model, messages: [{ role: 'system', content: assistantSystemPrompt() }, ...history], tools: [SEARCH_TOOL], tool_choice: test ? 'none' : 'auto', stream: false })
-      })
-      if (!response.ok) {
-        await response.body?.cancel()
-        const labels = { 400: '请求被模型服务拒绝，请确认模型支持工具调用和 Chat Completions', 401: 'API Key 无效，请检查模型设置', 403: 'API Key 没有访问该模型的权限', 404: '模型或接口路径不存在，请检查接口地址和模型 ID', 429: '模型服务额度不足或请求过于频繁，请稍后重试' }
-        throw new Error(labels[response.status] || `模型服务暂不可用（HTTP ${response.status}），请稍后重试`)
-      }
-      if (!response.body) throw new Error('模型服务返回内容为空')
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let bytes = 0, body = ''
-      try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          bytes += value.byteLength
-          if (bytes > MAX_RESPONSE_BYTES) throw new Error('模型返回内容过大，请缩小搜索范围')
-          body += decoder.decode(value, { stream: true })
-        }
-        body += decoder.decode()
-      } finally { await reader.cancel().catch(() => {}) }
-      let data
-      try { data = JSON.parse(body) } catch { throw new Error('模型服务返回格式不正确，请确认接口兼容 Chat Completions') }
-      const choice = data.choices?.[0]
-      if (!choice?.message || choice.finish_reason === 'length') throw new Error('模型未返回完整结果，请简化需求后重试')
-      const result = safeMessages([{ ...choice.message, role: 'assistant' }])[0]
-      // Some providers include credentials in error text. Never echo provider
-      // error bodies; also scrub a literal key from normal assistant output.
-      result.content = result.content.split(config.apiKey).join('[已隐藏密钥]')
-      if (result.tool_calls) for (const call of result.tool_calls) call.function.arguments = call.function.arguments.split(config.apiKey).join('[已隐藏密钥]')
-      return result
+      const result = await runAgent({
+        version: 1, requestId,
+        provider: { baseUrl: config.baseUrl, model: config.model, apiKey: config.apiKey },
+        ...(test ? { test: true } : { catalog: { baseUrl: catalogBaseUrl, token: platformToken }, history, question })
+      }, { signal: controller.signal, onProgress: (event) => {
+        if (!controller.signal.aborted) onProgress?.(redact(event, secrets))
+      } })
+      if (controller.signal.aborted) throw new Error('已停止生成')
+      return redact(result, secrets)
     } catch (error) {
-      if (controller.signal.aborted) throw new Error(timedOut ? '模型响应超时，请稍后重试' : '已停止生成')
-      if (error instanceof TypeError) throw new Error('无法连接模型服务，请检查接口地址、网络或系统代理')
-      // Only locally-created messages may reach IPC. fetch exceptions can
-      // contain request internals, so do not expose arbitrary error strings.
+      if (controller.signal.aborted) throw new Error(timedOut ? '助手处理超时，请缩小范围后重试' : '已停止生成')
       const message = error?.message || ''
-      if (/^(模型|API Key|请求被模型|无法连接)/.test(message)) throw new Error(message.split(config.apiKey).join('[已隐藏密钥]'))
-      throw new Error('模型请求失败，请检查设置后重试')
+      const safe = new Error(/^(模型|API Key|请求|无法连接|助手|接口|对话|搜索|资源|平台|请)/.test(message)
+        ? redact(message, secrets) : '助手请求失败，请检查设置后重试')
+      if (error?.code === 'catalog_auth_expired') safe.code = error.code
+      throw safe
     } finally {
       clearTimeout(timer)
       requests.delete(requestId)
     }
   }
-  return { publicConfig, save, clear, complete, cancel, cancelOwner, forget }
+  return { publicConfig, save, clear, run, cancel, cancelOwner, forget }
 }

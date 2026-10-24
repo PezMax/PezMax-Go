@@ -1,6 +1,6 @@
 # 找资料助手（BYOK）
 
-桌面端新增“找资料助手”，将自然语言需求转换为平台目录检索，再以真实资源卡片连接已有的预览、收藏和下载流程。界面使用 Ant Design Vue 4，适配工作区的主题色和深浅色模式，首次打开时按需加载。
+桌面端的“找资料助手”将自然语言需求转换为平台目录检索，再以真实资源卡片连接已有的预览、收藏和下载流程。智能体使用独立的 **Python + LangGraph** 模块 `PezMax-Agent`；界面使用 Ant Design Vue 4，适配工作区的主题色和深浅色模式，首次打开时按需加载。
 
 ## 使用方式
 
@@ -26,7 +26,8 @@
 
 | 数据 | 处理方式 |
 | --- | --- |
-| API Key | 默认仅存 Electron 主进程内存；不进入 PezMax Go 后端、不返回给渲染界面、不写入 localStorage。通过 Authorization 发送至用户配置的模型服务 |
+| API Key | 默认存 Electron 主进程内存，执行时经 stdin 交给本机 Python 子进程；不进入 PezMax Go 后端、不返回给渲染界面、不写入 localStorage。仅通过 Authorization 发送至用户配置的模型服务 |
+| 平台登录令牌 | 仅交给本机模块请求平台目录；与模型 Key 分开使用，不进入模型请求、图状态或对话历史 |
 | 可选“加密保存在本机” | 使用 Electron safeStorage 交给操作系统加密，密文存于应用 userData 下的 `ptmj-assistant.json`；不支持安全加密的系统不能启用 |
 | 接口地址、模型 ID | 保存在同一本机配置文件，按服务端地址和用户隔离 |
 | 提问与近期对话 | 发送至用户所选模型服务；应用不落盘保存对话 |
@@ -39,34 +40,53 @@
 
 ```mermaid
 flowchart LR
-    UI[Ant Design 助手工作区] --> Runner[会话与工具循环]
-    Runner -->|受控 IPC| Main[Electron 主进程]
-    Main -->|用户的 API Key| Provider[用户配置的模型服务]
-    Runner -->|平台会话：只读查询| Go[Go /datum 目录接口]
-    Go --> Cards[真实资源卡片]
+    UI[Ant Design 工作区] -->|受控 IPC| Main[Electron 密钥管理与进程桥接]
+    Main -->|本机 stdio| Agent[Python LangGraph 模块]
+    Agent -->|用户的 API Key| Provider[用户配置的模型服务]
+    Agent -->|平台令牌：只读查询| Go[Go /datum 目录接口]
+    Agent -->|进度与真实资源| Main
+    Main --> Cards[Ant Design 资源卡片]
     Cards --> Reader[现有预览工作区]
 ```
 
-- 模型只能请求白名单工具 `search_resources`，工具实际执行仍由客户端校验；不支持任意 HTTP、脚本或写操作。
+- `PezMax-Agent/src/pezmax_agent/graph.py` 使用 LangGraph `StateGraph`，包含 `model → search → model` 条件循环与 `finalize` 收尾节点。模型适配、工具契约、目录访问、状态图、进程入口分别维护，不再由 JS 手写智能体循环。
+- Electron 仅负责配置加密、受控 IPC、子进程启动和取消；Vue 仅负责会话展示、进度订阅和预览跳转。每轮启动一个独立进程，结束后退出，不开放本机 HTTP 端口。
+- 模型只能请求白名单工具 `search_resources`，工具参数和真实结果在 Python 模块复核；不支持任意 HTTP、脚本或写操作。平台目录地址由客户端构建配置确定，模型不能改变目标地址。
 - 已上架的资料、电子书和书签沿用现有接口的可见性规则；助手不携带所有者筛选参数获取待审核内容。
 - 每轮最多 5 次模型请求、8 次搜索。每类搜索最多检查 3 页（150 条）并展示 5 项，结果去重；界面和模型均能获知截断、跳过和检索失败。
 - 资料支持关键词、学科、学校、类型、年份范围。电子书和书签没有学校、年份或试卷类型字段，不能伪装成满足这些条件的结果。
 - 后端 `/datum/file/list` 增加可选 `yearFrom` / `yearTo`（1900–2100，含边界），在计数和分页之前过滤。升级客户端时应同步更新 Go 服务；旧服务上的客户端仍会做年份复核，但可能只能拿到部分候选。
-- 单次模型请求超时 60 秒，响应体限制 512 KiB，禁用重定向；会话历史和参数长度均有限制。上述限制不是服务商费用上限。
+- 每轮处理总时限 180 秒；单次模型请求 60 秒、响应体限制 512 KiB，目录请求 10 秒、响应体限制 2 MiB；禁用重定向。会话历史和参数长度均有限制。上述限制不是服务商费用上限。
 - 模型文字按纯文本显示；可打开的卡片全部来自真实查询对象。失败时保留已找到的卡片，可停止后重试。
 - IPC 仅允许应用主窗口的可信主文档调用，内嵌预览页面不能访问助手服务；密钥不拼入 URL，也不回显服务商原始报错。
+- 不配置持久化图检查点或托管追踪，运行时明确关闭 LangSmith 追踪，避免继承开发机的追踪设置。
 
 普通资源树搜索也同步支持了文件名：匹配文件时保留学校、学科等父级路径；匹配文件夹时保留其子树，清空搜索恢复原树。
 
-## 验证
+## 开发、打包与验证
+
+开发智能体需要 Python 3.11 或以上；安装版已携带 Python 运行时，普通用户无需另外安装。详细模块说明见仓库中的 `PezMax-Agent/README.md`。
 
 在 `PezMax-Desktop` 目录执行：
 
 ```powershell
 npm ci
+npm run agent:setup
+npm run agent:check
+npm run agent:test
 npm run test:system
 npm run build
+npm run agent:build
+npm run test:agent-integration
 ```
+
+`agent:setup` 创建相邻 `PezMax-Agent/.venv` 并安装锁定依赖。开发时默认使用该解释器，也可用绝对路径环境变量 `PEZMAX_AGENT_PYTHON` 指定已安装模块的解释器；安装版只运行随应用附带的模块。
+
+`agent:build` 使用 PyInstaller 生成当前系统、当前架构的独立程序，先执行离线启动自检，再生成平台清单。`test:agent-integration` 同时验证源码解释器与独立程序的完整“模型 → 真实模拟目录 → 模型”链路和取消行为，无需真实 Key。
+
+`npm run build:win` / `build:mac` / `build:linux` / `build:unpack` 会先构建模块，再将其复制到 Electron 的 `resources/agent/`。发布前的构建钩子校验平台、架构与协议版本，缺少匹配模块时停止打包。各平台需在对应系统和架构上构建；本次已验证 Windows x64。
+
+目录地址沿用 `VITE_APP_BASE_API`（绝对 HTTP 地址）或 `VITE_APP_TARGET_URL`（开发代理目标），在主进程构建时固定。需要变更部署地址时应重新构建客户端。Python 请求使用 HTTPX 的系统/环境代理设置，与 Electron 的网络栈分开；代理问题需检查运行环境。
 
 在 `k_admin` 目录执行：
 
@@ -74,7 +94,7 @@ npm run build
 go test ./internal/kadmin/...
 ```
 
-测试使用本地模拟边界，覆盖密钥加密与隔离、IPC 来源、超时与取消、真实目录映射、年份 SQL、工具次数上限、连续追问、账号切换、设置清理、输入法和预览跳转。真实服务商的连通性需由用户填写自己的 Key 后在客户端测试。
+测试使用本地模拟边界，覆盖真实 LangGraph 图执行、密钥加密与隔离、IPC 来源、进程协议和 UTF-8 分片、超时与取消、目录映射、年份 SQL、工具次数上限、连续追问、账号切换、设置清理、输入法和预览跳转。真实服务商的连通性需由用户填写自己的 Key 后在客户端测试。
 
 ## 后续扩展
 

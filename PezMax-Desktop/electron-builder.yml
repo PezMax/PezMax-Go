@@ -3,6 +3,7 @@ productName: PezMax
 directories:
   buildResources: build
 files:
+  - '!.verification/**'
   - '!**/.vscode/*'
   - '!src/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
@@ -10,6 +11,12 @@ files:
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
 asarUnpack:
   - resources/**
+extraResources:
+  - from: ../PezMax-Agent/dist/pezmax-agent
+    to: agent
+    filter:
+      - '**/*'
+beforePack: ./scripts/verify-agent.cjs
 win:
   executableName: pezmax
   # Windows 更新发布目标（GitHub Releases，通过 GH 代理供客户端下载）

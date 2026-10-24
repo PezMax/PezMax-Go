@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import fs from 'node:fs'
 import { createAssistantService } from './assistant-service.mjs'
+import { createAgentProcess, resolveAgentRuntime } from './assistant-process.mjs'
 
 export function isAssistantDocument(actual, expected) {
   try {
@@ -20,7 +21,7 @@ export function assistantScope(context) {
 }
 
 // Only the application's top frame may use this bridge, never embedded previews.
-export function installAssistantHandlers({ ipcMain, getWindow, service, rendererUrl }) {
+export function installAssistantHandlers({ ipcMain, getWindow, service, rendererUrl, catalogBaseUrl }) {
   const scopes = new Map()
   function release(owner) {
     service.cancelOwner(owner)
@@ -40,22 +41,28 @@ export function installAssistantHandlers({ ipcMain, getWindow, service, renderer
     getConfig: (scope) => service.publicConfig(scope),
     save: (scope, input) => service.save(scope, input),
     clear: (scope) => service.clear(scope),
-    complete: (scope, input, owner) => service.complete(scope, input, owner),
+    run: (scope, input, owner, progress) => service.run(scope, input, owner, progress),
     cancel: (_scope, input, owner) => service.cancel(input?.requestId, owner)
   }
   for (const [action, run] of Object.entries(actions)) {
     ipcMain.handle(`assistant:${action}`, async (event, context, input) => {
       try {
         const owner = sender(event)
-        const scope = assistantScope(context)
+        const scope = assistantScope(catalogBaseUrl ? { ...context, server: catalogBaseUrl } : context)
         if (scopes.has(owner) && scopes.get(owner) !== scope) release(owner)
         scopes.set(owner, scope)
-        return { ok: true, data: await run(scope, input, owner) }
+        return { ok: true, data: await run(scope, input, owner, (data) => {
+          if (scopes.get(owner) !== scope) return
+          try {
+            if (sender(event) === owner) event.sender.send('assistant:progress', { ...data, requestId: input.requestId })
+          } catch { service.cancelOwner(owner) }
+        }) }
       } catch (error) {
         // Never let Electron serialize arbitrary filesystem/provider exceptions.
         const message = error?.message || ''
-        return { ok: false, error: /^(请|接口|模型|API Key|当前系统|对话|工具|请求|已停止|无法连接|助手|搜索|资源|年份|起始)/.test(message)
-          ? message : '助手操作失败，请检查设置或本机存储后重试' }
+        return { ok: false, error: /^(请|接口|模型|API Key|当前系统|对话|工具|请求|已停止|无法连接|助手|搜索|资源|年份|起始|平台)/.test(message)
+          ? message : '助手操作失败，请检查设置或本机存储后重试',
+          ...(error?.code === 'catalog_auth_expired' ? { code: error.code } : {}) }
       }
     })
   }
@@ -63,6 +70,7 @@ export function installAssistantHandlers({ ipcMain, getWindow, service, renderer
     try { release(sender(event)); return { ok: true } } catch { return { ok: false, error: '助手仅可在应用主窗口中使用' } }
   })
   return {
+    dispose() { for (const owner of [...scopes.keys()]) release(owner) },
     attachWindow(win) {
       const owner = win.webContents.id
       win.webContents.on('did-start-navigation', (_event, _url, inPlace, isMainFrame) => {
@@ -74,7 +82,7 @@ export function installAssistantHandlers({ ipcMain, getWindow, service, renderer
   }
 }
 
-export function registerAssistantIpc({ ipcMain, getWindow, app, safeStorage, net, rendererUrl }) {
+export function registerAssistantIpc({ ipcMain, getWindow, app, safeStorage, rendererUrl, catalogBaseUrl }) {
   const configPath = join(app.getPath('userData'), 'ptmj-assistant.json')
   const encryption = {
     isAvailable: () => safeStorage.isEncryptionAvailable() &&
@@ -96,7 +104,10 @@ export function registerAssistantIpc({ ipcMain, getWindow, app, safeStorage, net
       fs.writeFileSync(temporary, JSON.stringify(config), { encoding: 'utf8', mode: 0o600 })
       fs.renameSync(temporary, configPath)
     },
-    fetchImpl: (url, options) => net.fetch(url, options)
+    catalogBaseUrl,
+    runAgent: createAgentProcess({ resolveRuntime: () => resolveAgentRuntime({
+      isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath()
+    }) })
   })
-  return installAssistantHandlers({ ipcMain, getWindow, service, rendererUrl })
+  return installAssistantHandlers({ ipcMain, getWindow, service, rendererUrl, catalogBaseUrl })
 }

@@ -17,6 +17,11 @@ export default defineConfig(({ mode, command }) => {
 
   return {
     main: {
+      define: {
+        __PEZMAX_CATALOG_BASE_URL__: JSON.stringify(
+          /^https?:\/\//i.test(env.VITE_APP_BASE_API || '') ? env.VITE_APP_BASE_API : baseUrl
+        )
+      },
       resolve: {
         alias: {
           '@main': resolve('src/main')

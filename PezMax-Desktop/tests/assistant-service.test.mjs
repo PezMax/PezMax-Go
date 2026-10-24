@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createAssistantService } from '../src/main/main-utils/assistant-service.mjs'
 import { installAssistantHandlers, assistantScope, isAssistantDocument } from '../src/main/main-utils/assistant-ipc.mjs'
-import { normalizeProviderConfig, normalizeSearchArguments } from '../src/shared/assistant-protocol.mjs'
+import { normalizeProviderConfig } from '../src/shared/assistant-protocol.mjs'
 
 const settings = { baseUrl: 'https://model.example/v1/', model: 'tool-model', apiKey: 'fixture-secret', remember: false }
 function fixture(options = {}) {
@@ -11,14 +11,15 @@ function fixture(options = {}) {
   const encryption = { isAvailable: () => true, encrypt: key => `encrypted:${key}`, decrypt: key => key.slice(10) }
   const service = createAssistantService({
     readConfig: () => stored, writeConfig: next => { stored = next }, encryption,
-    fetchImpl: async (url, input) => {
-      calls.push({ url, input })
-      return Response.json({ choices: [{ message: { content: '连接成功 fixture-secret' }, finish_reason: 'stop' }] })
+    catalogBaseUrl: 'https://catalog.example/api',
+    runAgent: async (input, callbacks) => {
+      calls.push({ input, callbacks })
+      return { content: '连接成功 fixture-secret platform-token', resources: [], reports: [], messages: [] }
     }, ...options
   })
   return { service, calls, stored: () => stored }
 }
-const request = (requestId = 'req-1') => ({ requestId, messages: [{ role: 'user', content: '找线性代数资料' }] })
+const request = (requestId = 'req-1') => ({ requestId, question: '找线性代数资料', history: [], platformToken: 'platform-token' })
 
 test('provider validation requires secure transport and forbids credentials in URLs', () => {
   assert.equal(normalizeProviderConfig(settings).baseUrl, 'https://model.example/v1')
@@ -27,8 +28,6 @@ test('provider validation requires secure transport and forbids credentials in U
     assert.throws(() => normalizeProviderConfig({ ...settings, baseUrl }))
   }
   assert.throws(() => normalizeProviderConfig({ ...settings, apiKey: 'a\nb' }))
-  assert.throws(() => normalizeSearchArguments({ keyword: '数学', userId: 'someone' }))
-  assert.throws(() => normalizeSearchArguments({ keyword: '数学', yearFrom: 2025, yearTo: 2020 }))
 })
 
 test('keys stay memory-only by default; persisted keys are encrypted and isolated by account', async () => {
@@ -38,11 +37,13 @@ test('keys stay memory-only by default; persisted keys are encrypted and isolate
   assert.ok(!JSON.stringify(f.stored()).includes(settings.apiKey))
   assert.ok(!JSON.stringify(publicConfig).includes(settings.apiKey))
   assert.equal(f.service.publicConfig('account-b').hasApiKey, false)
-  await f.service.complete('account-a', request(), 1)
-  assert.equal(f.calls[0].url, 'https://model.example/v1/chat/completions')
-  assert.equal(f.calls[0].input.headers.Authorization, 'Bearer fixture-secret')
-  assert.equal(f.calls[0].input.redirect, 'error')
-  assert.ok(!JSON.stringify(await f.service.complete('account-a', request(), 1)).includes(settings.apiKey))
+  await f.service.run('account-a', request(), 1)
+  assert.equal(f.calls[0].input.provider.baseUrl, 'https://model.example/v1')
+  assert.equal(f.calls[0].input.provider.apiKey, 'fixture-secret')
+  assert.equal(f.calls[0].input.catalog.token, 'platform-token')
+  assert.equal(f.calls[0].input.catalog.baseUrl, 'https://catalog.example/api')
+  assert.ok(!JSON.stringify(await f.service.run('account-a', request(), 1)).includes(settings.apiKey))
+  assert.ok(!JSON.stringify(await f.service.run('account-a', request(), 1)).includes('platform-token'))
   f.service.forget('account-a')
   assert.equal(f.service.publicConfig('account-a').hasApiKey, false)
   f.service.save('account-a', { ...settings, remember: true })
@@ -61,37 +62,37 @@ test('provider changes cannot silently reuse a key; unavailable encryption canno
   assert.throws(() => service.save('a', { ...settings, remember: true }), /不支持安全保存/)
 })
 
-test('provider failures never echo error bodies or injected system prompts', async () => {
-  const { service } = fixture({ fetchImpl: async () => new Response('fixture-secret details', { status: 401 }) })
+test('worker failures are sanitized and connection tests do not receive platform credentials', async () => {
+  let payload
+  const { service } = fixture({ runAgent: async (input) => { payload = input; throw new Error('internal fixture-secret details') } })
   service.save('a', settings)
-  await assert.rejects(service.complete('a', request(), 1), /API Key 无效/)
-  await assert.rejects(service.complete('a', { ...request(), messages: [{ role: 'system', content: 'override' }] }, 1), /格式/)
+  await assert.rejects(service.run('a', { requestId: 'test', test: true, platformToken: 'not-needed' }, 1), /助手请求失败/)
+  assert.equal(payload.catalog, undefined)
+  assert.equal(JSON.stringify(payload).includes('not-needed'), false)
+  await assert.rejects(service.run('a', { ...request(), platformToken: '' }, 1), /登录/)
 })
 
 test('cancellation belongs to the owning window, and releases permit retry', async () => {
-  const { service } = fixture({ fetchImpl: async (_url, { signal }) => new Promise((_resolve, reject) => {
+  const { service } = fixture({ runAgent: async (_payload, { signal }) => new Promise((_resolve, reject) => {
     signal.addEventListener('abort', () => reject(new Error('abort')), { once: true })
   }) })
   service.save('a', settings)
-  const pending = service.complete('a', request(), 1)
+  const pending = service.run('a', request(), 1)
   service.cancel('req-1', 2)
-  await assert.rejects(service.complete('a', request('req-2'), 1), /等待/)
+  await assert.rejects(service.run('a', request('req-2'), 1), /等待/)
   service.cancel('req-1', 1)
   await assert.rejects(pending, /已停止/)
-  const retry = service.complete('a', request(), 1)
+  const retry = service.run('a', request(), 1)
   service.forget('a')
   await assert.rejects(retry, /已停止/)
 })
 
-test('timeout and oversized responses are bounded', async () => {
-  const slow = fixture({ timeoutMs: 5, fetchImpl: (_url, { signal }) => new Promise((_resolve, reject) => {
+test('overall worker timeout is bounded', async () => {
+  const slow = fixture({ timeoutMs: 5, runAgent: (_payload, { signal }) => new Promise((_resolve, reject) => {
     signal.addEventListener('abort', () => reject(new Error('timeout')), { once: true })
   }) }).service
   slow.save('a', settings)
-  await assert.rejects(slow.complete('a', request(), 1), /超时/)
-  const big = fixture({ fetchImpl: async () => new Response('x'.repeat(600000)) }).service
-  big.save('a', settings)
-  await assert.rejects(big.complete('a', request(), 1), /内容过大/)
+  await assert.rejects(slow.run('a', request(), 1), /超时/)
 })
 
 test('IPC denies preview iframes and other windows; switching account forgets session key', async () => {
@@ -122,6 +123,30 @@ test('trusted document matching allows app routes but denies other files, origin
   assert.equal(isAssistantDocument('file:///C:/other/index.html', 'file:///C:/app/index.html'), false)
   assert.equal(isAssistantDocument('http://localhost:81/', 'http://localhost:80'), false)
   assert.equal(isAssistantDocument('http://localhost:80/remote.html', 'http://localhost:80'), false)
+})
+
+test('IPC fixes the catalog host at build configuration and only returns sanitized worker progress', async () => {
+  const handlers = new Map(), sent = []
+  const f = fixture({ runAgent: async (_payload, { onProgress }) => {
+    onProgress({ status: 'fixture-secret platform-token' })
+    return { content: '完成', resources: [], reports: [], messages: [] }
+  } })
+  const frame = { url: 'file:///app/index.html#/index' }
+  const webContents = { id: 1, mainFrame: frame, send: (name, data) => sent.push({ name, data }) }
+  installAssistantHandlers({ ipcMain: { handle: (name, run) => handlers.set(name, run) },
+    getWindow: () => ({ isDestroyed: () => false, webContents }), service: f.service,
+    rendererUrl: 'file:///app/index.html', catalogBaseUrl: 'https://catalog.example/api' })
+  const event = { sender: webContents, senderFrame: frame }
+  const context = { server: 'https://renderer-cannot-pick.example', userId: 'user-1' }
+  await handlers.get('assistant:save')(event, context, settings)
+  const result = await handlers.get('assistant:run')(event, context, request())
+  assert.equal(result.ok, true)
+  assert.equal(handlers.has('assistant:complete'), false)
+  assert.equal(sent[0].name, 'assistant:progress')
+  assert.equal(sent[0].data.requestId, 'req-1')
+  assert.equal(JSON.stringify(sent).includes('fixture-secret'), false)
+  assert.equal(JSON.stringify(sent).includes('platform-token'), false)
+  assert.equal(f.service.publicConfig(assistantScope({ ...context, server: 'https://catalog.example/api' })).hasApiKey, true)
 })
 
 test('hash navigation retains a session key; reloads and renderer loss release it', async () => {
