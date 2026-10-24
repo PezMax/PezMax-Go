@@ -316,6 +316,10 @@ func (s *Store) datumFileList(c *gin.Context) {
 	if !ok {
 		return
 	}
+	yearFrom, yearTo, ok := datumFileSearchYears(c)
+	if !ok {
+		return
+	}
 	page, size := datumPageParams(c)
 	filter := datum.FileFilter{
 		Page:         page,
@@ -324,6 +328,8 @@ func (s *Store) datumFileList(c *gin.Context) {
 		FileSubject:  c.Query("fileSubject"),
 		FileSchool:   c.Query("fileSchool"),
 		FileYear:     datumQueryInt(c, "fileYear"),
+		YearFrom:     yearFrom,
+		YearTo:       yearTo,
 		Keyword:      c.Query("keyword"),
 		UserID:       userID,
 		OnlyApproved: userID == 0,

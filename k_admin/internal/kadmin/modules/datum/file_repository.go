@@ -162,6 +162,14 @@ func fileFilterWhere(filter FileFilter) (string, []interface{}) {
 		conditions = append(conditions, "file_year = ?")
 		args = append(args, filter.FileYear)
 	}
+	if filter.YearFrom > 0 {
+		conditions = append(conditions, "file_year >= ?")
+		args = append(args, filter.YearFrom)
+	}
+	if filter.YearTo > 0 {
+		conditions = append(conditions, "file_year <= ?")
+		args = append(args, filter.YearTo)
+	}
 	if filter.UserID > 0 {
 		conditions = append(conditions, "user_id = ?")
 		args = append(args, filter.UserID)
