@@ -1,6 +1,7 @@
-import { app, shell, BrowserWindow, ipcMain, globalShortcut, dialog, net } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, globalShortcut, dialog, net, safeStorage } from 'electron'
 import { join, dirname } from 'path'
 import { randomUUID } from 'node:crypto'
+import { pathToFileURL } from 'node:url'
 import fs from 'fs'
 import { Blob } from 'buffer'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -9,6 +10,7 @@ import { apiRegistry,findApi } from './main-utils/apiRegistry'
 import { checkForUpdates, configureFromSettings, downloadUpdate, getPresetUpdateSources, getUpdateInfo, initUpdater, quitAndInstallUpdate } from './main-utils/updater'
 import { insertDownloadRecord, listDownloadRecords, deleteDownloadRecord, flushDb, closeDatabase, listNoticeReadIds, markNoticesRead } from './main-utils/database'
 import { downloadPartPaths, downloadURL, nextAvailableDownloadPath, safeDownloadName, strongETag } from './main-utils/download-path.mjs'
+import { registerAssistantIpc } from './main-utils/assistant-ipc.mjs'
 
 // ================= 持久化设置与开机自启逻辑 =================
 const settingsPath = join(app.getPath('userData'), 'ptmj-settings.json')
@@ -213,6 +215,7 @@ function applyWindowMode(mode) {
 }
 
 let mainWindow = null
+let assistantBridge
 
 function createWindow() {
   const isClientLaunch = process.env.VITE_AUTH_ENTRY_MODE === 'client'
@@ -241,6 +244,7 @@ function createWindow() {
     }
   })
 
+  assistantBridge?.attachWindow(mainWindow)
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
   })
@@ -319,6 +323,12 @@ app.on('will-quit', () => {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  assistantBridge = registerAssistantIpc({
+    ipcMain, getWindow: () => mainWindow, app, safeStorage, net,
+    rendererUrl: is.dev && process.env['ELECTRON_RENDERER_URL']
+      ? process.env['ELECTRON_RENDERER_URL']
+      : pathToFileURL(join(__dirname, '../renderer/index.html')).href
+  })
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron.app')
 

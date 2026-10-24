@@ -12,6 +12,14 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
     contextBridge.exposeInMainWorld('electronAPI', {
+      assistant: {
+        getConfig: (context) => ipcRenderer.invoke('assistant:getConfig', context),
+        save: (context, input) => ipcRenderer.invoke('assistant:save', context, input),
+        clear: (context) => ipcRenderer.invoke('assistant:clear', context),
+        complete: (context, input) => ipcRenderer.invoke('assistant:complete', context, input),
+        cancel: (context, requestId) => ipcRenderer.invoke('assistant:cancel', context, { requestId }),
+        release: () => ipcRenderer.invoke('assistant:release')
+      },
       callApi: (apiName, ...args) => ipcRenderer.invoke('call-api', apiName, ...args),
       selectFile: () => ipcRenderer.invoke('select-file'),
       uploadFile: (uploadData) => ipcRenderer.invoke('upload-file', uploadData),
