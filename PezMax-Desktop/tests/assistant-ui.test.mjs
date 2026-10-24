@@ -1,0 +1,223 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { createContext, SourceTextModule, SyntheticModule } from 'node:vm'
+import { compileScript, parse } from '@vue/compiler-sfc'
+import * as Vue from 'vue'
+import {
+    createAssistantSession,
+    createAssistantState
+} from '../src/renderer/utils/assistant-session.mjs'
+
+// Execute the real SFC event handlers and lifecycle, without model credentials
+// or network access. Ant's visual internals are covered by the production build.
+async function mountAssistant(name, props = {}, imports = {}) {
+    const context = createContext({ console })
+    const filename = new URL(`../src/renderer/components/assistant/${name}.vue`, import.meta.url)
+    const { descriptor } = parse(await readFile(filename, 'utf8'), { filename: filename.pathname })
+    const { content } = compileScript(descriptor, { id: name })
+    const antNames = [
+        'Alert',
+        'Button',
+        'Card',
+        'Checkbox',
+        'Form',
+        'FormItem',
+        'Input',
+        'InputPassword',
+        'Modal',
+        'Spin',
+        'Tag',
+        'Textarea'
+    ]
+    const iconNames = [
+        'ArrowRightOutlined',
+        'ArrowUpOutlined',
+        'BookOutlined',
+        'DatabaseOutlined',
+        'FileSearchOutlined',
+        'FileTextOutlined',
+        'KeyOutlined',
+        'LinkOutlined',
+        'LoadingOutlined',
+        'LockOutlined',
+        'PlusOutlined',
+        'ReloadOutlined',
+        'RobotOutlined',
+        'SafetyCertificateOutlined',
+        'SearchOutlined',
+        'SettingOutlined',
+        'StopOutlined'
+    ]
+    const exports = {
+        vue: Vue,
+        'ant-design-vue': Object.fromEntries(antNames.map((name) => [name, {}])),
+        '@ant-design/icons-vue': Object.fromEntries(iconNames.map((name) => [name, {}])),
+        './AssistantSettings.vue': { default: {} },
+        './AssistantTheme.vue': { default: {} },
+        '@/utils/assistant-session.mjs': { createAssistantSession, createAssistantState },
+        ...imports
+    }
+    const module = new SourceTextModule(content, {
+        context,
+        initializeImportMeta: (meta) => {
+            meta.env = { VITE_APP_TARGET_URL: 'https://pezmax.example' }
+        }
+    })
+    await module.link((specifier) => {
+        const values = exports[specifier]
+        assert.ok(values, `Unexpected import ${specifier}`)
+        return new SyntheticModule(
+            Object.keys(values),
+            function () {
+                for (const [key, value] of Object.entries(values)) this.setExport(key, value)
+            },
+            { context }
+        )
+    })
+    await module.evaluate()
+    let bindings
+    const emitted = []
+    const renderer = Vue.createRenderer({
+        createComment: () => ({}),
+        insert() {},
+        remove() {},
+        parentNode: () => null,
+        nextSibling: () => null
+    })
+    const app = renderer.createApp({
+        setup(_props, ctx) {
+            bindings = module.namespace.default.setup(props, {
+                ...ctx,
+                emit: (...args) => emitted.push(args)
+            })
+            return () => null
+        }
+    })
+    app.mount({})
+    const flush = async () => {
+        for (let index = 0; index < 12; index++) {
+            await Promise.resolve()
+            await Vue.nextTick()
+        }
+    }
+    await flush()
+    return { bindings, emitted, flush, dispose: () => app.unmount() }
+}
+
+const config = {
+    baseUrl: 'https://model.example/v1',
+    model: 'tool-model',
+    hasApiKey: false,
+    remember: false,
+    canRemember: true
+}
+
+test('welcome prompts keep the question while opening settings, and IME Enter never sends', async () => {
+    const calls = []
+    const user = Vue.reactive({ token: 'session', id: '7' })
+    const page = await mountAssistant(
+        'AssistantWorkspace',
+        { active: true },
+        {
+            '@/store/modules/user': { default: () => user },
+            '@/api/assistant': {
+                assistantCall: async (method, _scope, input) => {
+                    calls.push(method)
+                    if (method === 'getConfig') return { ...config }
+                    if (method === 'save') return { ...config, hasApiKey: true }
+                    if (method === 'complete')
+                        return { role: 'assistant', content: input.messages.at(-1).content }
+                },
+                searchAssistantResources: async () => ({
+                    resources: [],
+                    modelResult: { reports: [] }
+                })
+            }
+        }
+    )
+    const { bindings: ui } = page
+    try {
+        ui.chooseSuggestion('高等数学试卷')
+        assert.equal(ui.draft.value, '高等数学试卷')
+        assert.equal(ui.settingsOpen.value, true)
+        await ui.submit()
+        assert.equal(ui.draft.value, '高等数学试卷')
+        assert.equal(calls.includes('complete'), false)
+        await ui.session.saveSettings({ ...config, apiKey: 'local-fixture' })
+        ui.settingsOpen.value = false
+        let prevented = false
+        ui.handleComposerKey({
+            key: 'Enter',
+            isComposing: true,
+            preventDefault() {
+                prevented = true
+            }
+        })
+        await page.flush()
+        assert.equal(prevented, false)
+        assert.equal(calls.includes('complete'), false)
+        ui.handleComposerKey({
+            key: 'Enter',
+            shiftKey: false,
+            isComposing: false,
+            keyCode: 13,
+            preventDefault() {
+                prevented = true
+            }
+        })
+        await page.flush()
+        assert.equal(prevented, true)
+        assert.equal(ui.state.turns[0].content, '高等数学试卷')
+        assert.equal(ui.draft.value, '')
+        ui.draft.value = '旧账号未发送的内容'
+        ui.settingsOpen.value = true
+        user.token = ''
+        await page.flush()
+        assert.equal(ui.draft.value, '')
+        assert.equal(ui.settingsOpen.value, false)
+        assert.equal(ui.state.turns.length, 0)
+    } finally {
+        page.dispose()
+    }
+})
+
+test('settings submit credentials only to the local save boundary and clear the field after saving or closing', async () => {
+    const localConfig = Vue.reactive({ ...config })
+    const saved = []
+    const props = Vue.reactive({
+        open: true,
+        config: localConfig,
+        busy: false,
+        saveSettings: async (input) => {
+            saved.push({ ...input })
+            localConfig.hasApiKey = true
+            return '已保存'
+        },
+        clearKey: async () => {
+            localConfig.hasApiKey = false
+        }
+    })
+    const page = await mountAssistant('AssistantSettings', props)
+    try {
+        page.bindings.form.apiKey = 'fixture-secret'
+        await page.bindings.save(false)
+        assert.equal(saved[0].apiKey, 'fixture-secret')
+        assert.equal(page.bindings.form.apiKey, '')
+        assert.equal(
+            page.emitted.some(([name, value]) => name === 'update:open' && value === false),
+            true
+        )
+        page.bindings.form.apiKey = 'unsaved-fixture'
+        props.open = false
+        await page.flush()
+        assert.equal(page.bindings.form.apiKey, '')
+        props.open = true
+        await page.flush()
+        await page.bindings.clear()
+        assert.equal(localConfig.hasApiKey, false)
+        assert.equal(page.bindings.form.remember, false)
+    } finally {
+        page.dispose()
+    }
+})

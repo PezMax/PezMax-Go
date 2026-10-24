@@ -10,6 +10,9 @@
       <div :class="['activity-item', { active: activeView === 'bookmark' }]" @click="$emit('change-view', 'bookmark')" title="外部书签">
         <svg-icon icon-class="link" />
       </div>
+      <AButton type="text" :class="['activity-item', 'assistant-entry', { active: activeView === 'assistant' }]" :aria-pressed="activeView === 'assistant'" aria-label="找资料助手" title="找资料助手" @click="$emit('change-view', 'assistant')">
+        <RobotOutlined />
+      </AButton>
       <div :class="['activity-item', { active: activeView === 'rank' }]" @click="$emit('change-view', 'rank')" title="用户排行">
         <svg-icon icon-class="chart" />
       </div>
@@ -32,6 +35,9 @@
 </template>
 
 <script setup>
+import { Button as AButton } from 'ant-design-vue'
+import { RobotOutlined } from '@ant-design/icons-vue'
+
 defineProps({
   activeView: {
     type: String,
@@ -117,5 +123,11 @@ defineEmits(['change-view', 'open-donate', 'open-settings'])
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+.assistant-entry {
+  padding: 0;
+  border: 0;
+  flex-shrink: 0;
+  &:focus-visible { outline: 2px solid var(--ide-accent); outline-offset: 3px; }
 }
 </style>

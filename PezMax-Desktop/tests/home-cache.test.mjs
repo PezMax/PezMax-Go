@@ -81,6 +81,7 @@ async function createWorkspace({ treeResponses = [], initialTreeCache, realTreeU
                 'openTabs',
                 'activeTab',
                 'activeView',
+                'active',
                 'width',
                 'visible',
                 'text',
@@ -212,6 +213,13 @@ async function createWorkspace({ treeResponses = [], initialTreeCache, realTreeU
         const module = new SourceTextModule(content, {
             context,
             identifier: relativePath,
+            importModuleDynamically: async (specifier) => {
+                assert.equal(specifier, '@/components/assistant/AssistantWorkspace.vue')
+                const module = synthetic(specifier, { default: stub('AssistantWorkspace') })
+                if (module.status === 'unlinked') await module.link(() => {})
+                if (module.status === 'linked') await module.evaluate()
+                return module
+            },
             initializeImportMeta: (meta) => {
                 meta.env = { VITE_APP_BASE_API: '/dev-api' }
             }
@@ -380,6 +388,41 @@ test('home retains both paper tabs and does not initialize again after repeated 
     assert.equal(workspace.calls.tree, initialCalls.tree + 1)
     assert.equal(workspace.calls.scroll, initialCalls.scroll + 1)
     assert.equal(editor.props.openTabs.length, 2)
+})
+
+test('assistant cards open all resource kinds in the existing editor and preserve both workspaces', async (t) => {
+    const workspace = await createWorkspace()
+    t.after(workspace.dispose)
+    await workspace.openPaper('paper-1')
+    const editor = workspace.instances.get('MainEditor')
+    await workspace.navigate('/index?view=assistant')
+    const assistant = workspace.instances.get('AssistantWorkspace')
+    assert.ok(assistant)
+    assert.equal(assistant.props.active, true)
+    assert.equal(workspace.instances.get('MainEditor'), editor)
+    for (const [view, node, expectedUrl] of [
+        ['explorer', { type: 'file', id: 'file-71', rawId: 71, label: '数学.pdf', url: '/papers/math.pdf', fileExt: 'pdf', fileInfo: { fileId: 71 } }, '/papers/math.pdf'],
+        ['ebook', { type: 'ebook', id: 'ebook-72', rawId: 72, label: '教材', fileExt: 'epub', originalData: { ebookId: 72 } }, '/ebook/72'],
+        ['bookmark', { type: 'bookmark', id: 'bookmark-73', rawId: 73, label: '学习网站', url: 'https://example.com/learn' }, 'https://example.com/learn']
+    ]) {
+        const navigated = new Promise((resolve) => {
+            const removeHook = workspace.router.afterEach((_to, _from, failure) => { removeHook(); resolve(failure) })
+        })
+        assistant.emit('open-resource', node)
+        assert.equal(await navigated, undefined)
+        await workspace.flush()
+        assert.equal(editor.props.openTabs.at(-1).id, node.id, 'assistant card should reach the preview handler')
+        assert.equal(workspace.router.currentRoute.value.query.view, view)
+        assert.equal(editor.props.activeTab, node.id)
+        assert.equal(editor.props.openTabs.at(-1).url, expectedUrl)
+        assert.equal(assistant.props.active, false)
+        await workspace.navigate('/index?view=assistant')
+        assert.equal(workspace.instances.get('AssistantWorkspace'), assistant)
+        assert.equal(workspace.instances.get('MainEditor'), editor)
+    }
+    assert.equal(editor.props.openTabs.length, 4)
+    assert.equal(workspace.calls.editorMounts, 1)
+    assert.equal(workspace.calls.editorUnmounts, 0)
 })
 
 test('a cached home consumes a favorite preview once and ignores other routes query changes', async (t) => {

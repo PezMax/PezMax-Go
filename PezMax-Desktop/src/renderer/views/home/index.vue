@@ -8,6 +8,10 @@
         @open-settings="settingsVisible = true"
       />
 
+      <div v-if="assistantVisited" v-show="activeView === 'assistant'" class="assistant-workspace-host">
+        <AssistantWorkspace :active="activeView === 'assistant'" @open-resource="openAssistantResource" />
+      </div>
+
       <transition name="view-fade" mode="out-in">
         <template v-if="activeView === 'rank'">
           <RankView />
@@ -15,7 +19,7 @@
 
         <template v-else>
           <!-- 包装一个容器让 transition 能正确处理平级组件 -->
-          <div ref="rootRef" class="ide-main-content-wrapper">
+          <div ref="rootRef" v-show="activeView !== 'assistant'" class="ide-main-content-wrapper">
             <SidePanel
               :active-view="activeView"
               :width="panelWidth"
@@ -143,7 +147,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated, watch } from 'vue'
+import { ref, computed, defineAsyncComponent, onMounted, onUnmounted, onActivated, onDeactivated, watch } from 'vue'
 import ActivityBar from './components/ActivityBar.vue'
 import SidePanel from './components/SidePanel.vue'
 import MainEditor from './components/MainEditor.vue'
@@ -171,6 +175,7 @@ import { listFavorite, addFavorite, delFavorite } from '@/api/datum/favorite'
 import { listBookmarkFavorite, addBookmarkFavorite, delBookmarkFavorite } from '@/api/datum/bookmarkFavorite'
 
 defineOptions({ name: 'HomeWorkspace' })
+const AssistantWorkspace = defineAsyncComponent(() => import('@/components/assistant/AssistantWorkspace.vue'))
 
 // const activeView = ref('explorer')
 // 状态管理
@@ -186,12 +191,15 @@ const normalizeView = (v) => {
     v === 'bookmark' ||
     v === 'reportUser' ||
     v === 'ebook' ||
+    v === 'assistant' ||
     v === 'none'
   ) return v
   return 'explorer'
 }
 
 const activeView = ref(normalizeView(route.query.view)) // explorer, rank, upload, none
+const assistantVisited = ref(false)
+watch(activeView, (view) => { if (view === 'assistant') assistantVisited.value = true }, { immediate: true })
 const panelWidth = ref(260)
 const isResizing = ref(false)
 const rootRef = ref(null)
@@ -1068,6 +1076,12 @@ const openFileInfo = (node, data, event) => {
 }
 
 // 树节点点击(打开文件、书签或电子书)
+const openAssistantResource = (node) => {
+  if (!node || !['file', 'ebook', 'bookmark'].includes(node.type)) return
+  handleNodeClick(node)
+  forceChangeView(node.type === 'file' ? 'explorer' : node.type)
+}
+
 const handleNodeClick = (data) => {
   // 0. 电子书：预览 URL 走 inline 内容流（带 token），按格式分流渲染
   if (data.type === 'ebook') {
@@ -1734,6 +1748,14 @@ html.dark.has-custom-bg {
 }
 
 /* 右侧内容包裹层，解决 transition 需要单根节点的问题 */
+.assistant-workspace-host {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .ide-main-content-wrapper {
   flex: 1;
   display: flex;
