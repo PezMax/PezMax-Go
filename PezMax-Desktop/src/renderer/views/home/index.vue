@@ -154,6 +154,7 @@ import MainEditor from './components/MainEditor.vue'
 import FileInfoDrawer from './components/FileInfoDrawer.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import { sortFileTree } from '@/utils/fileTreeSort.mjs'
+import { searchFileTree } from '@/utils/file-tree-search.mjs'
 import DonateModal from './components/DonateModal.vue'
 import RankView from '@/views/rank/index.vue'
 import { getFileTree } from '@/api/datum/file'
@@ -753,32 +754,8 @@ const fetchTreeData = async () => {
   }
 }
 // 侧边栏搜索逻辑
-// lxq 本地搜索：直接在已有文件树中按文件夹名筛选，排除单个文件，不发起后端请求
+// 本地搜索同时匹配文件和文件夹，保留路径，不发起后端请求。
 let searchTimer = null
-
-// lxq 在树中递归搜索匹配的文件夹节点，只返回文件夹，排除文件节点
-const filterFolders = (nodes, kw) => {
-  if (!Array.isArray(nodes)) return []
-
-  const result = []
-  const walk = (list) => {
-    list.forEach(node => {
-      const isFolder = node.type === 'folder' || (node.children && node.children.length > 0)
-      if (!isFolder) return // 跳过文件节点
-
-      const label = (node.label || '').toLowerCase()
-      if (label.includes(kw)) {
-        result.push(node)
-      }
-      // 递归搜索子文件夹
-      if (node.children && node.children.length > 0) {
-        walk(node.children)
-      }
-    })
-  }
-  walk(nodes)
-  return result
-}
 
 // lxq 搜索防抖处理：用户停止输入 300ms 后在本地文件树中筛选
 const handleLocalSearch = (query) => {
@@ -795,8 +772,8 @@ const handleLocalSearch = (query) => {
       return
     }
 
-    // 在已有文件树中筛选匹配的文件夹
-    const matchedList = filterFolders(allFileTreeData.value, keyword.toLowerCase())
+    // 保留文件名匹配项及其父级路径；文件夹匹配时保留整个子树。
+    const matchedList = searchFileTree(allFileTreeData.value, keyword)
     fileTreeData.value = matchedList
   }, 300)
 }
@@ -1318,7 +1295,7 @@ const handleGlobalKeydown = (e) => {
       // 检查上传快捷键 (CommandOrControl+U)
       if (shortcuts.upload && shortcuts.upload.includes('U') && isCmdOrCtrl && !e.shiftKey && !e.altKey && e.key.toUpperCase() === 'U') {
         e.preventDefault()
-        activeView.value = 'upload'
+        forceChangeView('upload')
       }
 
       // 检查设置快捷键 (CommandOrControl+,)
@@ -1330,6 +1307,7 @@ const handleGlobalKeydown = (e) => {
       // 检查关闭标签快捷键 (CommandOrControl+W)
       if (shortcuts.closeTab && shortcuts.closeTab.includes('W') && isCmdOrCtrl && !e.shiftKey && !e.altKey && e.key.toUpperCase() === 'W') {
         e.preventDefault()
+        if (activeView.value === 'assistant') return
         if (activeTab.value) {
           closeTab(activeTab.value)
         }

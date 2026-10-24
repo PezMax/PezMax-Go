@@ -32,6 +32,7 @@
 - **内容预览**：预览 PDF、图片、Markdown 和文本；Word、PowerPoint 文档上传时通过 LibreOffice 转为 PDF。
 - **资源书签**：分类整理外部链接，支持封面上传、收藏和举报。
 - **电子书**：独立书目、学科分类与搜索，支持 PDF、EPUB 在线阅读，以及下载、收藏、举报；MOBI、AZW3 下载后使用本地阅读器打开。
+- **找资料助手**：用户自配模型 API Key，以自然语言检索真实资料、电子书和书签，支持连续追问并直接打开预览；智能体界面使用 Ant Design Vue。详见[配置与架构说明](./PezMax-Desktop/docs/assistant.md)。
 - **个人中心**：注册、登录、密保找回密码、头像及资料设置，查看个人上传、下载、收藏和举报记录。
 - **贡献排行与通知**：展示资料贡献排行，接收公告、弹窗和滚动通知；通知已读状态保存在客户端本地。
 - **桌面集成**：下载进度、断点续传、本地下载记录、快捷键、启动设置、主题及背景自定义，并集成更新检查。
@@ -59,7 +60,7 @@ Vue Web 管理后台 ────── /api/* ───────────
 
 | 层级 | 技术与用途 |
 | --- | --- |
-| 桌面应用 | Electron 39、Vue 3、Element Plus、Pinia、Vue Router、electron-vite |
+| 桌面应用 | Electron 39、Vue 3、Element Plus、Ant Design Vue（助手）、Pinia、Vue Router、electron-vite |
 | 本地持久化 | sql.js / SQLite 保存下载记录和通知已读状态，JSON 保存客户端设置 |
 | Web 后台 | Vben Admin、Vue 3、TypeScript、Ant Design Vue、Vite、pnpm workspace |
 | 服务端 | Go、Gin、GoAdmin 公共组件 |

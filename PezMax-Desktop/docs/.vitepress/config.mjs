@@ -12,6 +12,7 @@ export default defineConfig({
     nav: [
       { text: '首页', link: '/' },
       { text: '功能概览', link: '/features' },
+      { text: '找资料助手', link: '/assistant' },
       { text: '更新日志', link: '/changelog' },
       { text: '帮助与支持', link: '/support' }
     ],

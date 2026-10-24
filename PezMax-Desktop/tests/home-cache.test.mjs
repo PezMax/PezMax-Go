@@ -6,6 +6,7 @@ import { compileScript, parse } from '@vue/compiler-sfc'
 import * as Vue from 'vue'
 import * as VueRouter from 'vue-router'
 import { sortFileTree } from '../src/renderer/utils/fileTreeSort.mjs'
+import { searchFileTree } from '../src/renderer/utils/file-tree-search.mjs'
 
 // Use the real SFCs, router and Vue lifecycle with a DOM-free renderer. Child
 // views and backend/Electron APIs are isolated so this runs without a login.
@@ -181,6 +182,7 @@ async function createWorkspace({ treeResponses = [], initialTreeCache, realTreeU
             setStorageItem: sessionStorage.setItem
         },
         '@/utils/fileTreeSort.mjs': { sortFileTree },
+        '@/utils/file-tree-search.mjs': { searchFileTree },
         '@/utils/url': { normalizeFileUrl: (url) => url },
         '@/utils/avatar': { normalizeAvatar: (avatar) => avatar },
         '@/utils/pagination': { fetchAllPages: (api) => api() },
@@ -423,6 +425,55 @@ test('assistant cards open all resource kinds in the existing editor and preserv
     assert.equal(editor.props.openTabs.length, 4)
     assert.equal(workspace.calls.editorMounts, 1)
     assert.equal(workspace.calls.editorUnmounts, 0)
+})
+
+test('tree filename search keeps the folder path and clearing it restores the local tree without requests', async (t) => {
+    const workspace = await createWorkspace({ treeResponses: [{ code: 0, data: [{ id: 'school', type: 'folder', label: '示例大学', children: [paperInfo, { ...paperInfo, fileId: 43, fileName: '大学物理.pdf' }] }] }] })
+    t.after(workspace.dispose)
+    const sidePanel = workspace.instances.get('SidePanel')
+    const original = sidePanel.props.fileTreeData
+    const requests = workspace.calls.tree
+    sidePanel.emit('search', '高等数学试卷')
+    await workspace.flush()
+    assert.equal(sidePanel.props.fileTreeData[0].label, '示例大学')
+    assert.equal(sidePanel.props.fileTreeData[0].children.length, 1)
+    assert.equal(sidePanel.props.fileTreeData[0].children[0].fileInfo.fileId, 42)
+    sidePanel.emit('search', '不存在的文件')
+    await workspace.flush()
+    assert.equal(sidePanel.props.fileTreeData.length, 0)
+    sidePanel.emit('search', '')
+    await workspace.flush()
+    assert.equal(sidePanel.props.fileTreeData, original)
+    assert.equal(workspace.calls.tree, requests)
+})
+
+test('assistant navigation keeps shortcuts from closing hidden tabs and keeps upload routes in sync', async (t) => {
+    const workspace = await createWorkspace()
+    t.after(workspace.dispose)
+    await workspace.openPaper('paper-1')
+    await workspace.navigate('/index?view=assistant')
+    const assistant = workspace.instances.get('AssistantWorkspace')
+    const editor = workspace.instances.get('MainEditor')
+    workspace.window.electronAPI.getSettings = async () => ({ shortcuts: { closeTab: 'CommandOrControl+W', upload: 'CommandOrControl+U' } })
+    const dispatchShortcut = (key) => {
+        const event = new Event('keydown', { cancelable: true })
+        Object.assign(event, { key, ctrlKey: true })
+        workspace.window.dispatchEvent(event)
+    }
+    dispatchShortcut('w')
+    await workspace.flush()
+    assert.equal(editor.props.openTabs.length, 1)
+    const navigated = new Promise((resolve) => {
+        const removeHook = workspace.router.afterEach(() => { removeHook(); resolve() })
+    })
+    dispatchShortcut('u')
+    await navigated
+    await workspace.flush()
+    assert.equal(workspace.router.currentRoute.value.query.view, 'upload')
+    await workspace.navigate('/index?view=assistant')
+    assert.equal(assistant.props.active, true)
+    assert.equal(workspace.instances.get('AssistantWorkspace'), assistant)
+    assert.equal(editor.props.openTabs.length, 1)
 })
 
 test('a cached home consumes a favorite preview once and ignores other routes query changes', async (t) => {
