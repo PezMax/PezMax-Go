@@ -32,7 +32,11 @@ flowchart LR
 
 `upload.py` 是独立的上传建议状态图：`START → suggest → validate → END`，每次只调用一次模型。输入仅为上传种类、是否为文件夹和文件名列表，不访问目录、正文或文件系统，也不具备上传/重命名工具。输出限制为当前表单支持的字段，逐项核对枚举、长度、年份与文件名原文依据。无法确定的字段省略；文件夹不建议标题，只建议每个文件名都支持的共同分类，最多20个文件；跨学年或混合年份不建议年份。
 
-`reading.py` 是独立阅读问答状态图：`START → retrieve → answer → validate → END`。桌面端在用户选择页码后本地提取 PDF 文字；模块只接收问题和页面文字，本地按词语匹配最多选6段、每段1800字符，调用一次模型。没有工具、目录客户端、文件路径或下载地址。每条回答必须附对应物理页码和连续原文引用，逐项复核引用是否存在于实际发给模型的片段中；任一引用不符会丢弃整条回答。核对原文不能保证模型解释正确，仍需结合上下文阅读。
+`reading.py` 支持 PDF / EPUB 的问答、摘要和提纲。图为 `retrieve → answer → validate`；结构或引用校验失败且没有有效回答时，通过条件边进入 `repair → validate`，最多纠正一次、总计最多2次模型调用。显式空回答和已有有效回答的情况不重试；传输/鉴权错误直接报错。纠正仅使用相同任务和相同片段，不重放无效回答，不扩大文档读取范围。
+
+桌面端明确选择页码或分节后本地提取文字。问答按词语匹配选择最多6段、每段1800字符；摘要/提纲在所选内容中均匀抽取最多6段，披露部分覆盖。`reading_schema.py` 使用 Pydantic v2 严格模型生成 JSON Schema 并核验输出，拒绝隐式页码类型转换和额外字段。保持服务商兼容性，不依赖服务商的原生 `json_schema` 解码参数。每条回答至少1条、最多3条原文引用，任意引用不符则丢弃整条回答；PDF 使用物理页码，EPUB 使用书脊分节序号。没有工具、目录客户端、文件路径或下载地址；不是全文向量检索，也不能保证回答的语义推论正确。
+
+`telemetry.py` 为三种状态图记录节点耗时、执行结果和调用次数。白名单只允许固定节点名、布尔结果与非负数字，既不采集图状态，也不落盘或上传。完整数值诊断通过本机 stdio 返回；阅读界面只保留总耗时和模型调用数。取消/异常透传，失败记录不包含原始异常内容；进程错误仍沿用固定错误消息。
 
 ## 进程协议 v1
 
@@ -42,7 +46,9 @@ flowchart LR
 
 上传建议使用同一 v1 协议的可选任务：`{version:1, requestId, provider, task:"upload", upload:{kind:"exam"|"ebook", folder:false, names:["示例大学2026高等数学期末.pdf"]}}`。不需要也不会使用平台令牌、检索历史或表单现值。结果保留 `content/messages/resources/reports`，额外返回 `suggestions:[{field,value,evidence}]`；其余三个数组为空。`fileType`/`ebookType` 使用数字枚举，其余建议值为字符串。调用方必须在用户逐项确认后应用，不能直接提交上传。
 
-阅读问答使用 `{version:1, requestId, provider, task:"reading", reading:{question,pages:[{page:2,text:"所选页文字"}]}}`。页码为1–10000的物理页码；每轮1–10页、每页最多20000字符、总计80000字符，问题最多2000字符。输出 `answers:[{text,citations:[{page,quote}]}]`、`contextPages` 和 `partial`，历史与资源数组为空。片段不足时返回空回答和固定提示；不是整本书检索或 OCR。
+阅读使用 `{version:1, requestId, provider, task:"reading", reading:{question,pages:[{page:2,text:"所选页文字"}]}}`。PDF 默认格式，`mode` 默认为 `qa`，兼容原有请求。`mode:"summary"|"outline"` 使用固定任务，忽略调用方 question。EPUB 使用 `reading:{format:"epub",mode:"summary",chapters:[{chapter:2,text:"所选分节文字"}]}`，不包含 `pages`。
+
+PDF 每轮1–10页，每页最多20000字符；EPUB 每轮1–5节，每节最多40000字符；位置均为1–10000整数、总文字不超过80000字符，问答问题最多2000字符。输出 `answers:[{text,citations:[{page,quote}]}]` / `{chapter,quote}`、`contextPages` / `contextChapters`、`partial` 和 `diagnostics`，历史与资源数组为空。片段不足时返回空回答和固定提示；不支持 OCR。
 
 输出对象均含 `version`、`requestId` 和 `type`：
 
@@ -63,3 +69,13 @@ flowchart LR
 PyInstaller 生成 `dist/pezmax-agent/`（包含解释器、依赖与平台清单），自动运行离线启动自检。Electron 打包将整个目录复制到 `resources/agent/`，普通用户无需安装 Python。不同系统/架构应分别构建，不能混用二进制。
 
 LangGraph 的状态、节点与条件边接口参见[官方 Graph API 文档](https://docs.langchain.com/oss/python/langgraph/graph-api)。
+
+## 离线评测与项目展示
+
+```powershell
+.venv\Scripts\python -m pezmax_agent.evaluation --output evals/results/local.json
+```
+
+在桌面端也可执行 `npm run agent:eval -- --output evals/results/local.json`（输出路径相对本模块）。固定合成数据集 `evals/reading-cases.json` 的10种行为在 PDF/EPUB × 问答/摘要/提纲下组成60个案例，运行真实 LangGraph 图并注入可复现的脚本模型响应，无需密钥或联网。比较未经校验首答、仅校验、带一次纠正三种处理方式，独立检查引文、类型和输出字段，记录行为通过数、无效引用释放数、恢复数与调用预算。
+
+这只衡量编排与引用契约，不衡量真实模型语义准确率、线上延迟、用户留存或服务商成本。运行结果和范围应一起呈现。详见 [Agent 工程架构与取舍](../PezMax-Desktop/docs/agent-engineering.md) 和 [求职展示素材](../PezMax-Desktop/docs/agent-portfolio.md)。

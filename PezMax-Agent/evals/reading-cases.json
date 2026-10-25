@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "description": "Clearly synthetic math/software fixtures. Scripted responses evaluate orchestration and evidence contracts, not real model answer quality.",
+  "text": "The derivative measures the rate of change. This is an isolated synthetic software fixture.",
+  "cases": [
+    {"id":"valid", "responses":[{"answers":[{"text":"It measures change.","citations":[{"location":2,"quote":"rate of change"}]}]}],"expectedAnswers":1,"expectedCalls":1},
+    {"id":"wrong-location-recovery", "responses":[{"answers":[{"text":"Incorrect location.","citations":[{"location":9,"quote":"rate of change"}]}]},{"answers":[{"text":"Corrected location.","citations":[{"location":2,"quote":"rate of change"}]}]}],"expectedAnswers":1,"expectedCalls":2},
+    {"id":"fabricated-quote-abstention", "responses":[{"answers":[{"text":"Unsupported.","citations":[{"location":2,"quote":"fabricated evidence"}]}]}],"expectedAnswers":0,"expectedCalls":2},
+    {"id":"malformed-recovery", "responses":["not JSON",{"answers":[{"text":"Corrected structure.","citations":[{"location":2,"quote":"rate of change"}]}]}],"expectedAnswers":1,"expectedCalls":2},
+    {"id":"strict-boolean-location", "responses":[{"answers":[{"text":"Boolean is not an index.","citations":[{"location":true,"quote":"rate of change"}]}]}],"expectedAnswers":0,"expectedCalls":2},
+    {"id":"strict-string-location", "responses":[{"answers":[{"text":"String is not an index.","citations":[{"location":"2","quote":"rate of change"}]}]}],"expectedAnswers":0,"expectedCalls":2},
+    {"id":"unknown-field-recovery", "responses":[{"answers":[{"text":"Unexpected field.","url":"synthetic-untrusted-location","citations":[{"location":2,"quote":"rate of change"}]}]},{"answers":[{"text":"Expected fields only.","citations":[{"location":2,"quote":"rate of change"}]}]}],"expectedAnswers":1,"expectedCalls":2},
+    {"id":"explicit-abstention", "responses":[{"answers":[]}],"expectedAnswers":0,"expectedCalls":1},
+    {"id":"retain-valid-answer-without-retry", "responses":[{"answers":[{"text":"Valid answer.","citations":[{"location":2,"quote":"rate of change"}]},{"text":"Invalid answer.","citations":[{"location":9,"quote":"fabricated evidence"}]}]}],"expectedAnswers":1,"expectedCalls":1},
+    {"id":"empty-extraction", "text":" ","responses":[{"answers":[]}],"expectedAnswers":0,"expectedCalls":0}
+  ]
+}
