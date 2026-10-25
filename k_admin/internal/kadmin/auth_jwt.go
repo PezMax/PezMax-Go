@@ -335,8 +335,19 @@ func (r *authRedisClient) do(args ...string) (interface{}, error) {
 		}
 	}
 
-	return redisCommand(conn, reader, args...)
+	reply, err := redisCommand(conn, reader, args...)
+	if len(args) == 2 && strings.EqualFold(args[0], "GETDEL") && err != nil &&
+		strings.HasPrefix(err.Error(), "redis: ERR unknown command ") {
+		// Redis < 6.2 lacks GETDEL. Preserve atomic single-use consumption for
+		// captchas and refresh tokens; separate GET/DEL requests would race.
+		return redisCommand(conn, reader, "EVAL", redisGetDelScript, "1", args[1])
+	}
+	return reply, err
 }
+
+const redisGetDelScript = `local value = redis.call('GET', KEYS[1])
+if value then redis.call('DEL', KEYS[1]) end
+return value`
 
 func redisCommand(
 	writer io.Writer,
