@@ -30,11 +30,15 @@ flowchart LR
 
 `contracts.py` 定义历史、配置和脱敏规则；`cli.py` 负责进程协议。API Key 和平台令牌只在进程内存中使用，不放入图状态、不落盘、不接入托管追踪。模块无需单独部署服务器、数据库或开放本机端口。
 
+`upload.py` 是独立的上传建议状态图：`START → suggest → validate → END`，每次只调用一次模型。输入仅为上传种类、是否为文件夹和文件名列表，不访问目录、正文或文件系统，也不具备上传/重命名工具。输出限制为当前表单支持的字段，逐项核对枚举、长度、年份与文件名原文依据。无法确定的字段省略；文件夹不建议标题，只建议每个文件名都支持的共同分类，最多20个文件；跨学年或混合年份不建议年份。
+
 ## 进程协议 v1
 
 每个子进程只处理一条请求，完成后退出。输入、输出均为 UTF-8 NDJSON。输入上限512 KiB，外层总时限180秒，模型请求60秒，目录请求10秒；取消时由 Electron 结束当前子进程。
 
 输入对象：`{version:1, requestId, provider:{baseUrl,model,apiKey}, catalog:{baseUrl,token}, history:[], question}`。连接测试使用 `test:true`，不需要 `catalog`。密钥仅由 Electron 写入 stdin，不能放入命令行参数或环境变量。
+
+上传建议使用同一 v1 协议的可选任务：`{version:1, requestId, provider, task:"upload", upload:{kind:"exam"|"ebook", folder:false, names:["示例大学2026高等数学期末.pdf"]}}`。不需要也不会使用平台令牌、检索历史或表单现值。结果保留 `content/messages/resources/reports`，额外返回 `suggestions:[{field,value,evidence}]`；其余三个数组为空。`fileType`/`ebookType` 使用数字枚举，其余建议值为字符串。调用方必须在用户逐项确认后应用，不能直接提交上传。
 
 输出对象均含 `version`、`requestId` 和 `type`：
 

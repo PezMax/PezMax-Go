@@ -24,14 +24,19 @@ class ChatCompletionsModel:
     def __init__(self, client: httpx.AsyncClient, config: ProviderConfig):
         self.client, self.config = client, config
 
-    async def complete(self, messages: list[dict], *, allow_tools=True) -> dict:
+    async def complete(self, messages: list[dict], *, allow_tools=True, system=None, tools=None) -> dict:
         config = self.config
+        available_tools = [SEARCH_TOOL] if tools is None else tools
+        body = {"model": config.model,
+                "messages": [{"role": "system", "content": system if system is not None else system_prompt()}, *messages],
+                "stream": False}
+        if available_tools:
+            body.update(tools=available_tools, tool_choice="auto" if allow_tools else "none")
         try:
             data = await read_json(
                 self.client, "POST", f"{config.base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {config.api_key}"},
-                json={"model": config.model, "messages": [{"role": "system", "content": system_prompt()}, *messages],
-                      "tools": [SEARCH_TOOL], "tool_choice": "auto" if allow_tools else "none", "stream": False},
+                json=body,
                 timeout=60, limit=512 * 1024, status_error=provider_status,
             )
         except httpx.TimeoutException:

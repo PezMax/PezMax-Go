@@ -20,12 +20,16 @@ from .contracts import MAX_REQUEST_BYTES, PROTOCOL_VERSION, CatalogConfig, Provi
 from .errors import AgentError
 from .graph import run_assistant
 from .provider import ChatCompletionsModel
+from .upload import run_upload_assistant
 
 
 async def execute(payload, emit):
     provider = ProviderConfig.parse(payload.get("provider"))
     testing = payload.get("test") is True
-    catalog = None if testing else CatalogConfig.parse(payload.get("catalog"))
+    task = payload.get("task", "search")
+    if task not in ("search", "upload"):
+        raise AgentError("请求的助手任务无效")
+    catalog = None if testing or task == "upload" else CatalogConfig.parse(payload.get("catalog"))
     secrets = [provider.api_key, catalog.token if catalog else ""]
 
     def progress(data):
@@ -36,6 +40,8 @@ async def execute(payload, emit):
         if testing:
             message = await model.complete([{"role": "user", "content": "请简短回复“连接成功”，不要调用工具。"}], allow_tools=False)
             result = {"content": message["content"], "messages": [], "resources": [], "reports": []}
+        elif task == "upload":
+            result = await run_upload_assistant(model, payload.get("upload"), on_progress=progress)
         else:
             result = await run_assistant(model, CatalogSearch(client, catalog),
                                          history=payload.get("history", []), question=payload.get("question"), on_progress=progress)
