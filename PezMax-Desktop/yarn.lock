@@ -823,6 +823,28 @@
     lodash "^4.17.15"
     tmp-promise "^3.0.2"
 
+"@napi-rs/canvas-win32-x64-msvc@1.0.13":
+  version "1.0.13"
+  resolved "https://registry.npmjs.org/@napi-rs/canvas-win32-x64-msvc/-/canvas-win32-x64-msvc-1.0.13.tgz"
+  integrity sha512-DUlW3lZPz63kYsf8mxgyyZuevhlH0T3/BGP9l+NazhB0F1+gL6D4hqZdnhZpw24DlWmTpATDcyYSZlJOi+DdfQ==
+
+"@napi-rs/canvas@^1.0.10":
+  version "1.0.13"
+  resolved "https://registry.npmjs.org/@napi-rs/canvas/-/canvas-1.0.13.tgz"
+  integrity sha512-b87ugZpQ5ViwqVBkjervxpwa0GmJPsKHLBNoZN6GpjWeHzTbDUGryriq+2DYW2XbB+xCqSIINQysC0/I87nPbw==
+  optionalDependencies:
+    "@napi-rs/canvas-android-arm64" "1.0.13"
+    "@napi-rs/canvas-darwin-arm64" "1.0.13"
+    "@napi-rs/canvas-darwin-x64" "1.0.13"
+    "@napi-rs/canvas-linux-arm-gnueabihf" "1.0.13"
+    "@napi-rs/canvas-linux-arm64-gnu" "1.0.13"
+    "@napi-rs/canvas-linux-arm64-musl" "1.0.13"
+    "@napi-rs/canvas-linux-riscv64-gnu" "1.0.13"
+    "@napi-rs/canvas-linux-x64-gnu" "1.0.13"
+    "@napi-rs/canvas-linux-x64-musl" "1.0.13"
+    "@napi-rs/canvas-win32-arm64-msvc" "1.0.13"
+    "@napi-rs/canvas-win32-x64-msvc" "1.0.13"
+
 "@nodelib/fs.scandir@2.1.5":
   version "2.1.5"
   resolved "https://registry.npmmirror.com/@nodelib/fs.scandir/-/fs.scandir-2.1.5.tgz"
@@ -5465,6 +5487,13 @@ pathe@^2.0.1, pathe@^2.0.3:
   version "2.0.3"
   resolved "https://registry.npmmirror.com/pathe/-/pathe-2.0.3.tgz"
   integrity sha512-WUjGcAqP1gQacoQe+OBJsFA7Ld4DyXuUIjZ5cc75cLHvJ7dtNsTugphxIADwspS+AraAUePCKrSVtPLFj/F88w==
+
+pdfjs-dist@6.4.299:
+  version "6.4.299"
+  resolved "https://registry.npmjs.org/pdfjs-dist/-/pdfjs-dist-6.4.299.tgz"
+  integrity sha512-AVl138zALtfaAPvADulE0PZThbYzCBS79nL4pOSL/6Sm/4AH5A21BD9VHt97OlCuzJuCpmeZtAtkinisF4Vb1g==
+  optionalDependencies:
+    "@napi-rs/canvas" "^1.0.10"
 
 pe-library@^0.4.1:
   version "0.4.1"

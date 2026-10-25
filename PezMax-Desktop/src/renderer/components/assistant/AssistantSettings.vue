@@ -9,7 +9,9 @@
         :destroy-on-close="true"
         @cancel="close"
     >
-        <p class="settings-intro">连接你自己的模型服务，即可使用找资料助手与上传建议。</p>
+        <p class="settings-intro">
+            连接你自己的模型服务，即可使用找资料、上传建议与 PDF 阅读问答。
+        </p>
         <AForm layout="vertical" class="assistant-settings" @finish="save(false)">
             <AFormItem
                 label="接口地址"
@@ -28,7 +30,7 @@
             <AFormItem
                 label="模型 ID"
                 :required="true"
-                extra="使用服务商提供的模型 ID；找资料需支持工具调用，上传建议需按要求返回 JSON。"
+                extra="使用服务商提供的模型 ID；找资料需支持工具调用，上传建议与阅读问答需按要求返回 JSON。"
             >
                 <AInput
                     v-model:value="form.model"
@@ -73,7 +75,7 @@
                 type="info"
                 show-icon
                 message="发送范围与费用"
-                description="找资料会发送提问、近期对话和目录信息；上传建议仅发送所选文件名。不会发送本地路径或文件正文。调用费用由该服务商按你的账号计费，连接测试也会发起一次调用。"
+                description="找资料发送提问、近期对话和目录信息；上传建议仅发送文件名；阅读问答在你发送问题时发送问题和所选 PDF 页面的相关文字片段。不发送本地路径或下载地址。调用费用由服务商按你的账号计费，连接测试也会发起一次调用。"
             />
             <AAlert
                 v-if="feedback"

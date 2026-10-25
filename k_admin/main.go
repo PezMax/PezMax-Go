@@ -228,6 +228,12 @@ func listenHTTP(addr string) (net.Listener, error) {
 
 func immutableUploadsCache(c *gin.Context) {
 	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	// These PDFs are already public static resources. Permit credential-free
+	// reads by the desktop's local PDF worker, including its file:// origin.
+	if (c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead) &&
+		strings.HasSuffix(strings.ToLower(c.Request.URL.Path), ".pdf") && c.GetHeader("Origin") != "" {
+		c.Header("Access-Control-Allow-Origin", "*")
+	}
 	c.Next()
 }
 

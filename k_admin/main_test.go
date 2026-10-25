@@ -3,11 +3,44 @@ package main
 import (
 	"bytes"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 )
+
+func TestPublicPDFUploadsSupportCredentialFreeTextReads(t *testing.T) {
+	router := gin.New()
+	router.Any("/uploads/:file", immutableUploadsCache, func(c *gin.Context) { c.String(http.StatusOK, "synthetic public resource") })
+	for _, test := range []struct {
+		method, file, origin string
+		allowed              bool
+	}{
+		{http.MethodGet, "fixture.pdf", "http://localhost", true},
+		{http.MethodHead, "fixture.PDF", "null", true},
+		{http.MethodGet, "fixture.pdf", "", false},
+		{http.MethodGet, "fixture.png", "http://localhost", false},
+		{http.MethodPost, "fixture.pdf", "http://localhost", false},
+	} {
+		request := httptest.NewRequest(test.method, "/uploads/"+test.file, nil)
+		request.Header.Set("Origin", test.origin)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if (response.Header().Get("Access-Control-Allow-Origin") == "*") != test.allowed {
+			t.Fatalf("unexpected public PDF CORS header for %+v", test)
+		}
+		if response.Header().Get("Access-Control-Allow-Credentials") != "" {
+			t.Fatal("public file reads must not enable credentials")
+		}
+		if !strings.Contains(response.Header().Get("Cache-Control"), "immutable") {
+			t.Fatal("static caching was lost")
+		}
+	}
+}
 
 func TestListenHTTPReportsAddressInUse(t *testing.T) {
 	occupied, err := net.Listen("tcp", "127.0.0.1:0")

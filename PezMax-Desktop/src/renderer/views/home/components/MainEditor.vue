@@ -24,6 +24,14 @@
 
     <!-- 预览区 -->
     <div class="editor-content" v-if="openTabs.length > 0">
+      <ReadingAssistant
+        v-if="currentFileObj?.fileExt === 'pdf' && currentFileObj.url"
+        :document-id="String(currentFileObj.id)"
+        :source="currentFileObj.url"
+        :title="currentFileObj.title"
+        @jump-page="jumpToPdfPage"
+        @open-change="readingOpen = $event"
+      />
       <!-- 悬浮操作区：Notion 风格毛玻璃“药丸”岛 (按钮组) -->
       <div class="editor-floating-pill-group" v-if="currentFileObj && currentFileObj.type !== 'bookmark' && currentFileObj.type !== 'local' && currentFileObj.originalData">
         <div v-if="currentFileObj.type !== 'bookmark'" class="pill-btn primary-action" @click="$emit('download-file', currentFileObj.originalData)" :title="currentIsEbook ? '下载电子书' : '下载原件'">
@@ -71,13 +79,14 @@
         </div>
       </div>
 
-      <div class="preview-area">
+      <div class="preview-area" :class="{ 'reading-open': readingOpen }">
         <!-- local 类型（拖入的本地文件）可能没有预置 url：EPUB 由阅读器按需读文件 -->
         <template v-if="currentFileObj && (currentFileObj.url || currentFileObj.type === 'local')">
           <!-- PDF 或 Word(已转PDF) 预览 -->
           <iframe
             v-if="['pdf', 'doc', 'docx'].includes(currentFileObj.fileExt)"
-            :src="currentFileObj.url"
+            :key="`${currentFileObj.id}-${pdfJumpRevision}`"
+            :src="pdfPreviewUrl"
             width="100%"
             height="100%"
             frameborder="0"
@@ -491,7 +500,7 @@
 </template>
 
 <script setup>
-import { computed, ref, reactive, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { computed, ref, reactive, watch, nextTick, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import { ElMessage } from 'element-plus'
 import logo from '@/assets/logo/logo.png'
 import { marked } from 'marked' // 引入 marked
@@ -505,6 +514,9 @@ import { Close, Download, Document, Link, TopRight, Position, CopyDocument, Coll
 import useUserStore from '@/store/modules/user'
 import { addReportToPtmjReport } from '@/api/datum/report'
 import { resolveEditorVisibilityValue } from '@/utils/ideAppearance'
+import { pdfPageUrl } from '../../../../shared/reading-assistant.mjs'
+
+const ReadingAssistant = defineAsyncComponent(() => import('@/components/assistant/ReadingAssistant.vue'))
 
 const showEmptyEditorTip = ref(true)
 const editorVisibility = ref(72)
@@ -597,6 +609,27 @@ const currentFileObj = computed(() => {
   if (!props.openTabs || props.openTabs.length === 0) return null
   return props.openTabs.find(t => t.id === props.activeTab)
 })
+
+const pdfJumpPage = ref(null)
+const pdfJumpRevision = ref(0)
+const readingOpen = ref(false)
+const pdfPreviewUrl = computed(() => pdfJumpPage.value
+  ? pdfPageUrl(currentFileObj.value.url, pdfJumpPage.value)
+  : currentFileObj.value?.url)
+watch(() => [currentFileObj.value?.id, currentFileObj.value?.url], () => {
+  pdfJumpPage.value = null
+  pdfJumpRevision.value = 0
+  readingOpen.value = false
+}, { flush: 'sync' })
+const jumpToPdfPage = ({ documentId, source, page }) => {
+  const file = currentFileObj.value
+  if (file?.fileExt !== 'pdf' || String(file.id) !== documentId || file.url !== source) return
+  try {
+    pdfPageUrl(source, page)
+    pdfJumpPage.value = page
+    pdfJumpRevision.value++
+  } catch { /* Reject stale or invalid citation navigation. */ }
+}
 
 const currentIsBookmark = computed(() => currentFileObj.value?.type === 'bookmark')
 const currentIsEbook = computed(() => currentFileObj.value?.type === 'ebook')
@@ -1818,6 +1851,7 @@ function resetImageTransform() {
   display: flex;
   flex-direction: column;
   position: relative;
+  container-type: inline-size;
   /* 移除重复的背景色和毛玻璃，由父级 .main-editor 统一控制 */
   background-color: transparent;
 }
@@ -1971,6 +2005,13 @@ function resetImageTransform() {
   background-image: radial-gradient(var(--ide-border) 1px, transparent 1px);    
   background-size: 20px 20px;
   overflow: hidden; /* 防止拖拽超出区域 */
+}
+
+.preview-area.reading-open {
+  margin-right: 440px;
+}
+@container (max-width: 760px) {
+  .preview-area.reading-open { margin-right: 0; }
 }
 
 .image-preview-container {

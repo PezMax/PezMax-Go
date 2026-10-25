@@ -9,6 +9,7 @@ import {
     createUploadAssistantState
 } from '../src/renderer/utils/upload-assistant-session.mjs'
 import * as uploadContracts from '../src/shared/upload-assistant.mjs'
+import { createReadingAssistantSession } from '../src/renderer/utils/reading-assistant-session.mjs'
 import {
     createAssistantSession,
     createAssistantState
@@ -26,10 +27,12 @@ async function mountAssistant(name, props = {}, imports = {}) {
         'Button',
         'Card',
         'Checkbox',
+        'Drawer',
         'Form',
         'FormItem',
         'Input',
         'InputPassword',
+        'InputNumber',
         'Modal',
         'Spin',
         'Tag',
@@ -122,6 +125,101 @@ const config = {
     remember: false,
     canRemember: true
 }
+
+test('reading UI requires explicit extraction and send, emits verified page jumps, and clears on file/account/close', async () => {
+    const calls = [],
+        user = Vue.reactive({ token: 'session', id: '7' })
+    const props = Vue.reactive({
+        documentId: 'pdf-1',
+        source: 'blob:fixture-one',
+        title: 'Synthetic PDF'
+    })
+    const pages = [{ page: 2, text: 'The derivative measures the rate of change.' }]
+    const page = await mountAssistant('ReadingAssistant', props, {
+        '@/store/modules/user': { default: () => user },
+        '@/api/assistant': {
+            assistantCall: async (method, scope, input) => {
+                calls.push({ method, scope, input })
+                if (method === 'getConfig') return { ...config, hasApiKey: true }
+                if (method === 'run')
+                    return {
+                        answers: [
+                            {
+                                text: 'Rate of change.',
+                                citations: [{ page: 2, quote: 'rate of change' }]
+                            }
+                        ],
+                        contextPages: [2],
+                        partial: false
+                    }
+            },
+            onAssistantProgress: () => () => {}
+        },
+        '@/utils/reading-assistant-session.mjs': {
+            createReadingAssistantState: (
+                await import('../src/renderer/utils/reading-assistant-session.mjs')
+            ).createReadingAssistantState,
+            createReadingAssistantSession: (options) =>
+                createReadingAssistantSession({
+                    ...options,
+                    loadPdf: async () => ({
+                        numPages: 3,
+                        pages: async () => pages,
+                        destroy: async () => {}
+                    })
+                })
+        }
+    })
+    const ui = page.bindings
+    try {
+        ui.open.value = true
+        await page.flush()
+        assert.equal(
+            calls.some((call) => call.method === 'run'),
+            false
+        )
+        ui.draft.value = 'What does the derivative measure?'
+        await ui.submit()
+        assert.equal(
+            calls.some((call) => call.method === 'run'),
+            false
+        )
+        ui.session.setRange(2, 2)
+        await ui.session.extract()
+        await ui.submit()
+        ui.jump(9)
+        assert.equal(
+            page.emitted.some((event) => event[0] === 'jump-page'),
+            false
+        )
+        ui.jump(2)
+        const jump = page.emitted.find((event) => event[0] === 'jump-page')
+        assert.deepEqual(JSON.parse(JSON.stringify(jump[1])), {
+            documentId: 'pdf-1',
+            source: 'blob:fixture-one',
+            page: 2
+        })
+        props.source = 'blob:fixture-two'
+        await page.flush()
+        assert.equal(ui.open.value, false)
+        assert.equal(ui.state.result, null)
+        assert.equal(ui.state.pages.length, 0)
+        assert.equal(ui.draft.value, '')
+        ui.open.value = true
+        await ui.session.extract()
+        ui.close()
+        assert.equal(ui.state.pages.length, 0)
+        ui.open.value = true
+        ui.draft.value = 'private question'
+        user.token = ''
+        await page.flush()
+        assert.equal(ui.open.value, false)
+        assert.equal(ui.draft.value, '')
+        assert.equal(ui.signedIn.value, false)
+    } finally {
+        page.dispose()
+    }
+})
 
 test('upload UI reuses settings and clears suggestions on file changes, upload and logout', async () => {
     const calls = [],
