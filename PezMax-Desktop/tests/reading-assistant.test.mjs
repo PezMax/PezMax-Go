@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import {
     normalizeReadingInput,
     normalizeReadingResult,
-    pdfPageUrl
+    pdfPageUrl,
+    readingModes
 } from '../src/shared/reading-assistant.mjs'
 import { createReadingAssistantSession } from '../src/renderer/utils/reading-assistant-session.mjs'
 import { createAssistantService } from '../src/main/main-utils/assistant-service.mjs'
@@ -244,6 +245,120 @@ test('settings queued behind a stopped worker cannot mutate another account', as
         f.calls.some((call) => call.method === 'save'),
         false
     )
+})
+
+test('EPUB summary and outline require explicit extraction and keep chapter locations separate from pages', async () => {
+    const chapters = [{ chapter: 2, text: pages[0].text }]
+    const chapterAnswer = {
+        text: answer.text,
+        citations: [{ chapter: 2, quote: 'rate of change' }]
+    }
+    const f = fixture({
+        loadEpub: async () => ({
+            units: [
+                { chapter: 1, label: 'First' },
+                { chapter: 2, label: 'Derivatives' }
+            ],
+            chapters: async () => chapters,
+            destroy: async () => {}
+        }),
+        run: async () => ({ answers: [chapterAnswer], contextChapters: [2], partial: false })
+    })
+    await f.session.setIdentity(context)
+    f.session.setDocument({ id: 'local-epub', source: '', format: 'epub' })
+    await f.session.loadChapters()
+    assert.equal(
+        f.calls.some((call) => call.method === 'run'),
+        false
+    )
+    assert.deepEqual(f.session.state.chapters, [])
+    f.session.setChapters([2])
+    await f.session.extract()
+    for (const mode of ['summary', 'outline']) {
+        f.session.setMode(mode)
+        assert.equal(f.session.state.result, null)
+        assert.deepEqual(f.session.state.chapters, chapters)
+        await f.session.ask('private-override')
+        assert.deepEqual(f.session.state.result.answers, [chapterAnswer])
+        const payload = f.calls.filter((call) => call.method === 'run').at(-1).input.reading
+        assert.deepEqual(payload, {
+            format: 'epub',
+            mode,
+            question: readingModes[mode].prompt,
+            chapters
+        })
+        assert.equal(payload.pages, undefined)
+        assert.deepEqual(
+            normalizeReadingResult({ answers: [answer], contextChapters: [2] }, payload).answers,
+            []
+        )
+    }
+    f.session.setChapters([1])
+    assert.equal(f.session.state.result, null)
+    assert.deepEqual(f.session.state.chapters, [])
+})
+
+test('overview contracts ignore injected tasks and raw EPUB metadata and enforce per-section limits', () => {
+    for (const mode of ['summary', 'outline']) {
+        const input = normalizeReadingInput({
+            format: 'epub',
+            mode,
+            question: 'private-override',
+            chapters: [
+                {
+                    chapter: 3,
+                    text: 'Synthetic evidence.',
+                    href: 'private-path',
+                    label: 'private-label'
+                }
+            ]
+        })
+        assert.equal(input.question, readingModes[mode].prompt)
+        assert.equal(JSON.stringify(input).includes('private-'), false)
+    }
+    for (const input of [
+        { mode: 'review', pages },
+        { mode: ['summary'], pages },
+        { mode: 'summary', format: 'other', pages },
+        { format: 'epub', mode: 'summary', chapters: [{ chapter: 1, text: 'x'.repeat(40001) }] },
+        {
+            format: 'epub',
+            mode: 'summary',
+            chapters: Array.from({ length: 6 }, (_, index) => ({
+                chapter: index + 1,
+                text: 'test'
+            }))
+        }
+    ])
+        assert.throws(() => normalizeReadingInput(input))
+})
+
+test('reading diagnostics expose only bounded call counts and elapsed time', () => {
+    const actual = normalizeReadingResult(
+        {
+            ...result,
+            diagnostics: {
+                task: 'reading',
+                modelCalls: 2,
+                durationMs: 1234,
+                apiKey: 'synthetic-untrusted',
+                question: 'private-question',
+                steps: [{ secret: true }]
+            }
+        },
+        reading
+    )
+    assert.deepEqual(actual.diagnostics, { modelCalls: 2, durationMs: 1234 })
+    assert.equal(JSON.stringify(actual).includes('synthetic-untrusted'), false)
+    for (const diagnostics of [
+        { task: 'search', modelCalls: 1, durationMs: 12 },
+        { task: 'reading', modelCalls: 3, durationMs: 12 },
+        { task: 'reading', modelCalls: 1, durationMs: -1 }
+    ])
+        assert.equal(
+            normalizeReadingResult({ ...result, diagnostics }, reading).diagnostics,
+            undefined
+        )
 })
 
 test('main process omits catalog, token, URL and history from reading workers and rechecks evidence', async () => {

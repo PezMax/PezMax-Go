@@ -9,6 +9,7 @@ import {
     createUploadAssistantState
 } from '../src/renderer/utils/upload-assistant-session.mjs'
 import * as uploadContracts from '../src/shared/upload-assistant.mjs'
+import * as readingContracts from '../src/shared/reading-assistant.mjs'
 import { createReadingAssistantSession } from '../src/renderer/utils/reading-assistant-session.mjs'
 import {
     createAssistantSession,
@@ -33,6 +34,7 @@ async function mountAssistant(name, props = {}, imports = {}) {
         'Input',
         'InputPassword',
         'InputNumber',
+        'Select',
         'Modal',
         'Spin',
         'Tag',
@@ -69,6 +71,7 @@ async function mountAssistant(name, props = {}, imports = {}) {
             createUploadAssistantState
         },
         '../../../shared/upload-assistant.mjs': uploadContracts,
+        '../../../shared/reading-assistant.mjs': readingContracts,
         ...imports
     }
     const module = new SourceTextModule(content, {
@@ -216,6 +219,101 @@ test('reading UI requires explicit extraction and send, emits verified page jump
         assert.equal(ui.open.value, false)
         assert.equal(ui.draft.value, '')
         assert.equal(ui.signedIn.value, false)
+    } finally {
+        page.dispose()
+    }
+})
+
+test('EPUB UI sends fixed overview tasks only after extraction and emits current verified chapter indexes', async () => {
+    const calls = [],
+        user = Vue.reactive({ token: 'session', id: '7' })
+    let extractions = 0
+    const props = Vue.reactive({
+        documentId: 'local-epub',
+        source: '',
+        format: 'epub',
+        title: 'Synthetic EPUB',
+        epubLoader: async () => ({
+            units: [
+                { chapter: 1, label: 'Synthetic first section' },
+                { chapter: 2, label: 'Private label not sent' }
+            ],
+            chapters: async (numbers) => {
+                extractions++
+                return numbers.map((chapter) => ({
+                    chapter,
+                    text: 'The derivative measures the rate of change.'
+                }))
+            },
+            destroy: async () => {}
+        })
+    })
+    const page = await mountAssistant('ReadingAssistant', props, {
+        '@/store/modules/user': { default: () => user },
+        '@/api/assistant': {
+            assistantCall: async (method, scope, input) => {
+                calls.push({ method, scope, input })
+                if (method === 'getConfig') return { ...config, hasApiKey: true }
+                if (method === 'run')
+                    return {
+                        answers: [
+                            {
+                                text: 'A synthetic result.',
+                                citations: [{ chapter: 2, quote: 'rate of change' }]
+                            }
+                        ],
+                        contextChapters: [2]
+                    }
+            },
+            onAssistantProgress: () => () => {}
+        },
+        '@/utils/reading-assistant-session.mjs':
+            await import('../src/renderer/utils/reading-assistant-session.mjs')
+    })
+    const ui = page.bindings
+    try {
+        ui.open.value = true
+        await page.flush()
+        ui.session.setMode('summary')
+        await ui.submit()
+        assert.equal(
+            calls.some((call) => call.method === 'run'),
+            false
+        )
+        await ui.session.loadChapters()
+        assert.equal(extractions, 0)
+        ui.session.setChapters([2])
+        await ui.session.extract()
+        for (const mode of ['summary', 'outline']) {
+            ui.session.setMode(mode)
+            await ui.submit()
+            const payload = calls.filter((call) => call.method === 'run').at(-1).input.reading
+            assert.equal(payload.mode, mode)
+            assert.equal(payload.question, readingContracts.readingModes[mode].prompt)
+            assert.equal(payload.format, 'epub')
+            assert.equal(JSON.stringify(payload).includes('Private label'), false)
+            const previousJumps = page.emitted.filter((event) => event[0] === 'jump-chapter').length
+            ui.jump(1)
+            assert.equal(
+                page.emitted.filter((event) => event[0] === 'jump-chapter').length,
+                previousJumps
+            )
+            ui.jump(2)
+            assert.deepEqual(
+                JSON.parse(
+                    JSON.stringify(
+                        page.emitted.filter((event) => event[0] === 'jump-chapter').at(-1)[1]
+                    )
+                ),
+                { documentId: 'local-epub', source: '', chapter: 2 }
+            )
+        }
+        ui.session.setChapters([1])
+        assert.equal(ui.state.result, null)
+        assert.equal(ui.state.chapters.length, 0)
+        user.token = ''
+        await page.flush()
+        assert.equal(ui.open.value, false)
     } finally {
         page.dispose()
     }

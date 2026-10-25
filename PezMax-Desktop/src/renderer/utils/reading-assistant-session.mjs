@@ -1,5 +1,9 @@
 import { createAssistantSession, createAssistantState } from './assistant-session.mjs'
-import { normalizeReadingInput, normalizeReadingResult } from '../../shared/reading-assistant.mjs'
+import {
+    normalizeReadingInput,
+    normalizeReadingResult,
+    readingModes
+} from '../../shared/reading-assistant.mjs'
 import { loadPdfText } from './pdf-text.mjs'
 
 export function createReadingAssistantState() {
@@ -9,6 +13,11 @@ export function createReadingAssistantState() {
         from: 1,
         to: 1,
         numPages: 0,
+        format: 'pdf',
+        mode: 'qa',
+        chapterOptions: [],
+        selectedChapters: [],
+        chapters: [],
         pages: [],
         result: null,
         question: '',
@@ -23,6 +32,9 @@ export function createReadingAssistantSession({
     call,
     subscribe = () => () => {},
     loadPdf = loadPdfText,
+    loadEpub = async () => {
+        throw new Error('EPUB尚未载入，请稍后再试')
+    },
     state = createReadingAssistantState(),
     extractionTimeoutMs = 45000
 }) {
@@ -54,7 +66,16 @@ export function createReadingAssistantSession({
     }
     function clear() {
         cancelWork()
-        Object.assign(state, { pages: [], numPages: 0, from: 1, to: 1 })
+        Object.assign(state, {
+            pages: [],
+            numPages: 0,
+            from: 1,
+            to: 1,
+            mode: 'qa',
+            chapterOptions: [],
+            selectedChapters: [],
+            chapters: []
+        })
     }
     async function setIdentity(next) {
         clear()
@@ -63,20 +84,37 @@ export function createReadingAssistantSession({
     }
     function setDocument(next) {
         clear()
-        document = next ? { id: next.id, source: next.source } : null
+        document = next
+            ? { id: next.id, source: next.source, format: next.format === 'epub' ? 'epub' : 'pdf' }
+            : null
+        state.format = document?.format || 'pdf'
     }
     function setRange(from, to) {
         if (from === state.from && to === state.to) return
         cancelWork()
         Object.assign(state, { from, to, pages: [] })
     }
-    async function extract() {
-        if (!context || !document || state.extracting || state.busy || state.settingsBusy) return
+    function setChapters(numbers) {
+        const next = Array.isArray(numbers) ? [...numbers] : []
+        if (JSON.stringify(next) === JSON.stringify(state.selectedChapters)) return
         cancelWork()
-        state.pages = []
+        Object.assign(state, { selectedChapters: next, chapters: [] })
+    }
+    function setMode(mode) {
+        if (typeof mode !== 'string' || !Object.hasOwn(readingModes, mode) || state.mode === mode)
+            return
+        cancelWork()
+        state.mode = mode
+    }
+    async function readLocal(indexOnly = false) {
+        if (!context || !document || state.extracting || state.busy || state.settingsBusy) return
+        if (indexOnly && document.format !== 'epub') return
+        cancelWork()
+        state.pages = state.chapters = []
         const version = epoch,
             abort = new AbortController(),
-            source = document.source
+            source = document.source,
+            format = document.format
         let pdf,
             timedOut = false
         const timer = setTimeout(() => {
@@ -85,28 +123,52 @@ export function createReadingAssistantSession({
         }, extractionTimeoutMs)
         extraction = abort
         state.extracting = true
-        state.status = '正在本机提取所选页面…'
+        state.status = indexOnly ? '正在本机读取分节目录…' : '正在本机提取所选文字…'
         try {
             if (
-                !Number.isInteger(state.from) ||
-                !Number.isInteger(state.to) ||
-                state.from < 1 ||
-                state.to < state.from ||
-                state.to - state.from >= 10
+                format === 'pdf' &&
+                (!Number.isInteger(state.from) ||
+                    !Number.isInteger(state.to) ||
+                    state.from < 1 ||
+                    state.to < state.from ||
+                    state.to - state.from >= 10)
             )
                 throw new Error('请选择连续1到10页，起始页不大于结束页')
-            pdf = await loadPdf(source, { signal: abort.signal })
+            if (
+                format === 'epub' &&
+                !indexOnly &&
+                (!state.selectedChapters.length || state.selectedChapters.length > 5)
+            )
+                throw new Error('请先读取分节目录，再选择1到5节EPUB正文')
+            pdf =
+                format === 'epub'
+                    ? await loadEpub({ signal: abort.signal })
+                    : await loadPdf(source, { signal: abort.signal })
             if (version !== epoch) return
-            state.numPages = pdf.numPages
-            const pages = await pdf.pages(state.from, state.to)
+            if (format === 'epub') {
+                state.chapterOptions = pdf.units.map((unit) => ({
+                    value: unit.chapter,
+                    label: unit.label
+                }))
+                if (indexOnly) {
+                    if (!state.selectedChapters.length && pdf.units.length)
+                        state.selectedChapters = [pdf.units[0].chapter]
+                    return
+                }
+            } else state.numPages = pdf.numPages
+            const pages =
+                format === 'epub'
+                    ? await pdf.chapters([...state.selectedChapters])
+                    : await pdf.pages(state.from, state.to)
             if (version !== epoch) return
             abort.signal.throwIfAborted()
-            state.pages = pages
+            if (format === 'epub') state.chapters = pages
+            else state.pages = pages
         } catch (error) {
             if (version === epoch)
                 state.error = timedOut
-                    ? 'PDF读取超时，请重新打开资料后重试'
-                    : error.message || 'PDF文字提取失败'
+                    ? '阅读内容提取超时，请重新打开资料后重试'
+                    : error.message || '阅读文字提取失败'
         } finally {
             clearTimeout(timer)
             await pdf?.destroy().catch(() => {})
@@ -117,6 +179,8 @@ export function createReadingAssistantSession({
             }
         }
     }
+    const extract = () => readLocal(false)
+    const loadChapters = () => readLocal(true)
     async function ask(question) {
         if (
             !context ||
@@ -131,7 +195,13 @@ export function createReadingAssistantSession({
         const version = epoch
         try {
             if (!state.config.hasApiKey) throw new Error('请先配置模型与 API Key')
-            const reading = normalizeReadingInput({ question, pages: state.pages })
+            const reading = normalizeReadingInput({
+                question,
+                format: document.format,
+                mode: state.mode,
+                pages: state.pages,
+                chapters: state.chapters
+            })
             state.busy = true
             state.question = reading.question
             if (draining) await draining
@@ -178,6 +248,9 @@ export function createReadingAssistantSession({
         setIdentity,
         setDocument,
         setRange,
+        setChapters,
+        setMode,
+        loadChapters,
         extract,
         ask,
         stop,

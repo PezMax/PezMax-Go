@@ -9,6 +9,7 @@ from langsmith import tracing_context
 
 from .contracts import json_text
 from .errors import AgentError
+from .telemetry import RunMetrics
 
 FIELDS = {
     "exam": {"fileName": 200, "fileSchool": 100, "fileSubject": 100, "fileYear": 4, "fileType": 6},
@@ -91,7 +92,7 @@ class UploadState(TypedDict):
     suggestions: list[dict]
 
 
-def build_upload_graph(model, upload, on_progress):
+def build_upload_graph(model, upload, on_progress, metrics=None):
     async def suggest(_state):
         on_progress({"status": "正在根据文件名整理命名与分类建议…"})
         message = await model.complete(
@@ -104,8 +105,8 @@ def build_upload_graph(model, upload, on_progress):
         return {"suggestions": validate_suggestions(state["message"], upload)}
 
     builder = StateGraph(UploadState)
-    builder.add_node("suggest", suggest)
-    builder.add_node("validate", validate)
+    for name, node in (("suggest", suggest), ("validate", validate)):
+        builder.add_node(name, metrics.wrap(name, node) if metrics else node)
     builder.add_edge(START, "suggest")
     builder.add_edge("suggest", "validate")
     builder.add_edge("validate", END)
@@ -114,8 +115,10 @@ def build_upload_graph(model, upload, on_progress):
 
 async def run_upload_assistant(model, value, on_progress=lambda event: None):
     upload = parse_upload(value)
+    metrics = RunMetrics("upload")
     with tracing_context(enabled=False):
-        state = await build_upload_graph(model, upload, on_progress).ainvoke(
+        state = await build_upload_graph(model, upload, on_progress, metrics).ainvoke(
             {"message": {}, "suggestions": []}, config={"recursion_limit": 4})
     return {"content": "请选择需要应用的建议。" if state["suggestions"] else "文件名信息不足，未生成可靠建议，请手动填写。",
-            "suggestions": state["suggestions"], "messages": [], "resources": [], "reports": []}
+            "suggestions": state["suggestions"], "messages": [], "resources": [], "reports": [],
+            "diagnostics": metrics.snapshot(modelCalls=1)}

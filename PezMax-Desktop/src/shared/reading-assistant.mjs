@@ -1,41 +1,68 @@
 const normalizeText = (text) => text.replace(/\s+/g, ' ').trim()
+export const readingModes = Object.freeze({
+    qa: { label: '阅读问答', prompt: '' },
+    summary: {
+        label: '内容摘要',
+        prompt: '请概括所选文字的核心观点与结论，每一项附原文依据。仅总结提供的文字，不宣称覆盖整本书。'
+    },
+    outline: {
+        label: '内容提纲',
+        prompt: '请将所选文字整理成最多5项有顺序的内容提纲，每项说明主题及要点并附原文依据。不要补充原文没有的章节。'
+    }
+})
+export const readingLocationKey = (input) => (input.format === 'epub' ? 'chapter' : 'page')
+export const readingItems = (input) => (input.format === 'epub' ? input.chapters : input.pages)
 export function normalizeReadingInput(input) {
     if (
         !input ||
-        typeof input.question !== 'string' ||
-        !input.question.trim() ||
-        input.question.trim().length > 2000
+        !['pdf', 'epub'].includes(input.format ?? 'pdf') ||
+        typeof (input.mode ?? 'qa') !== 'string' ||
+        !Object.hasOwn(readingModes, input.mode ?? 'qa')
     )
+        throw new Error('请求的阅读格式或模式无效')
+    const format = input.format ?? 'pdf',
+        mode = input.mode ?? 'qa',
+        key = readingLocationKey(input)
+    const question = mode === 'qa' ? input.question : readingModes[mode].prompt
+    if (typeof question !== 'string' || !question.trim() || question.trim().length > 2000)
         throw new Error('请输入1到2000字的阅读问题')
-    if (!Array.isArray(input.pages) || !input.pages.length || input.pages.length > 10)
-        throw new Error('请选择1到10页PDF文字')
+    const items = readingItems(input)
+    if (!Array.isArray(items) || !items.length || items.length > (format === 'epub' ? 5 : 10))
+        throw new Error(format === 'epub' ? '请选择1到5节EPUB文字' : '请选择1到10页PDF文字')
     let total = 0
     const seen = new Set()
-    const pages = input.pages
+    const pages = items
         .map((item) => {
             if (
                 !item ||
-                !Number.isInteger(item.page) ||
-                item.page < 1 ||
-                item.page > 10000 ||
-                seen.has(item.page) ||
+                !Number.isInteger(item[key]) ||
+                item[key] < 1 ||
+                item[key] > 10000 ||
+                seen.has(item[key]) ||
                 typeof item.text !== 'string' ||
-                item.text.length > 20000
+                item.text.length > (format === 'epub' ? 40000 : 20000)
             )
-                throw new Error('请求中的PDF页码或文字超出限制')
-            seen.add(item.page)
+                throw new Error('请求中的阅读位置或文字超出限制')
+            seen.add(item[key])
             total += item.text.length
-            return { page: item.page, text: normalizeText(item.text) }
+            return { [key]: item[key], text: normalizeText(item.text) }
         })
-        .sort((a, b) => a.page - b.page)
-    if (total > 80000) throw new Error('请求中的PDF文字过长，请缩小页码范围')
-    return { question: input.question.trim(), pages }
+        .sort((a, b) => a[key] - b[key])
+    if (total > 80000) throw new Error('请求中的阅读文字过长，请缩小所选范围')
+    return {
+        question: question.trim(),
+        [format === 'epub' ? 'chapters' : 'pages']: pages,
+        ...(format === 'epub' ? { format } : {}),
+        ...(mode !== 'qa' ? { mode } : {})
+    }
 }
 
 export function normalizeReadingResult(result, input) {
     if (!result || !Array.isArray(result.answers))
         throw new Error('模型返回的阅读答案格式无效，请重试')
-    const pages = new Map(input.pages.map((item) => [item.page, normalizeText(item.text)]))
+    const key = readingLocationKey(input),
+        contextKey = key === 'chapter' ? 'contextChapters' : 'contextPages'
+    const pages = new Map(readingItems(input).map((item) => [item[key], normalizeText(item.text)]))
     const answers = result.answers
         .slice(0, 5)
         .filter((answer) => {
@@ -52,29 +79,44 @@ export function normalizeReadingResult(result, input) {
             return answer.citations.every(
                 (cite) =>
                     cite &&
-                    Number.isInteger(cite.page) &&
-                    pages.has(cite.page) &&
+                    Number.isInteger(cite[key]) &&
+                    pages.has(cite[key]) &&
                     typeof cite.quote === 'string' &&
                     normalizeText(cite.quote).length >= 4 &&
                     normalizeText(cite.quote).length <= 600 &&
-                    pages.get(cite.page).includes(normalizeText(cite.quote))
+                    pages.get(cite[key]).includes(normalizeText(cite.quote))
             )
         })
         .map((answer) => ({
             text: answer.text.trim(),
             citations: answer.citations.map((cite) => ({
-                page: cite.page,
+                [key]: cite[key],
                 quote: normalizeText(cite.quote)
             }))
         }))
     return {
+        ...(result.diagnostics &&
+        result.diagnostics.task === 'reading' &&
+        Number.isInteger(result.diagnostics.modelCalls) &&
+        result.diagnostics.modelCalls >= 0 &&
+        result.diagnostics.modelCalls <= 2 &&
+        Number.isInteger(result.diagnostics.durationMs) &&
+        result.diagnostics.durationMs >= 0 &&
+        result.diagnostics.durationMs <= 180000
+            ? {
+                  diagnostics: {
+                      modelCalls: result.diagnostics.modelCalls,
+                      durationMs: result.diagnostics.durationMs
+                  }
+              }
+            : {}),
         content:
             answers.map((answer) => answer.text).join('\n\n') ||
-            '所选页面中没有足够的已核验引用支持回答，请调整问题或页码范围。',
+            '所选内容中没有足够的已核验引用支持回答，请调整问题或所选范围。',
         answers,
-        contextPages: [
+        [contextKey]: [
             ...new Set(
-                (Array.isArray(result.contextPages) ? result.contextPages : []).filter(
+                (Array.isArray(result[contextKey]) ? result[contextKey] : []).filter(
                     (page) => Number.isInteger(page) && pages.has(page)
                 )
             )

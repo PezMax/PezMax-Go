@@ -10,7 +10,7 @@
         @cancel="close"
     >
         <p class="settings-intro">
-            连接你自己的模型服务，即可使用找资料、上传建议与 PDF 阅读问答。
+            连接你自己的模型服务，即可使用找资料、上传建议，以及 PDF / EPUB 阅读问答、摘要与提纲。
         </p>
         <AForm layout="vertical" class="assistant-settings" @finish="save(false)">
             <AFormItem
@@ -75,7 +75,7 @@
                 type="info"
                 show-icon
                 message="发送范围与费用"
-                description="找资料发送提问、近期对话和目录信息；上传建议仅发送文件名；阅读问答在你发送问题时发送问题和所选 PDF 页面的相关文字片段。不发送本地路径或下载地址。调用费用由服务商按你的账号计费，连接测试也会发起一次调用。"
+                description="找资料发送提问、近期对话和目录信息；上传建议仅发送文件名；阅读助手在你发送或生成时发送本次任务和所选 PDF 页面 / EPUB 分节的相关文字片段。不发送本地文件路径或下载地址。调用费用由服务商按你的账号计费，连接测试也会发起一次调用。"
             />
             <AAlert
                 v-if="feedback"

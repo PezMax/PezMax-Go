@@ -6,6 +6,7 @@ from langsmith import tracing_context
 
 from .contracts import bounded_history, json_text
 from .errors import AgentError
+from .telemetry import RunMetrics
 
 MAX_MODEL_ROUNDS = 5
 MAX_SEARCHES = 8
@@ -20,7 +21,7 @@ class AssistantState(TypedDict):
     content: str
 
 
-def build_graph(model, catalog, on_progress=lambda event: None):
+def build_graph(model, catalog, on_progress=lambda event: None, metrics=None):
     """Dependencies live outside graph state: credentials cannot enter history
     or LangGraph state streams. No checkpoint or tracing service is configured.
     """
@@ -80,9 +81,8 @@ def build_graph(model, catalog, on_progress=lambda event: None):
         return {"messages": messages, "content": content}
 
     builder = StateGraph(AssistantState)
-    builder.add_node("model", call_model)
-    builder.add_node("search", search)
-    builder.add_node("finalize", finalize)
+    for name, node in (("model", call_model), ("search", search), ("finalize", finalize)):
+        builder.add_node(name, metrics.wrap(name, node) if metrics else node)
     builder.add_edge(START, "model")
     builder.add_conditional_edges("model", after_model, {"search": "search", "finalize": "finalize"})
     builder.add_edge("search", "model")
@@ -93,7 +93,8 @@ def build_graph(model, catalog, on_progress=lambda event: None):
 async def run_assistant(model, catalog, *, history, question, on_progress=lambda event: None):
     if not isinstance(question, str) or not 1 <= len(question.strip()) <= 2000:
         raise AgentError("请输入1到2000字的需求")
-    graph = build_graph(model, catalog, on_progress)
+    metrics = RunMetrics("search")
+    graph = build_graph(model, catalog, on_progress, metrics)
     # Explicit context also covers library callers, not just the stdio entry.
     # An inherited LangSmith setting must not export graph state or callbacks.
     with tracing_context(enabled=False):
@@ -102,4 +103,5 @@ async def run_assistant(model, catalog, *, history, question, on_progress=lambda
             "resources": {}, "reports": [], "rounds": 0, "searches": 0, "content": "",
         }, config={"recursion_limit": 16})
     return {"messages": bounded_history(state["messages"]), "content": state["content"],
-            "resources": list(state["resources"].values()), "reports": state["reports"]}
+            "resources": list(state["resources"].values()), "reports": state["reports"],
+            "diagnostics": metrics.snapshot(modelCalls=state["rounds"], searches=state["searches"])}

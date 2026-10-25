@@ -25,11 +25,14 @@
     <!-- 预览区 -->
     <div class="editor-content" v-if="openTabs.length > 0">
       <ReadingAssistant
-        v-if="currentFileObj?.fileExt === 'pdf' && currentFileObj.url"
+        v-if="currentFileObj && ((currentFileObj.fileExt === 'pdf' && currentFileObj.url) || (currentFileObj.fileExt === 'epub' && ['ebook', 'local'].includes(currentFileObj.type)))"
         :document-id="String(currentFileObj.id)"
-        :source="currentFileObj.url"
+        :source="currentFileObj.url || ''"
+        :format="currentFileObj.fileExt"
+        :epub-loader="loadEpubForAssistant"
         :title="currentFileObj.title"
         @jump-page="jumpToPdfPage"
+        @jump-chapter="jumpToEpubChapter"
         @open-change="readingOpen = $event"
       />
       <!-- 悬浮操作区：Notion 风格毛玻璃“药丸”岛 (按钮组) -->
@@ -727,6 +730,7 @@ let epubResizeObserver = null
 
 const teardownEpub = () => {
   epubLoadSeq++
+  epubFarSeekSeq++
   if (epubScrollTimer) {
     clearTimeout(epubScrollTimer)
     epubScrollTimer = null
@@ -1304,6 +1308,28 @@ const epubUpdateCurrentPage = (location) => {
 const epubGoToPage = (page) => {
   const target = epubPageTargets.value[(Number(page) || 1) - 1]
   if (target) epubRendition?.display(target.href)
+}
+
+// Reuse the loaded archive without touching rendition sections or script hooks.
+// Only section numbers/text leave this renderer, never EPUB paths or URLs.
+const loadEpubForAssistant = async ({ signal }) => {
+  const file = currentFileObj.value
+  const book = epubBook
+  if (file?.fileExt !== 'epub' || !book) throw new Error('EPUB尚未载入，请稍后再试')
+  const { createEpubTextReader } = await import('@/utils/epub-text.mjs')
+  const reader = await createEpubTextReader(book, { signal, toc: epubTocItems.value })
+  if (signal?.aborted || book !== epubBook || file.id !== currentFileObj.value?.id || file.url !== currentFileObj.value?.url) {
+    await reader.destroy()
+    throw new Error('资料已变化，请重新提取')
+  }
+  return reader
+}
+const jumpToEpubChapter = async ({ documentId, source, chapter }) => {
+  const file = currentFileObj.value
+  if (file?.fileExt !== 'epub' || String(file.id) !== documentId || (file.url || '') !== source || !Number.isInteger(chapter) || chapter < 1) return
+  const section = epubBook?.spine?.get(chapter - 1)
+  if (!section?.href) return
+  await epubDisplayAt(section.href)
 }
 
 watch(
