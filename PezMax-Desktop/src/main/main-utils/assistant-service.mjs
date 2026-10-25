@@ -1,5 +1,6 @@
 import { normalizeProviderConfig } from '../../shared/assistant-protocol.mjs'
 import { normalizeUploadInput, normalizeUploadSuggestions } from '../../shared/upload-assistant.mjs'
+import { normalizeReadingInput, normalizeReadingResult } from '../../shared/reading-assistant.mjs'
 
 function redact(value, secrets) {
   if (typeof value === 'string') {
@@ -72,8 +73,9 @@ export function createAssistantService({ readConfig, writeConfig, encryption, ru
     if (!current.apiKey) throw new Error('请先在模型设置中填写 API Key')
     const config = normalizeProviderConfig({ ...current })
     const { requestId, question, history = [], test = false, platformToken = '', task = 'search' } = input || {}
-    if (!['search', 'upload'].includes(task)) throw new Error('请求的助手任务无效')
+    if (!['search', 'upload', 'reading'].includes(task)) throw new Error('请求的助手任务无效')
     const upload = !test && task === 'upload' ? normalizeUploadInput(input.upload) : null
+    const reading = !test && task === 'reading' ? normalizeReadingInput(input.reading) : null
     if (typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(requestId)) throw new Error('请求标识无效')
     if (requests.has(requestId) || [...requests.values()].some(request => request.owner === owner)) throw new Error('请等待当前请求结束，或先停止生成')
     if (!test && task === 'search' && (typeof platformToken !== 'string' || !platformToken || platformToken.length > 8192 || /[\r\n\x00]/.test(platformToken))) throw new Error('请先登录再使用找资料助手')
@@ -86,13 +88,14 @@ export function createAssistantService({ readConfig, writeConfig, encryption, ru
       const result = await runAgent({
         version: 1, requestId,
         provider: { baseUrl: config.baseUrl, model: config.model, apiKey: config.apiKey },
-        ...(test ? { test: true } : upload ? { task: 'upload', upload } : { catalog: { baseUrl: catalogBaseUrl, token: platformToken }, history, question })
+        ...(test ? { test: true } : upload ? { task: 'upload', upload } : reading ? { task: 'reading', reading } : { catalog: { baseUrl: catalogBaseUrl, token: platformToken }, history, question })
       }, { signal: controller.signal, onProgress: (event) => {
         if (!controller.signal.aborted) onProgress?.(redact(event, secrets))
       } })
       if (controller.signal.aborted) throw new Error('已停止生成')
       const safeResult = redact(result, secrets)
       if (upload) safeResult.suggestions = normalizeUploadSuggestions(safeResult.suggestions, upload)
+      if (reading) return normalizeReadingResult(safeResult, reading)
       return safeResult
     } catch (error) {
       if (controller.signal.aborted) throw new Error(timedOut ? '助手处理超时，请缩小范围后重试' : '已停止生成')

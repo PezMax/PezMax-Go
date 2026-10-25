@@ -21,7 +21,10 @@ for (const packaged of [false, true]) {
         const body = JSON.parse(data)
         captured.push({ kind: 'model', auth: request.headers.authorization, body })
         if (hanging) { entered(); return }
-        const message = !body.tools
+        const isReading = body.messages[0]?.content.includes('PezMax阅读助手')
+        const message = isReading
+          ? { role: 'assistant', content: JSON.stringify({ answers: [{ text: 'It measures the rate of change.', citations: [{ page: 2, quote: 'rate of change' }] }] }) }
+          : !body.tools
           ? { role: 'assistant', content: JSON.stringify({ suggestions: [
               { field: 'fileSubject', value: '高等数学', evidence: '高等数学' },
               { field: 'fileYear', value: '2026', evidence: '2026' }
@@ -68,6 +71,15 @@ for (const packaged of [false, true]) {
       assert.equal(captured.at(-1).kind, 'model')
       assert.equal(captured.at(-1).body.tools, undefined)
       assert.deepEqual(upload.messages, [])
+      const beforeReading = captured.length
+      const reading = await runAgent({ version: 1, requestId: 'reading-integration', provider: payload.provider, task: 'reading',
+        reading: { question: 'What does the derivative measure?', pages: [{ page: 2, text: 'The derivative measures the rate of change.' }], url: 'private-source' } })
+      assert.equal(captured.length - beforeReading, 1)
+      assert.equal(captured.at(-1).kind, 'model')
+      assert.equal(captured.at(-1).body.tools, undefined)
+      assert.equal(JSON.stringify(captured.at(-1).body).includes('private-source'), false)
+      assert.deepEqual(reading.answers[0].citations, [{ page: 2, quote: 'rate of change' }])
+      assert.deepEqual(reading.contextPages, [2])
       hanging = true
       const started = new Promise(resolveStarted => { entered = resolveStarted })
       const controller = new AbortController()
