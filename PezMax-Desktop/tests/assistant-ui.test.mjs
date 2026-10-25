@@ -5,6 +5,11 @@ import { createContext, SourceTextModule, SyntheticModule } from 'node:vm'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import * as Vue from 'vue'
 import {
+    createUploadAssistantSession,
+    createUploadAssistantState
+} from '../src/renderer/utils/upload-assistant-session.mjs'
+import * as uploadContracts from '../src/shared/upload-assistant.mjs'
+import {
     createAssistantSession,
     createAssistantState
 } from '../src/renderer/utils/assistant-session.mjs'
@@ -56,6 +61,11 @@ async function mountAssistant(name, props = {}, imports = {}) {
         './AssistantSettings.vue': { default: {} },
         './AssistantTheme.vue': { default: {} },
         '@/utils/assistant-session.mjs': { createAssistantSession, createAssistantState },
+        '@/utils/upload-assistant-session.mjs': {
+            createUploadAssistantSession,
+            createUploadAssistantState
+        },
+        '../../../shared/upload-assistant.mjs': uploadContracts,
         ...imports
     }
     const module = new SourceTextModule(content, {
@@ -112,6 +122,63 @@ const config = {
     remember: false,
     canRemember: true
 }
+
+test('upload UI reuses settings and clears suggestions on file changes, upload and logout', async () => {
+    const calls = [],
+        user = Vue.reactive({ token: 'session', id: '7' })
+    const props = Vue.reactive({
+        kind: 'exam',
+        file: { name: '2026高等数学期末.pdf' },
+        form: { fileSubject: '' },
+        locked: false
+    })
+    const page = await mountAssistant('UploadAssistant', props, {
+        '@/store/modules/user': { default: () => user },
+        '@/api/assistant': {
+            assistantCall: async (method, scope, input) => {
+                calls.push({ method, scope, input })
+                if (method === 'getConfig') return { ...config, hasApiKey: true }
+                if (method === 'run')
+                    return {
+                        suggestions: [
+                            { field: 'fileSubject', value: '高等数学', evidence: '高等数学' }
+                        ]
+                    }
+            },
+            onAssistantProgress: () => () => {}
+        }
+    })
+    const ui = page.bindings
+    try {
+        await ui.generate()
+        assert.equal(props.form.fileSubject, '')
+        ui.state.suggestions[0].selected = true
+        ui.session.apply(props.form)
+        assert.equal(props.form.fileSubject, '高等数学')
+        // A different local file with the same name must invalidate the result.
+        props.file = { name: props.file.name }
+        await page.flush()
+        assert.equal(ui.state.suggestions.length, 0)
+        props.file = { name: '图书.pdf', isFolder: true, files: Array(21).fill({ name: 'a.pdf' }) }
+        await page.flush()
+        assert.match(ui.inputError.value, /20/)
+        const previousCalls = calls.length
+        await ui.generate()
+        assert.equal(calls.length, previousCalls)
+        props.file = { name: '2026高等数学期末.pdf' }
+        await ui.generate()
+        props.locked = true
+        await page.flush()
+        assert.equal(ui.state.suggestions.length, 0)
+        user.token = ''
+        await page.flush()
+        assert.equal(ui.signedIn.value, false)
+        assert.equal(ui.state.config.hasApiKey, false)
+        assert.ok(calls.some((item) => item.method === 'release'))
+    } finally {
+        page.dispose()
+    }
+})
 
 test('welcome prompts keep the question while opening settings, and IME Enter never sends', async () => {
     const calls = []

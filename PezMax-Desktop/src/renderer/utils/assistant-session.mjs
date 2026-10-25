@@ -22,7 +22,12 @@ export function createAssistantState() {
 
 // The state may be Vue-reactive; credentials and provider history never enter it.
 // An epoch rejects late responses after logout, account changes or unmounting.
-export function createAssistantSession({ call, subscribe = () => () => {}, state = createAssistantState() }) {
+export function createAssistantSession({
+    call,
+    subscribe = () => () => {},
+    state = createAssistantState(),
+    releaseOnDispose = true
+}) {
     let context = null,
         epoch = 0,
         history = [],
@@ -39,6 +44,7 @@ export function createAssistantSession({ call, subscribe = () => () => {}, state
 
     async function setIdentity(nextContext) {
         abortWork()
+        const hadIdentity = !!context
         const version = ++epoch
         controller = null
         activeRequest = ''
@@ -46,13 +52,35 @@ export function createAssistantSession({ call, subscribe = () => () => {}, state
         history = []
         Object.assign(state, createAssistantState(), { configLoading: !!context })
         try {
-            await call('release')
+            // Another assistant surface may already own this account's session
+            // key. Mounting a second surface must not discard it.
+            if (hadIdentity) await call('release')
             if (version !== epoch || !context) return
             const config = await call('getConfig', context)
             if (version === epoch) state.config = config
         } catch (error) {
             if (version === epoch && context)
                 state.configError = error.message || '无法读取模型设置'
+        } finally {
+            if (version === epoch) state.configLoading = false
+        }
+    }
+
+    async function refreshConfig() {
+        if (!context || state.busy || state.settingsBusy || state.configLoading) return
+        const version = epoch
+        state.configLoading = true
+        try {
+            const config = await call('getConfig', context)
+            if (version !== epoch) return
+            if (config.baseUrl !== state.config.baseUrl || config.model !== state.config.model) {
+                history = []
+                state.turns = []
+            }
+            state.config = config
+            state.configError = ''
+        } catch (error) {
+            if (version === epoch) state.configError = error.message || '无法读取模型设置'
         } finally {
             if (version === epoch) state.configLoading = false
         }
@@ -148,7 +176,10 @@ export function createAssistantSession({ call, subscribe = () => () => {}, state
             })
             removeProgress = unsubscribe
             const result = await call('run', scope, {
-                requestId: activeRequest, history, question: prompt, platformToken: scope.token
+                requestId: activeRequest,
+                history,
+                question: prompt,
+                platformToken: scope.token
             })
             if (version !== epoch) return
             if (abort.signal.aborted) throw new Error('已停止生成')
@@ -200,12 +231,13 @@ export function createAssistantSession({ call, subscribe = () => () => {}, state
         history = []
         controller = null
         activeRequest = ''
-        void call('release').catch(() => {})
+        if (releaseOnDispose) void call('release').catch(() => {})
     }
 
     return {
         state,
         setIdentity,
+        refreshConfig,
         saveSettings,
         clearKey,
         send,

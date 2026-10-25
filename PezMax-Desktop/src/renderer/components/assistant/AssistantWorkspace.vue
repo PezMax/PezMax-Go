@@ -389,6 +389,7 @@ watch(
     () => props.active,
     (active) => {
         if (active && !settingsOpen.value) focusComposer()
+        if (active) void session.refreshConfig()
     }
 )
 const trackScroll = () => {

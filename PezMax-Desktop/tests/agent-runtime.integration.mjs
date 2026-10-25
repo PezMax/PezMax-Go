@@ -21,7 +21,12 @@ for (const packaged of [false, true]) {
         const body = JSON.parse(data)
         captured.push({ kind: 'model', auth: request.headers.authorization, body })
         if (hanging) { entered(); return }
-        const message = body.messages.at(-1).role === 'tool'
+        const message = !body.tools
+          ? { role: 'assistant', content: JSON.stringify({ suggestions: [
+              { field: 'fileSubject', value: '高等数学', evidence: '高等数学' },
+              { field: 'fileYear', value: '2026', evidence: '2026' }
+            ] }) }
+          : body.messages.at(-1).role === 'tool'
           ? { role: 'assistant', content: '找到数学试卷 fixture-api-key' }
           : { role: 'assistant', content: '', tool_calls: [{ id: 'call-1', type: 'function', function: {
             name: 'search_resources', arguments: JSON.stringify({ kinds: ['file'], keyword: '数学' })
@@ -55,6 +60,14 @@ for (const packaged of [false, true]) {
       const modelRequests = JSON.stringify(captured.filter(item => item.kind === 'model').map(item => item.body))
       assert.equal(modelRequests.includes('fixture-platform-token'), false)
       assert.equal(modelRequests.includes('/private/'), false)
+      const beforeUpload = captured.length
+      const upload = await runAgent({ version: 1, requestId: 'upload-integration', provider: payload.provider,
+        task: 'upload', upload: { kind: 'exam', folder: false, names: ['2026高等数学期末.pdf'] } })
+      assert.deepEqual(upload.suggestions.map(item => item.field), ['fileSubject', 'fileYear'])
+      assert.equal(captured.length - beforeUpload, 1)
+      assert.equal(captured.at(-1).kind, 'model')
+      assert.equal(captured.at(-1).body.tools, undefined)
+      assert.deepEqual(upload.messages, [])
       hanging = true
       const started = new Promise(resolveStarted => { entered = resolveStarted })
       const controller = new AbortController()

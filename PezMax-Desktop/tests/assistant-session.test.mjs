@@ -58,7 +58,7 @@ test('logout cancels work, releases keys, and ignores late responses from the ol
     assert.equal(session.state.turns.length, 0)
     assert.equal(session.state.config.hasApiKey, false)
     assert.equal(events.some(([method]) => method === 'cancel'), true)
-    assert.equal(events.filter(([method]) => method === 'release').length, 2)
+    assert.equal(events.filter(([method]) => method === 'release').length, 1)
     await session.setIdentity(null)
     await assert.rejects(session.send('不能发送'), /登录/)
 })
