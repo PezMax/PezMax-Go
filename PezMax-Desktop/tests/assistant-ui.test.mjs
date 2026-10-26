@@ -10,6 +10,11 @@ import {
 } from '../src/renderer/utils/upload-assistant-session.mjs'
 import * as uploadContracts from '../src/shared/upload-assistant.mjs'
 import * as readingContracts from '../src/shared/reading-assistant.mjs'
+import * as knowledgeContracts from '../src/shared/knowledge-assistant.mjs'
+import {
+    createKnowledgeSession,
+    createKnowledgeState
+} from '../src/renderer/utils/knowledge-assistant-session.mjs'
 import { createReadingAssistantSession } from '../src/renderer/utils/reading-assistant-session.mjs'
 import {
     createAssistantSession,
@@ -29,6 +34,7 @@ async function mountAssistant(name, props = {}, imports = {}) {
         'Card',
         'Checkbox',
         'Drawer',
+        'Empty',
         'Form',
         'FormItem',
         'Input',
@@ -36,15 +42,18 @@ async function mountAssistant(name, props = {}, imports = {}) {
         'InputNumber',
         'Select',
         'Modal',
+        'Popconfirm',
         'Spin',
         'Tag',
         'Textarea'
     ]
     const iconNames = [
+        'ArrowLeftOutlined',
         'ArrowRightOutlined',
         'ArrowUpOutlined',
         'BookOutlined',
         'DatabaseOutlined',
+        'DeleteOutlined',
         'FileSearchOutlined',
         'FileTextOutlined',
         'KeyOutlined',
@@ -72,6 +81,8 @@ async function mountAssistant(name, props = {}, imports = {}) {
         },
         '../../../shared/upload-assistant.mjs': uploadContracts,
         '../../../shared/reading-assistant.mjs': readingContracts,
+        '../../../shared/knowledge-assistant.mjs': knowledgeContracts,
+        '@/utils/knowledge-assistant-session.mjs': { createKnowledgeSession, createKnowledgeState },
         ...imports
     }
     const module = new SourceTextModule(content, {
@@ -128,6 +139,118 @@ const config = {
     remember: false,
     canRemember: true
 }
+
+test('knowledge UI imports only on confirmation, preserves question for BYOK setup, and clears evidence on logout', async () => {
+    const calls = [],
+        user = Vue.reactive({ token: 'session', id: '7' })
+    const documentId = 'b'.repeat(32),
+        chunkId = 'c'.repeat(32)
+    const chunk = {
+        documentId,
+        chunkId,
+        location: 2,
+        title: 'Synthetic queue',
+        format: 'pdf',
+        text: 'A queue uses first in first out ordering.'
+    }
+    const doc = {
+        documentId,
+        title: chunk.title,
+        format: 'pdf',
+        characters: 40,
+        chunks: 1,
+        dimension: 0,
+        created: '2026-10-26'
+    }
+    const retrieval = {
+        chunks: [chunk],
+        mode: 'keyword',
+        scannedChunks: 1,
+        vectorChunks: 0,
+        fusion: 'bm25'
+    }
+    const page = await mountAssistant(
+        'KnowledgeWorkspace',
+        {},
+        {
+            '@/store/modules/user': { default: () => user },
+            '@/api/assistant': {
+                assistantCall: async (method, scope, input) => {
+                    calls.push({ method, scope, input })
+                    if (method === 'getConfig') return { ...config, embedding: { ...config } }
+                    if (method === 'save')
+                        return { ...config, hasApiKey: true, embedding: { ...config } }
+                    const action = input?.knowledge?.action
+                    const knowledge =
+                        action === 'list'
+                            ? { documents: [doc] }
+                            : action === 'import'
+                              ? { document: { ...doc, inserted: false } }
+                              : action === 'read'
+                                ? { chunk }
+                                : action === 'ask'
+                                  ? {
+                                        retrieval,
+                                        content: 'FIFO',
+                                        answers: [
+                                            {
+                                                text: 'FIFO',
+                                                citations: [
+                                                    {
+                                                        documentId,
+                                                        chunkId,
+                                                        location: 2,
+                                                        quote: 'first in first out'
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                  : { retrieval }
+                    return { knowledge }
+                },
+                onAssistantProgress: () => () => {}
+            }
+        }
+    )
+    const ui = page.bindings
+    try {
+        assert.deepEqual(
+            calls.filter((c) => c.method === 'run').map((c) => c.input.knowledge.action),
+            ['list']
+        )
+        ui.importHybrid.value = true
+        ui.openImport()
+        assert.equal(ui.importHybrid.value, false)
+        assert.equal(calls.filter((c) => c.method === 'run').length, 1)
+        ui.chooseAndImport()
+        await page.flush()
+        assert.equal(calls.at(-1).input.knowledge.mode, 'keyword')
+        ui.question.value = 'queue'
+        ui.submit(false)
+        await page.flush()
+        assert.equal(ui.state.result.action, 'search')
+        ui.submit(true)
+        assert.equal(ui.settingsOpen.value, true)
+        assert.equal(ui.question.value, 'queue')
+        assert.equal(calls.at(-1).input.knowledge.action, 'search')
+        await ui.saveSettings({ ...config, apiKey: 'synthetic-key' })
+        ui.settingsOpen.value = false
+        ui.submit(true)
+        await page.flush()
+        await ui.session.readEvidence(ui.state.result.answers[0].citations[0])
+        assert.equal(ui.sourceParts.value.quote, 'first in first out')
+        user.token = ''
+        await page.flush()
+        assert.equal(ui.question.value, '')
+        assert.equal(ui.state.evidence, null)
+        assert.equal(ui.state.documents.length, 0)
+        assert.equal(ui.importOpen.value, false)
+        assert.equal(ui.settingsOpen.value, false)
+    } finally {
+        page.dispose()
+    }
+})
 
 test('reading UI requires explicit extraction and send, emits verified page jumps, and clears on file/account/close', async () => {
     const calls = [],

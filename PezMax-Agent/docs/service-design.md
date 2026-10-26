@@ -1,5 +1,7 @@
 # Agent 服务化与文档检索设计
 
+本页记录 0.2 服务阶段的设计与范围。0.3 已复用核心接入桌面，后续设计见[桌面知识库](desktop-knowledge.md)，不再受下文“本期不接入桌面 UI”的历史范围限制。
+
 ## 可行性与交付边界
 
 现有 Python 模块已经把模型适配、目录检索、LangGraph 图和 stdio 协议分开。FastAPI 与 MCP 可以作为新增适配层，共享知识库服务，而无需替换 Electron 已验证的 stdio 调用链。服务依赖作为 `service` extra 安装，不让桌面冻结入口主动导入 Web/MCP 模块。

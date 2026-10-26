@@ -1,6 +1,7 @@
 <template>
     <AssistantTheme>
-        <section class="assistant-workspace" aria-label="找资料助手">
+        <KnowledgeWorkspace v-if="knowledgeOpen" @back="closeKnowledge" />
+        <section v-else class="assistant-workspace" aria-label="找资料助手">
             <header class="assistant-header">
                 <div class="assistant-heading">
                     <span class="assistant-mark"><RobotOutlined /></span>
@@ -10,6 +11,12 @@
                     </div>
                 </div>
                 <div class="assistant-header-actions">
+                    <AButton
+                        :disabled="state.busy || state.settingsBusy || !signedIn"
+                        @click="knowledgeOpen = true"
+                    >
+                        <template #icon><DatabaseOutlined /></template>我的知识库
+                    </AButton>
                     <ATag
                         v-if="state.config.hasApiKey"
                         class="model-tag"
@@ -251,7 +258,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import {
     Alert as AAlert,
     Button as AButton,
@@ -285,6 +292,8 @@ import { createAssistantSession, createAssistantState } from '@/utils/assistant-
 import AssistantSettings from './AssistantSettings.vue'
 import AssistantTheme from './AssistantTheme.vue'
 
+const KnowledgeWorkspace = defineAsyncComponent(() => import('./KnowledgeWorkspace.vue'))
+
 const props = defineProps({ active: Boolean })
 const emit = defineEmits(['open-resource'])
 const userStore = useUserStore()
@@ -296,6 +305,11 @@ const session = createAssistantSession({
     state
 })
 const settingsOpen = ref(false)
+const knowledgeOpen = ref(false)
+const closeKnowledge = () => {
+    knowledgeOpen.value = false
+    void session.refreshConfig()
+}
 const draft = ref('')
 const submitError = ref('')
 const scrollArea = ref(null)

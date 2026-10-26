@@ -19,9 +19,16 @@ from .application import run_task
 from .contracts import MAX_REQUEST_BYTES, PROTOCOL_VERSION, CatalogConfig, ProviderConfig, json_text, redact
 from .errors import AgentError
 from .provider import ChatCompletionsModel
+from .desktop_knowledge import run_desktop_knowledge
 
 
 async def execute(payload, emit):
+    if payload.get('task') == 'knowledge':
+        secrets = [value.get('apiKey', '') for name in ('provider', 'embedding')
+                   if isinstance(value := payload.get(name), dict) and isinstance(value.get('apiKey'), str)]
+        result = await run_desktop_knowledge(payload, lambda data: emit('progress', data=redact(data, secrets)))
+        emit('result', data=redact(result, secrets))
+        return
     provider = ProviderConfig.parse(payload.get("provider"))
     testing = payload.get("test") is True
     task = payload.get("task", "search")

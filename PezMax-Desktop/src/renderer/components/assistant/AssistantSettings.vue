@@ -1,7 +1,7 @@
 <template>
     <AModal
         :open="open"
-        title="模型设置"
+        :title="embedding ? 'Embedding 设置' : '模型设置'"
         :width="560"
         :mask-closable="false"
         :closable="!busy"
@@ -9,14 +9,22 @@
         :destroy-on-close="true"
         @cancel="close"
     >
-        <p class="settings-intro">
+        <p v-if="embedding" class="settings-intro">
+            为知识库连接兼容 Embeddings 的向量模型。仅在明确开启向量导入或混合检索时调用；
+            文档文字或检索问题会发送至该服务，并按服务商规则计费。
+        </p>
+        <p v-else class="settings-intro">
             连接你自己的模型服务，即可使用找资料、上传建议，以及 PDF / EPUB 阅读问答、摘要与提纲。
         </p>
         <AForm layout="vertical" class="assistant-settings" @finish="save(false)">
             <AFormItem
                 label="接口地址"
                 :required="true"
-                extra="填写兼容 Chat Completions 的基础地址，例如 https://服务商域名/v1。"
+                :extra="
+                    embedding
+                        ? '填写兼容 Embeddings 的基础地址，不包含 /embeddings。'
+                        : '填写兼容 Chat Completions 的基础地址，例如 https://服务商域名/v1。'
+                "
             >
                 <AInput
                     v-model:value="form.baseUrl"
@@ -30,12 +38,16 @@
             <AFormItem
                 label="模型 ID"
                 :required="true"
-                extra="使用服务商提供的模型 ID；找资料需支持工具调用，上传建议与阅读问答需按要求返回 JSON。"
+                :extra="
+                    embedding
+                        ? '填写向量模型 ID。更换模型或地址后，已有向量文档需删除后重新导入。'
+                        : '使用服务商提供的模型 ID；找资料需支持工具调用，阅读及知识库问答需按要求返回 JSON。'
+                "
             >
                 <AInput
                     v-model:value="form.model"
                     aria-label="模型 ID"
-                    placeholder="填写支持工具调用的模型 ID"
+                    :placeholder="embedding ? '填写向量模型 ID' : '填写支持工具调用的模型 ID'"
                     :maxlength="160"
                     :disabled="busy"
                     autocomplete="off"
@@ -75,7 +87,11 @@
                 type="info"
                 show-icon
                 message="发送范围与费用"
-                description="找资料发送提问、近期对话和目录信息；上传建议仅发送文件名；阅读助手在你发送或生成时发送本次任务和所选 PDF 页面 / EPUB 分节的相关文字片段。不发送本地文件路径或下载地址。调用费用由服务商按你的账号计费，连接测试也会发起一次调用。"
+                :description="
+                    embedding
+                        ? '建立向量索引时发送文档文字，混合检索时发送问题。密钥与对话模型设置独立，本地关键词检索不调用向量服务。'
+                        : '找资料发送提问、近期对话和目录信息；上传建议仅发送文件名；阅读与知识库问答在明确发送时提供本次任务和相关文字片段。不发送本地文件路径或下载地址。调用费用由服务商计费，连接测试也会调用一次模型。'
+                "
             />
             <AAlert
                 v-if="feedback"
@@ -94,7 +110,13 @@
                 <div class="settings-actions">
                     <AButton :disabled="busy" @click="close">关闭</AButton>
                     <AButton :disabled="busy" @click="save(false)">保存</AButton>
-                    <AButton type="primary" :loading="busy" @click="save(true)">保存并测试</AButton>
+                    <AButton
+                        v-if="allowTest && !embedding"
+                        type="primary"
+                        :loading="busy"
+                        @click="save(true)"
+                        >保存并测试</AButton
+                    >
                 </div>
             </div>
         </template>
@@ -118,6 +140,8 @@ const props = defineProps({
     open: Boolean,
     config: { type: Object, required: true },
     busy: Boolean,
+    embedding: Boolean,
+    allowTest: { type: Boolean, default: true },
     saveSettings: { type: Function, required: true },
     clearKey: { type: Function, required: true }
 })

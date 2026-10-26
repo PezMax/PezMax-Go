@@ -2,7 +2,7 @@
 
 本阶段目标是让 PezMax 的智能助手可演示、可解释、可验证。技术选择围绕实际功能：Python LangGraph 编排、Pydantic v2 结构契约、带定位证据的阅读、受限工具执行、本机进程隔离与确定性评测。
 
-0.2 新增独立 FastAPI、MCP SDK 2.x 和 SQLite 文档 RAG。其可行性与数据边界见[服务设计](../../PezMax-Agent/docs/service-design.md)，部署、接口和检索方式见[服务使用说明](../../PezMax-Agent/docs/service.md)。本页下述架构描述默认桌面 stdio 模式；新知识库正文会持久化，不能套用旧阅读的“只处理所选文字且不落盘”描述。
+0.2 新增独立 FastAPI、MCP SDK 2.x 和 SQLite 文档 RAG，0.3 已通过 stdio 接入桌面知识库。其可行性与数据边界见[服务设计](../../PezMax-Agent/docs/service-design.md)，部署与接口见[服务使用说明](../../PezMax-Agent/docs/service.md)，桌面接入见[知识库说明](../../PezMax-Agent/docs/desktop-knowledge.md)。下述原阅读架构只处理所选文字，不能将其“不落盘、不传路径”描述套用到显式导入知识库。
 
 ## 系统边界
 
@@ -22,7 +22,7 @@ flowchart LR
 
 - 凭据存于依赖对象，不能进入 LangGraph 状态或对话历史。模型密钥与平台令牌分开使用。
 - 每轮独立子进程，无本机 HTTP 服务。取消由 Electron 中止进程；渲染层使用版本标记丢弃迟到结果，并等待上一请求释放后再重试。
-- PDF/EPUB 提取在渲染进程本机执行。Python 不接收文档路径、下载 URL、完整归档或 EPUB 内部 href。
+- 原阅读面板的 PDF/EPUB 提取在渲染进程本机执行，不向 Python 提供文档路径或归档。新增知识库使用系统选择器明确选定本机文件，路径仅交给可信 worker 提取，不进入模型或图状态。
 - 找资料有唯一白名单工具 `search_resources`；上传建议和阅读没有工具。实际资源卡片来自目录对象，模型文字不能构造可操作资源。
 
 ## 三种图的职责
@@ -80,9 +80,9 @@ npm run test:agent-integration
 
 ## 默认桌面模式保留的限制
 
-- 仅所选内容，未实现全文索引、OCR、向量/混合检索或 reranker。
+- 原阅读面板仅处理所选内容；桌面知识库另支持显式全文导入、位置分块与可选向量/混合检索。均未实现 OCR 或 reranker。
 - 模型非 token 流式；进度为节点状态事件，不宣称 token streaming。
-- 桌面默认 stdio 没有多智能体、MCP、持久化会话恢复、自动上传或审核能力。独立模块另提供可选 MCP 与文档 RAG，尚未接入桌面知识库 UI。
+- 桌面 stdio 不自动启动 MCP，没有多智能体、持久化会话恢复、自动上传或审核能力。独立模块另提供可选 MCP；桌面知识库已复用文档 RAG 核心。
 - 兼容 Chat Completions 的 BYOK 适配器，服务商差异由用户连接测试和实际调用确认。
 - 单轮预算限制调用次数，不能保证服务商账单上限。需要真实模型、计价和使用量统计才能评价成本。
 

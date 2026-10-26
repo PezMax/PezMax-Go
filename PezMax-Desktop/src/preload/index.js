@@ -15,6 +15,8 @@ if (process.contextIsolated) {
       assistant: {
         getConfig: (context) => ipcRenderer.invoke('assistant:getConfig', context),
         save: (context, input) => ipcRenderer.invoke('assistant:save', context, input),
+        saveEmbedding: (context, input) => ipcRenderer.invoke('assistant:saveEmbedding', context, input),
+        clearEmbedding: (context) => ipcRenderer.invoke('assistant:clearEmbedding', context),
         clear: (context) => ipcRenderer.invoke('assistant:clear', context),
         run: (context, input) => ipcRenderer.invoke('assistant:run', context, input),
         onProgress: (callback) => {

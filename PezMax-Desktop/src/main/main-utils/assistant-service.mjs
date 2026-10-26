@@ -1,6 +1,7 @@
 import { normalizeProviderConfig } from '../../shared/assistant-protocol.mjs'
 import { normalizeUploadInput, normalizeUploadSuggestions } from '../../shared/upload-assistant.mjs'
 import { normalizeReadingInput, normalizeReadingResult } from '../../shared/reading-assistant.mjs'
+import { normalizeKnowledgeInput, normalizeKnowledgeResult } from '../../shared/knowledge-assistant.mjs'
 
 function redact(value, secrets) {
   if (typeof value === 'string') {
@@ -14,7 +15,8 @@ function redact(value, secrets) {
 
 // Electron owns the OS key vault and worker lifecycle. Model calls, tools,
 // history validation and graph execution belong to the Python module.
-export function createAssistantService({ readConfig, writeConfig, encryption, runAgent, catalogBaseUrl, timeoutMs = 180000 }) {
+export function createAssistantService({ readConfig, writeConfig, encryption, runAgent, catalogBaseUrl,
+  knowledgeDatabase, selectKnowledgeFile, timeoutMs = 180000 }) {
   const sessions = new Map()
   const requests = new Map()
   let saved
@@ -31,9 +33,12 @@ export function createAssistantService({ readConfig, writeConfig, encryption, ru
     }
     return sessions.get(scope)
   }
-  function publicConfig(scope) {
+  function publicSlot(scope) {
     const config = profile(scope)
     return { baseUrl: config.baseUrl, model: config.model, hasApiKey: !!config.apiKey, remember: config.remember, canRemember: encryption.isAvailable() }
+  }
+  function publicConfig(scope) {
+    return { ...publicSlot(scope), embedding: publicSlot(`${scope}_embedding`) }
   }
   function persist(scope, config) {
     const record = { baseUrl: config.baseUrl, model: config.model }
@@ -42,9 +47,9 @@ export function createAssistantService({ readConfig, writeConfig, encryption, ru
     writeConfig(next)
     saved = next
     sessions.set(scope, config)
-    return publicConfig(scope)
+    return publicSlot(scope)
   }
-  function save(scope, input) {
+  function saveSlot(scope, input) {
     const previous = profile(scope)
     const config = normalizeProviderConfig(input)
     if (!config.apiKey && previous.baseUrl === config.baseUrl) config.apiKey = previous.apiKey
@@ -52,10 +57,22 @@ export function createAssistantService({ readConfig, writeConfig, encryption, ru
     if (config.remember && !encryption.isAvailable()) throw new Error('当前系统不支持安全保存，请关闭“加密保存在本机”')
     return persist(scope, config)
   }
+  function save(scope, input) { saveSlot(scope, input); return publicConfig(scope) }
+  function saveEmbedding(scope, input) {
+    saveSlot(`${scope}_embedding`, input)
+    return publicConfig(scope)
+  }
+  function clearEmbedding(scope) {
+    for (const request of requests.values()) if (request.scope === scope) request.controller.abort()
+    const slot = `${scope}_embedding`
+    persist(slot, { ...profile(slot), apiKey: '', remember: false })
+    return publicConfig(scope)
+  }
   function clear(scope) {
     const current = profile(scope)
     for (const request of requests.values()) if (request.scope === scope) request.controller.abort()
-    return persist(scope, { ...current, apiKey: '', remember: false })
+    persist(scope, { ...current, apiKey: '', remember: false })
+    return publicConfig(scope)
   }
   function cancel(requestId, owner) {
     const request = requests.get(requestId)
@@ -67,8 +84,53 @@ export function createAssistantService({ readConfig, writeConfig, encryption, ru
   function forget(scope) {
     for (const request of requests.values()) if (request.scope === scope) request.controller.abort()
     sessions.delete(scope)
+    sessions.delete(`${scope}_embedding`)
+  }
+  async function runKnowledge(scope, input, owner, onProgress) {
+    const request = normalizeKnowledgeInput(input.knowledge)
+    const { requestId } = input
+    if (typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(requestId)) throw new Error('请求标识无效')
+    if (!knowledgeDatabase || !/^[a-f0-9]{64}$/.test(scope)) throw new Error('助手知识库尚未配置')
+    if (requests.has(requestId) || [...requests.values()].some(item => item.owner === owner)) throw new Error('请等待当前请求结束，或先停止生成')
+    const current = profile(scope)
+    const vector = profile(`${scope}_embedding`)
+    const useEmbedding = request.mode === 'hybrid' && ['import', 'search', 'ask'].includes(request.action)
+    if (request.action === 'ask' && !current.apiKey) throw new Error('请先在模型设置中填写 API Key')
+    if (useEmbedding && !vector.apiKey) throw new Error('请先配置 Embedding 接口与 API Key')
+    const controller = new AbortController()
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
+    requests.set(requestId, { controller, owner, scope })
+    const secrets = [current.apiKey, vector.apiKey]
+    try {
+      // A renderer may request a picker, but cannot supply a local path or owner.
+      const localDocument = request.action === 'import' ? await selectKnowledgeFile?.() : undefined
+      if (controller.signal.aborted) throw new Error('已停止处理')
+      if (request.action === 'import' && !localDocument) return { knowledge: { cancelled: true } }
+      const result = await runAgent({ version: 1, requestId, task: 'knowledge', knowledge: request,
+        storage: { path: knowledgeDatabase, owner: scope },
+        ...(localDocument ? { localDocument } : {}),
+        ...(request.action === 'ask' ? { provider: normalizeProviderConfig(current) } : {}),
+        ...(useEmbedding ? { embedding: normalizeProviderConfig(vector) } : {})
+      }, { signal: controller.signal, onProgress: event => {
+        if (!controller.signal.aborted) onProgress?.(redact(event, secrets))
+      } })
+      if (controller.signal.aborted) throw new Error('已停止处理')
+      // Validate evidence before redaction: a secret-looking substring in local
+      // source text must not turn an invalid citation into an apparently valid one.
+      return { knowledge: redact(normalizeKnowledgeResult(result.knowledge, request), secrets) }
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error(timedOut ? '助手处理超时，请缩小文档后重试' : '已停止处理；若正在导入或删除，请刷新列表确认结果')
+      const message = error?.message || ''
+      throw new Error(/^(请|接口|模型|API Key|请求|无法|助手|文档|本地|所选|同一|向量|混合|待向量|Embedding|导入)/.test(message)
+        ? redact(message, secrets) : '助手知识库操作失败，请检查文档与设置后重试')
+    } finally {
+      clearTimeout(timer)
+      requests.delete(requestId)
+    }
   }
   async function run(scope, input, owner, onProgress) {
+    if (input?.task === 'knowledge') return runKnowledge(scope, input, owner, onProgress)
     const current = profile(scope)
     if (!current.apiKey) throw new Error('请先在模型设置中填写 API Key')
     const config = normalizeProviderConfig({ ...current })
@@ -109,5 +171,5 @@ export function createAssistantService({ readConfig, writeConfig, encryption, ru
       requests.delete(requestId)
     }
   }
-  return { publicConfig, save, clear, run, cancel, cancelOwner, forget }
+  return { publicConfig, save, saveEmbedding, clearEmbedding, clear, run, cancel, cancelOwner, forget }
 }

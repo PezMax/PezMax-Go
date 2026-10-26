@@ -1,5 +1,7 @@
 # Agent 0.2 服务与检索验证记录
 
+本页保留 0.2 交付时的检查范围与数字。后续 0.3 已接入桌面知识库，最新结果见[桌面知识库验证记录](desktop-knowledge-verification.md)。
+
 2026-10-26，Windows x64 / Python 3.13。代码提供独立 FastAPI、官方 MCP SDK 2.x stdio 服务和跨文档 RAG。默认 Electron stdio v1 保持兼容；没有新增桌面知识库 UI，也没有将 MCP 暴露成 HTTP 端点。
 
 ## 统一检查

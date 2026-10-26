@@ -23,7 +23,7 @@
     "agent:check": "node scripts/agent.mjs check",
     "agent:eval": "node scripts/agent.mjs eval",
     "agent:build": "node scripts/agent.mjs build",
-    "test:agent-integration": "node --test tests/agent-runtime.integration.mjs",
+    "test:agent-integration": "node --test tests/agent-runtime.integration.mjs tests/knowledge-runtime.integration.mjs",
     "build:unpack": "npm run clean && npm run build && npm run agent:build && electron-builder --dir",
     "build:win": "npm run clean && npm run build && npm run agent:build && electron-builder --win",
     "build:mac": "npm run clean && npm run build && npm run agent:build && electron-builder --mac",

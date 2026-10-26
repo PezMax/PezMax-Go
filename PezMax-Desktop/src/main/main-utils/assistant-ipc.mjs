@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { join } from 'node:path'
+import { join, extname } from 'node:path'
 import fs from 'node:fs'
 import { createAssistantService } from './assistant-service.mjs'
 import { createAgentProcess, resolveAgentRuntime } from './assistant-process.mjs'
@@ -40,6 +40,8 @@ export function installAssistantHandlers({ ipcMain, getWindow, service, renderer
   const actions = {
     getConfig: (scope) => service.publicConfig(scope),
     save: (scope, input) => service.save(scope, input),
+    saveEmbedding: (scope, input) => service.saveEmbedding(scope, input),
+    clearEmbedding: (scope) => service.clearEmbedding(scope),
     clear: (scope) => service.clear(scope),
     run: (scope, input, owner, progress) => service.run(scope, input, owner, progress),
     cancel: (_scope, input, owner) => service.cancel(input?.requestId, owner)
@@ -60,7 +62,7 @@ export function installAssistantHandlers({ ipcMain, getWindow, service, renderer
       } catch (error) {
         // Never let Electron serialize arbitrary filesystem/provider exceptions.
         const message = error?.message || ''
-        return { ok: false, error: /^(请|接口|模型|API Key|当前系统|对话|工具|请求|已停止|无法连接|助手|搜索|资源|年份|起始|平台)/.test(message)
+        return { ok: false, error: /^(请|接口|模型|API Key|当前系统|对话|工具|请求|已停止|无法|助手|搜索|资源|年份|起始|平台|文档|本地|所选|同一|向量|混合|待向量|Embedding|导入)/.test(message)
           ? message : '助手操作失败，请检查设置或本机存储后重试',
           ...(error?.code === 'catalog_auth_expired' ? { code: error.code } : {}) }
       }
@@ -82,7 +84,7 @@ export function installAssistantHandlers({ ipcMain, getWindow, service, renderer
   }
 }
 
-export function registerAssistantIpc({ ipcMain, getWindow, app, safeStorage, rendererUrl, catalogBaseUrl }) {
+export function registerAssistantIpc({ ipcMain, getWindow, app, safeStorage, dialog, rendererUrl, catalogBaseUrl }) {
   const configPath = join(app.getPath('userData'), 'ptmj-assistant.json')
   const encryption = {
     isAvailable: () => safeStorage.isEncryptionAvailable() &&
@@ -105,6 +107,21 @@ export function registerAssistantIpc({ ipcMain, getWindow, app, safeStorage, ren
       fs.renameSync(temporary, configPath)
     },
     catalogBaseUrl,
+    knowledgeDatabase: join(app.getPath('userData'), 'knowledge', 'documents.sqlite3'),
+    async selectKnowledgeFile() {
+      const result = await dialog.showOpenDialog(getWindow(), {
+        title: '导入到本机知识库', properties: ['openFile'],
+        filters: [{ name: '知识库文档', extensions: ['pdf', 'epub', 'txt', 'md', 'markdown'] }]
+      })
+      if (result.canceled || !result.filePaths.length) return null
+      const path = result.filePaths[0]
+      const stat = await fs.promises.stat(path)
+      if (!stat.isFile() || stat.size < 1 || stat.size > 16 * 1024 * 1024 ||
+          !['.pdf', '.epub', '.txt', '.md', '.markdown'].includes(extname(path).toLowerCase())) {
+        throw new Error('导入文件需为16 MiB以内的 PDF、EPUB 或 UTF-8 文本')
+      }
+      return path
+    },
     runAgent: createAgentProcess({ resolveRuntime: () => resolveAgentRuntime({
       isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath()
     }) })

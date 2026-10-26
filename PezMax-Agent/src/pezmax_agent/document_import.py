@@ -75,7 +75,7 @@ def extract_document(data, title, file_format):
         raise AgentError("导入文件为空或超过16 MiB", "invalid_document")
     try:
         if file_format == 'pdf':
-            # Optional service dependency; desktop stdio does not import pypdf.
+            # Lazy import: listing/searching text corpora does not load a PDF parser.
             from pypdf import PdfReader
             reader = PdfReader(io.BytesIO(data))
             if reader.is_encrypted or len(reader.pages) > 1000:

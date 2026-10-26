@@ -325,7 +325,7 @@ app.on('will-quit', () => {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   assistantBridge = registerAssistantIpc({
-    ipcMain, getWindow: () => mainWindow, app, safeStorage,
+    ipcMain, getWindow: () => mainWindow, app, safeStorage, dialog,
     catalogBaseUrl: __PEZMAX_CATALOG_BASE_URL__,
     rendererUrl: is.dev && process.env['ELECTRON_RENDERER_URL']
       ? process.env['ELECTRON_RENDERER_URL']
