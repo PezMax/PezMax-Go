@@ -7,6 +7,7 @@ NODES = {
     "search": {"model", "search", "finalize"},
     "upload": {"suggest", "validate"},
     "reading": {"retrieve", "answer", "validate", "repair"},
+    "rag": {"retrieve", "answer", "validate", "repair"},
 }
 COUNTERS = {"modelCalls", "searches", "selectedChunks", "verifiedAnswers", "verifiedCitations", "rejectedAnswers", "validationFailures", "repairAttempts"}
 

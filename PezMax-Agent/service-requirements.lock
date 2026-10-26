@@ -1,0 +1,24 @@
+# Service snapshot in addition to the existing desktop/core dependencies.
+# Validated on Python 3.13 Windows x64. Other platforms need their own checks.
+-r requirements.lock
+annotated-doc==0.0.5
+attrs==26.1.0
+cffi==2.1.1
+click==8.5.0
+cryptography==50.0.2
+fastapi==0.162.0
+jsonschema-specifications==2025.9.1
+jsonschema==4.26.0
+mcp-types==2.3.0
+mcp==2.3.0
+opentelemetry-api==1.45.1
+pycparser==3.12
+PyJWT==2.15.1
+pypdf==6.21.2
+python-multipart==0.0.32
+pywin32==312; sys_platform == "win32"
+referencing==0.37.0
+rpds-py==2026.9.1
+sse-starlette==3.6.0
+starlette==1.10.0
+uvicorn==0.54.0
