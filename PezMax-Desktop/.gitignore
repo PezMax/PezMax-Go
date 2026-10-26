@@ -6,3 +6,6 @@ out
 *.log*
 auto-imports.d.ts
 .trae
+
+# 部署环境配置：含真实后端/更新地址，按发布环境本地维护，不入库
+.env.production

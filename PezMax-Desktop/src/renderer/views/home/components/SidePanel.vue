@@ -398,7 +398,7 @@
 
 <script setup>
 import ReportTimelinePanel from './ReportTimelinePanel.vue'
-import { computed, ref, reactive, onMounted, onUnmounted, watch } from 'vue'
+import { computed, ref, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, Plus, Link, Search, Delete, VideoCamera, Document, Reading, Box, Film, ArrowRight, Folder, Upload, Edit, Location, Files, Collection, Picture, ArrowUp, ArrowDown, View, Select } from '@element-plus/icons-vue'
 import UploadPanel from './UploadPanel.vue'
@@ -567,6 +567,17 @@ const showExtension = ref(true)
 
 // 获取 Tree 实例
 const fileTreeRef = ref(null)
+
+// 搜索时展开命中路径，直接展示相关科目下的目标目录
+const expandSearchPaths = async () => {
+  if (!searchQuery.value.trim()) return
+  await nextTick()
+  const nodes = fileTreeRef.value?.store?._getAllNodes?.() || []
+  nodes.forEach((node) => {
+    if (node.data?._searchPath) node.expanded = true
+  })
+}
+watch(() => props.fileTreeData, expandSearchPaths)
 
 const handleExplorerCommand = (command) => {
   if (command === 'collapseAll') {

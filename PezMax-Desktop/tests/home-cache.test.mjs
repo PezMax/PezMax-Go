@@ -630,3 +630,67 @@ test('switching files in an open drawer ignores the earlier pending detail respo
     assert.ok(!renderedText(drawer).includes('过时'))
     assert.deepEqual(workspace.calls.detail, [42, 43])
 })
+
+test('explorer search keeps subject paths, prunes unrelated branches and never duplicates nodes', async (t) => {
+    const fileNode = (id, label) => ({ id, label, type: 'file', fileInfo: { fileId: Number(id.replace(/\D/g, '')), fileName: label, fileStatus: '1' } })
+    const folder = (id, label, children) => ({ id, label, type: 'folder', children })
+    const treeData = [
+        folder('s-math', '高等数学', [
+            folder('school-a', '示例大学', [
+                folder('final-a', '期末考试', [
+                    folder('year-a', '2025', [fileNode('file-a', '高数期末.pdf')])
+                ]),
+                folder('daily-a', '平时作业', [fileNode('file-b', '作业.pdf')]),
+                folder('campus-a', '大学城校区', [fileNode('file-c', '校区.pdf')])
+            ])
+        ]),
+        folder('s-english', '大学英语', [
+            folder('school-b', '示例大学', [fileNode('file-d', '英语.pdf')])
+        ])
+    ]
+    const workspace = await createWorkspace({
+        realTreeUi: true,
+        treeResponses: [
+            { code: 0, hash: 'tree-search', data: treeData },
+            { code: 0, hash: 'tree-search-2', data: treeData }
+        ]
+    })
+    t.after(workspace.dispose)
+    const panel = workspace.instances.get('SidePanel')
+    const collectIds = (nodes) => nodes.flatMap((node) => [node.id, ...collectIds(node.children || [])])
+
+    panel.emit('search', '期末')
+    await workspace.flush()
+    const keywordTree = panel.props.fileTreeData
+    assert.deepEqual(Array.from(keywordTree, (node) => node.label), ['高等数学'])
+    assert.deepEqual(Array.from(keywordTree[0].children, (node) => node.label), ['示例大学'])
+    const hit = keywordTree[0].children[0].children[0]
+    assert.equal(hit.label, '期末考试')
+    assert.deepEqual(Array.from(hit.children, (node) => node.label), ['2025'])
+    assert.ok(!collectIds(keywordTree).includes('daily-a'))
+    const ids = collectIds(keywordTree)
+    assert.equal(new Set(ids).size, ids.length)
+
+    // 刷新/重新加载文件树后，当前搜索词必须继续生效
+    panel.emit('refresh')
+    await workspace.flush()
+    const refreshedTree = panel.props.fileTreeData
+    assert.deepEqual(Array.from(refreshedTree, (node) => node.label), ['高等数学'])
+    assert.equal(collectIds(refreshedTree).filter((id) => id === 'final-a').length, 1)
+
+    panel.emit('search', '大学')
+    await workspace.flush()
+    const broadTree = panel.props.fileTreeData
+    const mathRoot = broadTree.find((node) => node.id === 's-math')
+    const englishRoot = broadTree.find((node) => node.id === 's-english')
+    assert.ok(mathRoot && englishRoot)
+    assert.deepEqual(Array.from(mathRoot.children, (node) => node.label), ['示例大学'])
+    assert.equal(collectIds(broadTree).filter((id) => id === 'school-a').length, 1)
+    const campus = mathRoot.children[0].children.find((node) => node.id === 'campus-a')
+    assert.ok(campus)
+    assert.equal(collectIds(broadTree).filter((id) => id === 'campus-a').length, 1)
+
+    panel.emit('search', '')
+    await workspace.flush()
+    assert.equal(panel.props.fileTreeData.length, 2)
+})

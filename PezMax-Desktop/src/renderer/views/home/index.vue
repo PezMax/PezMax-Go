@@ -206,6 +206,8 @@ const donateVisible = ref(false)
 //lxq    allFileTreeData：原始全量数据，fileTreeData：当前展示的数据
 const allFileTreeData = ref([])
 const fileTreeData = ref([])
+// 当前生效的搜索词：树加载/刷新完成后需要重新套用，避免结果被全量树覆盖
+const activeSearchKeyword = ref('')
 
 // 信息抽屉状态
 const infoDrawerVisible = ref(false)
@@ -720,7 +722,7 @@ const fetchTreeData = async () => {
       // 先展示本地缓存，界面立即可用；后台再校验哈希
       const sortedCache = sortFileTree(cached.tree)
       allFileTreeData.value = sortedCache
-      fileTreeData.value = sortedCache
+      applyFileTreeFilter(activeSearchKeyword.value)
     }
     const res = await getFileTree(cachedHash ? { hash: cachedHash } : undefined)
     if (res.code === 200 || res.code === 0) {
@@ -729,7 +731,7 @@ const fetchTreeData = async () => {
       }
       const tree = sortFileTree(formatTreeData(res.data))
       allFileTreeData.value = tree
-      fileTreeData.value = tree
+      applyFileTreeFilter(activeSearchKeyword.value)
       if (res.hash) {
         setStorageItem(TREE_CACHE_KEY, JSON.stringify({ version: TREE_CACHE_VERSION, hash: res.hash, tree }))
       }
@@ -739,7 +741,7 @@ const fetchTreeData = async () => {
   } catch (error) {
     if (error?.response?.status === 403) {
       allFileTreeData.value = []
-      fileTreeData.value = []
+      applyFileTreeFilter(activeSearchKeyword.value)
       notifyFilePermissionDenied()
       return
     }
@@ -750,28 +752,43 @@ const fetchTreeData = async () => {
 // lxq 本地搜索：直接在已有文件树中按文件夹名筛选，排除单个文件，不发起后端请求
 let searchTimer = null
 
-// lxq 在树中递归搜索匹配的文件夹节点，只返回文件夹，排除文件节点
+// lxq 在树中递归筛选文件夹：命中的目录保留完整子树；未命中的祖先只保留命中分支。
+// 结果始终从原始一级目录（科目）开始，同一节点只挂在原父级下一次，避免重复。
 const filterFolders = (nodes, kw) => {
-  if (!Array.isArray(nodes)) return []
+  if (!Array.isArray(nodes) || !kw) return []
 
-  const result = []
-  const walk = (list) => {
+  const prune = (list) => {
+    const result = []
     list.forEach(node => {
-      const isFolder = node.type === 'folder' || (node.children && node.children.length > 0)
+      const isFolder = node.type === 'folder' || (Array.isArray(node.children) && node.children.length > 0)
       if (!isFolder) return // 跳过文件节点
 
-      const label = (node.label || '').toLowerCase()
-      if (label.includes(kw)) {
+      if (String(node.label || '').toLowerCase().includes(kw)) {
+        // 目录本身命中：保留完整子树，展开后能看到该目录下的全部内容
         result.push(node)
+        return
       }
-      // 递归搜索子文件夹
-      if (node.children && node.children.length > 0) {
-        walk(node.children)
+
+      const matchedChildren = prune(node.children || [])
+      if (matchedChildren.length > 0) {
+        // 子孙命中：保留祖先路径，只挂载命中的分支，并标记为搜索路径供界面展开
+        result.push({ ...node, children: matchedChildren, _searchPath: true })
       }
     })
+    return result
   }
-  walk(nodes)
-  return result
+
+  return prune(nodes)
+}
+
+// lxq 将当前搜索词应用到最新文件树；空关键字时恢复全量树。
+// 树首次加载或刷新完成后也会调用，保证搜索结果不被全量数据覆盖。
+const applyFileTreeFilter = (keyword) => {
+  if (!keyword) {
+    fileTreeData.value = allFileTreeData.value
+    return
+  }
+  fileTreeData.value = filterFolders(allFileTreeData.value, keyword.toLowerCase())
 }
 
 // lxq 搜索防抖处理：用户停止输入 300ms 后在本地文件树中筛选
@@ -783,15 +800,8 @@ const handleLocalSearch = (query) => {
   }
 
   searchTimer = setTimeout(() => {
-    // 清空搜索时恢复原始文件树
-    if (!keyword) {
-      fileTreeData.value = allFileTreeData.value
-      return
-    }
-
-    // 在已有文件树中筛选匹配的文件夹
-    const matchedList = filterFolders(allFileTreeData.value, keyword.toLowerCase())
-    fileTreeData.value = matchedList
+    activeSearchKeyword.value = keyword
+    applyFileTreeFilter(keyword)
   }, 300)
 }
 // 获取并格式化后端返回的文件树

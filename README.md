@@ -46,6 +46,7 @@
 - PostgreSQL 表驱动的代码生成器，支持生成内容预览、ZIP 下载及带冲突保护的项目写入。
 
 以上以当前源码实现为准。历史迁移任务文档可能描述旧阶段状态，不能代替当前功能说明。
+AI 试卷/电子书检索、审核流水线、向量索引和受限 Agent 的落地设计见 [试卷与电子书 RAG / Agent 设计](./docs/exam-rag-agent-design.md)。
 
 ## 架构与技术栈
 
@@ -458,7 +459,7 @@ VITE_APP_BASE_API=https://api.example.com
 VITE_APP_TARGET_URL=https://api.example.com
 ```
 
-这里填写后端或 edge 的**站点根地址**，不要追加 `/api`，桌面接口自行拼接 `/datum/*` 等路径。当前生产模板仍指向 `127.0.0.1:9033`，仅适合本机服务。
+这里填写后端或 edge 的**站点根地址**，不要追加 `/api`，桌面接口自行拼接 `/datum/*` 等路径。当前生产模板指向 `http://82.156.245.102:9033`，即打包后的安装包默认连接该后端。
 
 Windows 构建：
 
@@ -479,7 +480,9 @@ npm run build:win
 | `npm run start` | 预览已构建的 Electron 应用 |
 | `npm run docs:dev` / `npm run docs:build` | 开发 / 构建 VitePress 用户文档 |
 
-安装产物位于 `PezMax-Desktop/dist/`。macOS / Linux 构建需处理现有脚本中的 Windows 命令；在对应平台使用直接命令，例如：
+安装产物位于 `PezMax-Desktop/dist/`。Windows 卸载会清理安装目录、快捷方式与注册表项，并删除 `%APPDATA%\PezMax`（设置、下载库、登录凭据）和 `%LOCALAPPDATA%\pezmax-updater`（electron-updater 缓存与差分包）；更新安装（`--updated`）保留用户数据。卸载逻辑见 `PezMax-Desktop/build/installer.nsh`。
+
+macOS / Linux 构建需处理现有脚本中的 Windows 命令；在对应平台使用直接命令，例如：
 
 ```bash
 # 在 PezMax-Desktop 中执行，先安装依赖

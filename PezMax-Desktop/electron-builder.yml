@@ -29,6 +29,11 @@ nsis:
   oneClick: false                        # 启用完整安装向导（关闭一键安装）
   perMachine: true                       # 安装到 Program Files（所有用户）
   allowToChangeInstallationDirectory: true # 允许用户选择安装目录
+  # 卸载时删除用户数据（%APPDATA%\PezMax：设置、下载库、登录凭据与缓存）。
+  # 默认 false 会在卸载后留下数 GB 数据；更新安装（isUpdated）不受影响。
+  deleteAppDataOnUninstall: true
+  # 自定义卸载脚本：补充清理 NSIS 默认不覆盖的 electron-updater 缓存目录
+  include: build/installer.nsh
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
