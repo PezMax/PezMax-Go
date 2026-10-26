@@ -1,6 +1,10 @@
 # PezMax Agent
 
-独立的 Python + LangGraph 智能体模块。负责理解资料需求、调用模型、检索 Go 目录接口、控制工具次数和生成回答。Electron 使用 stdio 启动本地子进程，Vue/Ant Design 只展示会话与真实资源卡片。
+独立的 Python + LangGraph 智能体模块。负责理解资料需求、调用模型、检索 Go 目录接口、控制工具次数和生成回答。Electron 使用 stdio 启动本地子进程，Vue/Ant Design 展示会话、阅读结果与真实资源卡片。
+
+0.2 新增可选 **FastAPI 服务、官方 MCP SDK 2.x 只读服务和持久化文档 RAG**。支持显式导入 PDF/EPUB/文本、本地中文 BM25、BYOK 向量与 RRF 融合，以及跨文档引用核验问答。详见[可行性与设计](docs/service-design.md)、[安装与接口使用](docs/service.md)。这些服务入口使用 `service` extra，现有桌面 stdio 保持独立，桌面尚未接入知识库管理 UI。
+
+本轮[服务与检索验证记录](docs/service-verification.md)包含检查范围、合成集指标与未验证边界。
 
 ## 开发
 
@@ -28,7 +32,7 @@ flowchart LR
 
 `graph.py` 使用真正的 `StateGraph`、状态更新、条件边和 `ainvoke`；每轮最多5次模型调用、8次检索，最后一次强制总结。`provider.py` 是兼容 Chat Completions 的模型适配器；`tools.py` 定义唯一只读工具及参数校验；`catalog.py` 负责平台鉴权、分页、筛选、上架状态复核，以及模型元数据和本地预览对象的分离。
 
-`contracts.py` 定义历史、配置和脱敏规则；`cli.py` 负责进程协议。API Key 和平台令牌只在进程内存中使用，不放入图状态、不落盘、不接入托管追踪。模块无需单独部署服务器、数据库或开放本机端口。
+`contracts.py` 定义历史、配置和脱敏规则；`cli.py` 负责进程协议，`application.py` 为 stdio 与 HTTP 复用原任务。API Key 和平台令牌只在进程内存中使用，不放入图状态、不落盘、不接入托管追踪。默认桌面模式无需单独部署服务器、数据库或开放本机端口；可选知识库服务会把用户显式导入的正文和向量保存在 SQLite。
 
 `upload.py` 是独立的上传建议状态图：`START → suggest → validate → END`，每次只调用一次模型。输入仅为上传种类、是否为文件夹和文件名列表，不访问目录、正文或文件系统，也不具备上传/重命名工具。输出限制为当前表单支持的字段，逐项核对枚举、长度、年份与文件名原文依据。无法确定的字段省略；文件夹不建议标题，只建议每个文件名都支持的共同分类，最多20个文件；跨学年或混合年份不建议年份。
 
