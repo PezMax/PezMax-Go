@@ -83,6 +83,7 @@
         </div>
 
         <div class="modern-form">
+          <UploadAssistant :file="selectedFile" :kind="uploadStore.uploadKind" :form="uploadForm" :locked="isUploading" />
           <el-form label-position="top" size="default">
             <!-- 添加一个错误展示框，带淡入动画 -->
             <transition name="fade">
@@ -241,7 +242,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, defineAsyncComponent } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import logo from '@/assets/logo/logo.png'
 import { getToken } from '@/utils/auth'
@@ -250,6 +251,7 @@ import { Warning, CircleClose, Close } from '@element-plus/icons-vue' // 引入�
 import useUploadStore from '@/store/modules/upload'
 
 const uploadStore = useUploadStore()
+const UploadAssistant = defineAsyncComponent(() => import('@/components/assistant/UploadAssistant.vue'))
 
 // ======== 学校联想补全逻辑 ========
 // 存储当前请求到的所有学校，以便在提交时进行校验

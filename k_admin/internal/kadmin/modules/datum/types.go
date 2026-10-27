@@ -155,6 +155,8 @@ type FileFilter struct {
 	FileSubject  string
 	FileSchool   string
 	FileYear     int64
+	YearFrom     int64
+	YearTo       int64
 	Keyword      string
 	UserID       int64 // >0 restricts to one owner (my-uploads)
 	OnlyApproved bool

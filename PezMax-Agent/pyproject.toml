@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pezmax-agent"
+version = "0.4.0"
+description = "Local LangGraph resource assistant for PezMax"
+requires-python = ">=3.11"
+dependencies = ["langgraph==1.2.17", "httpx==0.28.1", "pydantic==2.14.1", "pypdf==6.21.2"]
+
+[project.optional-dependencies]
+build = ["pyinstaller==6.22.3"]
+service = ["fastapi==0.162.0", "uvicorn==0.54.0", "mcp==2.3.0"]
+
+[project.scripts]
+pezmax-agent = "pezmax_agent.cli:main"
+pezmax-agent-serve = "pezmax_agent.server:main"
+pezmax-agent-mcp = "pezmax_agent.mcp_server:main"
+pezmax-agent-kb = "pezmax_agent.knowledge_cli:main"
+pezmax-agent-retrieval-eval = "pezmax_agent.retrieval_evaluation:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

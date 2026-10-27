@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "description": "Small synthetic software and mathematics corpus with manually authored relevance labels. Not a real-user or real-model benchmark.",
+  "documents": [
+    {"id": "sql", "title": "SQL transaction notes", "text": "A database transaction commits all changes atomically. Isolation controls how concurrent transactions observe intermediate changes."},
+    {"id": "queue", "title": "Queue notes", "text": "A bounded queue provides backpressure for producers. A semaphore limits the number of concurrent tasks."},
+    {"id": "calculus", "title": "Calculus notes", "text": "A derivative measures the instantaneous rate of change of a function. The derivative gives the slope of the tangent line."},
+    {"id": "cache", "title": "缓存笔记", "text": "缓存使用过期时间 TTL 控制失效。缓存过期后重新读取数据库，避免长期使用陈旧数据。"},
+    {"id": "concurrency", "title": "并发笔记", "text": "信号量用于限制同时执行的任务数量。并发闸门可防止无限制启动任务，保护下游服务。"},
+    {"id": "rpc", "title": "RPC notes", "text": "gRPC uses Protocol Buffers to define service methods and message types. A deadline bounds how long an RPC may execute."},
+    {"id": "cancel", "title": "Cancellation notes", "text": "An AbortController signals cancellation to a pending fetch request. Late responses must be discarded when the active account changes."},
+    {"id": "quote", "title": "引用笔记", "text": "引用校验需要核对文档标识、片段标识、页码和连续原文。原文存在并不代表回答的语义推论一定正确。"}
+  ],
+  "queries": [
+    {"id": "atomic", "question": "transaction commits atomically", "relevant": ["sql"]},
+    {"id": "backpressure", "question": "bounded queue backpressure", "relevant": ["queue"]},
+    {"id": "derivative", "question": "instantaneous rate of change", "relevant": ["calculus"]},
+    {"id": "ttl", "question": "缓存过期如何处理", "relevant": ["cache"]},
+    {"id": "semaphore", "question": "信号量限制任务数量", "relevant": ["concurrency"]},
+    {"id": "grpc", "question": "gRPC message types", "relevant": ["rpc"]},
+    {"id": "cancel", "question": "AbortController cancellation", "relevant": ["cancel"]},
+    {"id": "citation", "question": "引用校验连续原文", "relevant": ["quote"]},
+    {"id": "paraphrase_sql", "question": "Which mechanism applies a group of changes as one indivisible operation?", "relevant": ["sql"]},
+    {"id": "paraphrase_limit", "question": "如何控制工作任务的同时运行数", "relevant": ["concurrency"]}
+  ]
+}

@@ -1,0 +1,9 @@
+.venv/
+.venv-service/
+data/
+__pycache__/
+*.egg-info/
+build/
+dist/
+*.spec
+evals/results/

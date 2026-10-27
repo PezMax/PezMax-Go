@@ -6,6 +6,7 @@ import { compileScript, parse } from '@vue/compiler-sfc'
 import * as Vue from 'vue'
 import * as VueRouter from 'vue-router'
 import { sortFileTree } from '../src/renderer/utils/fileTreeSort.mjs'
+import { searchFileTree } from '../src/renderer/utils/file-tree-search.mjs'
 
 // Use the real SFCs, router and Vue lifecycle with a DOM-free renderer. Child
 // views and backend/Electron APIs are isolated so this runs without a login.
@@ -81,6 +82,7 @@ async function createWorkspace({ treeResponses = [], initialTreeCache, realTreeU
                 'openTabs',
                 'activeTab',
                 'activeView',
+                'active',
                 'width',
                 'visible',
                 'text',
@@ -180,6 +182,7 @@ async function createWorkspace({ treeResponses = [], initialTreeCache, realTreeU
             setStorageItem: sessionStorage.setItem
         },
         '@/utils/fileTreeSort.mjs': { sortFileTree },
+        '@/utils/file-tree-search.mjs': { searchFileTree },
         '@/utils/url': { normalizeFileUrl: (url) => url },
         '@/utils/avatar': { normalizeAvatar: (avatar) => avatar },
         '@/utils/pagination': { fetchAllPages: (api) => api() },
@@ -212,6 +215,13 @@ async function createWorkspace({ treeResponses = [], initialTreeCache, realTreeU
         const module = new SourceTextModule(content, {
             context,
             identifier: relativePath,
+            importModuleDynamically: async (specifier) => {
+                assert.equal(specifier, '@/components/assistant/AssistantWorkspace.vue')
+                const module = synthetic(specifier, { default: stub('AssistantWorkspace') })
+                if (module.status === 'unlinked') await module.link(() => {})
+                if (module.status === 'linked') await module.evaluate()
+                return module
+            },
             initializeImportMeta: (meta) => {
                 meta.env = { VITE_APP_BASE_API: '/dev-api' }
             }
@@ -380,6 +390,116 @@ test('home retains both paper tabs and does not initialize again after repeated 
     assert.equal(workspace.calls.tree, initialCalls.tree + 1)
     assert.equal(workspace.calls.scroll, initialCalls.scroll + 1)
     assert.equal(editor.props.openTabs.length, 2)
+})
+
+test('assistant cards open all resource kinds in the existing editor and preserve both workspaces', async (t) => {
+    const workspace = await createWorkspace()
+    t.after(workspace.dispose)
+    await workspace.openPaper('paper-1')
+    const editor = workspace.instances.get('MainEditor')
+    await workspace.navigate('/index?view=assistant')
+    const assistant = workspace.instances.get('AssistantWorkspace')
+    assert.ok(assistant)
+    assert.equal(assistant.props.active, true)
+    assert.equal(workspace.instances.get('MainEditor'), editor)
+    for (const [view, node, expectedUrl] of [
+        ['explorer', { type: 'file', id: 'file-71', rawId: 71, label: '数学.pdf', url: '/papers/math.pdf', fileExt: 'pdf', fileInfo: { fileId: 71 } }, '/papers/math.pdf'],
+        ['ebook', { type: 'ebook', id: 'ebook-72', rawId: 72, label: '教材', fileExt: 'epub', originalData: { ebookId: 72 } }, '/ebook/72'],
+        ['bookmark', { type: 'bookmark', id: 'bookmark-73', rawId: 73, label: '学习网站', url: 'https://example.com/learn' }, 'https://example.com/learn']
+    ]) {
+        const navigated = new Promise((resolve) => {
+            const removeHook = workspace.router.afterEach((_to, _from, failure) => { removeHook(); resolve(failure) })
+        })
+        assistant.emit('open-resource', node)
+        assert.equal(await navigated, undefined)
+        await workspace.flush()
+        assert.equal(editor.props.openTabs.at(-1).id, node.id, 'assistant card should reach the preview handler')
+        assert.equal(workspace.router.currentRoute.value.query.view, view)
+        assert.equal(editor.props.activeTab, node.id)
+        assert.equal(editor.props.openTabs.at(-1).url, expectedUrl)
+        assert.equal(assistant.props.active, false)
+        await workspace.navigate('/index?view=assistant')
+        assert.equal(workspace.instances.get('AssistantWorkspace'), assistant)
+        assert.equal(workspace.instances.get('MainEditor'), editor)
+    }
+    assert.equal(editor.props.openTabs.length, 4)
+    assert.equal(workspace.calls.editorMounts, 1)
+    assert.equal(workspace.calls.editorUnmounts, 0)
+})
+
+test('platform knowledge citations retain the versioned URL and position when opening or revisiting a tab', async (t) => {
+    const workspace = await createWorkspace()
+    t.after(workspace.dispose)
+    for (const kind of ['file', 'ebook']) {
+        const id = kind === 'file' ? '9007199254740993' : '72'
+        await workspace.navigate('/index?view=assistant')
+        const assistant = workspace.instances.get('AssistantWorkspace')
+        const node = { type: kind, id: `${kind}-${id}`, rawId: id, label: 'Synthetic reference',
+            fileExt: kind === 'file' ? 'pdf' : 'epub', url: `https://catalog.example/datum/knowledge/content?kind=${kind}&id=${id}&revision=v1`,
+            knowledgeLocation: 2, knowledgeRevision: 'v1', fileInfo: { fileId: id }, originalData: { ebookId: id } }
+        assistant.emit('open-resource', node)
+        await workspace.flush()
+        const editor = workspace.instances.get('MainEditor')
+        const tab = editor.props.openTabs.find(item => item.id === node.id)
+        assert.equal(tab.url, node.url)
+        assert.equal(tab.knowledgeCitation.location, 2)
+        await workspace.navigate('/index?view=assistant')
+        assistant.emit('open-resource', { ...node, url: node.url.replace('v1', 'v2'), knowledgeLocation: 3, knowledgeRevision: 'v2' })
+        await workspace.flush()
+        assert.equal(editor.props.openTabs.filter(item => item.id === node.id).length, 1)
+        assert.equal(tab.url, node.url.replace('v1', 'v2'))
+        assert.equal(tab.knowledgeCitation.location, 3)
+        assert.equal(tab.knowledgeCitation.revision, 'v2')
+    }
+})
+
+test('tree filename search keeps the folder path and clearing it restores the local tree without requests', async (t) => {
+    const workspace = await createWorkspace({ treeResponses: [{ code: 0, data: [{ id: 'school', type: 'folder', label: '示例大学', children: [paperInfo, { ...paperInfo, fileId: 43, fileName: '大学物理.pdf' }] }] }] })
+    t.after(workspace.dispose)
+    const sidePanel = workspace.instances.get('SidePanel')
+    const original = sidePanel.props.fileTreeData
+    const requests = workspace.calls.tree
+    sidePanel.emit('search', '高等数学试卷')
+    await workspace.flush()
+    assert.equal(sidePanel.props.fileTreeData[0].label, '示例大学')
+    assert.equal(sidePanel.props.fileTreeData[0].children.length, 1)
+    assert.equal(sidePanel.props.fileTreeData[0].children[0].fileInfo.fileId, 42)
+    sidePanel.emit('search', '不存在的文件')
+    await workspace.flush()
+    assert.equal(sidePanel.props.fileTreeData.length, 0)
+    sidePanel.emit('search', '')
+    await workspace.flush()
+    assert.equal(sidePanel.props.fileTreeData, original)
+    assert.equal(workspace.calls.tree, requests)
+})
+
+test('assistant navigation keeps shortcuts from closing hidden tabs and keeps upload routes in sync', async (t) => {
+    const workspace = await createWorkspace()
+    t.after(workspace.dispose)
+    await workspace.openPaper('paper-1')
+    await workspace.navigate('/index?view=assistant')
+    const assistant = workspace.instances.get('AssistantWorkspace')
+    const editor = workspace.instances.get('MainEditor')
+    workspace.window.electronAPI.getSettings = async () => ({ shortcuts: { closeTab: 'CommandOrControl+W', upload: 'CommandOrControl+U' } })
+    const dispatchShortcut = (key) => {
+        const event = new Event('keydown', { cancelable: true })
+        Object.assign(event, { key, ctrlKey: true })
+        workspace.window.dispatchEvent(event)
+    }
+    dispatchShortcut('w')
+    await workspace.flush()
+    assert.equal(editor.props.openTabs.length, 1)
+    const navigated = new Promise((resolve) => {
+        const removeHook = workspace.router.afterEach(() => { removeHook(); resolve() })
+    })
+    dispatchShortcut('u')
+    await navigated
+    await workspace.flush()
+    assert.equal(workspace.router.currentRoute.value.query.view, 'upload')
+    await workspace.navigate('/index?view=assistant')
+    assert.equal(assistant.props.active, true)
+    assert.equal(workspace.instances.get('AssistantWorkspace'), assistant)
+    assert.equal(editor.props.openTabs.length, 1)
 })
 
 test('a cached home consumes a favorite preview once and ignores other routes query changes', async (t) => {

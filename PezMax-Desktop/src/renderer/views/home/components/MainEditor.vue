@@ -24,6 +24,17 @@
 
     <!-- 预览区 -->
     <div class="editor-content" v-if="openTabs.length > 0">
+      <ReadingAssistant
+        v-if="currentFileObj && ((currentFileObj.fileExt === 'pdf' && currentFileObj.url) || currentFileObj.fileExt === 'epub')"
+        :document-id="String(currentFileObj.id)"
+        :source="currentFileObj.url || ''"
+        :format="currentFileObj.fileExt"
+        :epub-loader="loadEpubForAssistant"
+        :title="currentFileObj.title"
+        @jump-page="jumpToPdfPage"
+        @jump-chapter="jumpToEpubChapter"
+        @open-change="readingOpen = $event"
+      />
       <!-- 悬浮操作区：Notion 风格毛玻璃“药丸”岛 (按钮组) -->
       <div class="editor-floating-pill-group" v-if="currentFileObj && currentFileObj.type !== 'bookmark' && currentFileObj.type !== 'local' && currentFileObj.originalData">
         <div v-if="currentFileObj.type !== 'bookmark'" class="pill-btn primary-action" @click="$emit('download-file', currentFileObj.originalData)" :title="currentIsEbook ? '下载电子书' : '下载原件'">
@@ -71,13 +82,14 @@
         </div>
       </div>
 
-      <div class="preview-area">
+      <div class="preview-area" :class="{ 'reading-open': readingOpen }">
         <!-- local 类型（拖入的本地文件）可能没有预置 url：EPUB 由阅读器按需读文件 -->
         <template v-if="currentFileObj && (currentFileObj.url || currentFileObj.type === 'local')">
           <!-- PDF 或 Word(已转PDF) 预览 -->
           <iframe
             v-if="['pdf', 'doc', 'docx'].includes(currentFileObj.fileExt)"
-            :src="currentFileObj.url"
+            :key="`${currentFileObj.id}-${pdfJumpRevision}`"
+            :src="pdfPreviewUrl"
             width="100%"
             height="100%"
             frameborder="0"
@@ -286,7 +298,7 @@
           
           <!-- 电子书 EPUB 预览：连续滚动阅读 + 顶部工具栏（目录/章节翻页/进度条） -->
           <div
-            v-else-if="['ebook', 'local'].includes(currentFileObj.type) && currentFileObj.fileExt === 'epub'"
+            v-else-if="currentFileObj.fileExt === 'epub'"
             class="epub-preview-container"
           >
             <!-- 工具栏：紧贴标签页下方（章节名 + 固定长度进度条 + 目录抽屉按钮） -->
@@ -491,7 +503,7 @@
 </template>
 
 <script setup>
-import { computed, ref, reactive, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { computed, ref, reactive, watch, nextTick, onMounted, onUnmounted, defineAsyncComponent } from 'vue'
 import { ElMessage } from 'element-plus'
 import logo from '@/assets/logo/logo.png'
 import { marked } from 'marked' // 引入 marked
@@ -505,6 +517,9 @@ import { Close, Download, Document, Link, TopRight, Position, CopyDocument, Coll
 import useUserStore from '@/store/modules/user'
 import { addReportToPtmjReport } from '@/api/datum/report'
 import { resolveEditorVisibilityValue } from '@/utils/ideAppearance'
+import { pdfPageUrl } from '../../../../shared/reading-assistant.mjs'
+
+const ReadingAssistant = defineAsyncComponent(() => import('@/components/assistant/ReadingAssistant.vue'))
 
 const showEmptyEditorTip = ref(true)
 const editorVisibility = ref(72)
@@ -597,6 +612,35 @@ const currentFileObj = computed(() => {
   if (!props.openTabs || props.openTabs.length === 0) return null
   return props.openTabs.find(t => t.id === props.activeTab)
 })
+
+const pdfJumpPage = ref(null)
+const pdfJumpRevision = ref(0)
+const readingOpen = ref(false)
+const pdfPreviewUrl = computed(() => pdfJumpPage.value
+  ? pdfPageUrl(currentFileObj.value.url, pdfJumpPage.value)
+  : currentFileObj.value?.url)
+watch(() => [currentFileObj.value?.id, currentFileObj.value?.url], () => {
+  pdfJumpPage.value = null
+  pdfJumpRevision.value = 0
+  readingOpen.value = false
+}, { flush: 'sync' })
+const jumpToPdfPage = ({ documentId, source, page }) => {
+  const file = currentFileObj.value
+  if (file?.fileExt !== 'pdf' || String(file.id) !== documentId || file.url !== source) return
+  try {
+    pdfPageUrl(source, page)
+    pdfJumpPage.value = page
+    pdfJumpRevision.value++
+  } catch { /* Reject stale or invalid citation navigation. */ }
+}
+
+watch(() => [currentFileObj.value?.id, currentFileObj.value?.knowledgeCitation], () => {
+  const file = currentFileObj.value
+  const location = file?.knowledgeCitation?.location
+  if (file?.fileExt === 'pdf' && Number.isInteger(location)) {
+    jumpToPdfPage({ documentId: String(file.id), source: file.url, page: location })
+  }
+}, { flush: 'post' })
 
 const currentIsBookmark = computed(() => currentFileObj.value?.type === 'bookmark')
 const currentIsEbook = computed(() => currentFileObj.value?.type === 'ebook')
@@ -694,6 +738,7 @@ let epubResizeObserver = null
 
 const teardownEpub = () => {
   epubLoadSeq++
+  epubFarSeekSeq++
   if (epubScrollTimer) {
     clearTimeout(epubScrollTimer)
     epubScrollTimer = null
@@ -910,7 +955,7 @@ const unmountEpubRendition = () => {
 
 const loadEpub = async () => {
   const tab = currentFileObj.value
-  if (!tab || !['ebook', 'local'].includes(tab.type) || tab.fileExt !== 'epub') return
+  if (!tab || tab.fileExt !== 'epub') return
   const seq = ++epubLoadSeq
   await nextTick()
   if (seq !== epubLoadSeq || !epubContainer.value) return
@@ -943,6 +988,11 @@ const loadEpub = async () => {
     }
 
     await mountEpubRendition(epubContainer.value)
+    const citationLocation = tab.knowledgeCitation?.location
+    if (seq === epubLoadSeq && Number.isInteger(citationLocation) && citationLocation > 0) {
+      const section = book.spine?.get(citationLocation - 1)
+      if (section?.href) await epubDisplayAt(section.href)
+    }
     // 快速切书时丢弃过期渲染
     if (seq !== epubLoadSeq) {
       teardownEpub()
@@ -1273,8 +1323,37 @@ const epubGoToPage = (page) => {
   if (target) epubRendition?.display(target.href)
 }
 
+// Reuse the loaded archive without touching rendition sections or script hooks.
+// Only section numbers/text leave this renderer, never EPUB paths or URLs.
+const loadEpubForAssistant = async ({ signal }) => {
+  const file = currentFileObj.value
+  const book = epubBook
+  if (file?.fileExt !== 'epub' || !book) throw new Error('EPUB尚未载入，请稍后再试')
+  const { createEpubTextReader } = await import('@/utils/epub-text.mjs')
+  const reader = await createEpubTextReader(book, { signal, toc: epubTocItems.value })
+  if (signal?.aborted || book !== epubBook || file.id !== currentFileObj.value?.id || file.url !== currentFileObj.value?.url) {
+    await reader.destroy()
+    throw new Error('资料已变化，请重新提取')
+  }
+  return reader
+}
+const jumpToEpubChapter = async ({ documentId, source, chapter }) => {
+  const file = currentFileObj.value
+  if (file?.fileExt !== 'epub' || String(file.id) !== documentId || (file.url || '') !== source || !Number.isInteger(chapter) || chapter < 1) return
+  const section = epubBook?.spine?.get(chapter - 1)
+  if (!section?.href) return
+  await epubDisplayAt(section.href)
+}
+
+watch(() => currentFileObj.value?.knowledgeCitation, async () => {
+  const file = currentFileObj.value
+  if (file?.fileExt === 'epub' && epubRenditionReady && !isLoadingEpub.value) {
+    await jumpToEpubChapter({ documentId: String(file.id), source: file.url || '', chapter: file.knowledgeCitation?.location })
+  }
+}, { flush: 'post' })
+
 watch(
-  () => [currentFileObj.value?.id, currentFileObj.value?.type, currentFileObj.value?.fileExt],
+  () => [currentFileObj.value?.id, currentFileObj.value?.type, currentFileObj.value?.fileExt, currentFileObj.value?.url],
   () => {
     epubContainer.value?.removeEventListener?.('scroll', epubOnContainerScroll, true)
     teardownEpub()
@@ -1373,9 +1452,11 @@ const loadTextFile = async (tab) => {
     const fileId = file.fileId ?? file.fileInfo?.fileId ?? file.ptmjFile?.fileId ?? tab.id
     if (!/^\d+$/.test(String(fileId))) throw new Error('文件 ID 无效')
     const blob = await request({
-      url: '/datum/file/content',
+      url: tab.knowledgeCitation ? '/datum/knowledge/content' : '/datum/file/content',
       method: 'get',
-      params: { fileId },
+      params: tab.knowledgeCitation
+        ? { kind: 'file', id: String(fileId), revision: tab.knowledgeCitation.revision }
+        : { fileId },
       responseType: 'blob',
       skipErrorMsg: true,
       timeout: 30000
@@ -1818,6 +1899,7 @@ function resetImageTransform() {
   display: flex;
   flex-direction: column;
   position: relative;
+  container-type: inline-size;
   /* 移除重复的背景色和毛玻璃，由父级 .main-editor 统一控制 */
   background-color: transparent;
 }
@@ -1971,6 +2053,13 @@ function resetImageTransform() {
   background-image: radial-gradient(var(--ide-border) 1px, transparent 1px);    
   background-size: 20px 20px;
   overflow: hidden; /* 防止拖拽超出区域 */
+}
+
+.preview-area.reading-open {
+  margin-right: 440px;
+}
+@container (max-width: 760px) {
+  .preview-area.reading-open { margin-right: 0; }
 }
 
 .image-preview-container {

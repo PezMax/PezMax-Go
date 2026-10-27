@@ -1,0 +1,634 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { createContext, SourceTextModule, SyntheticModule } from 'node:vm'
+import { compileScript, parse } from '@vue/compiler-sfc'
+import * as Vue from 'vue'
+import {
+    createUploadAssistantSession,
+    createUploadAssistantState
+} from '../src/renderer/utils/upload-assistant-session.mjs'
+import * as uploadContracts from '../src/shared/upload-assistant.mjs'
+import * as readingContracts from '../src/shared/reading-assistant.mjs'
+import * as knowledgeContracts from '../src/shared/knowledge-assistant.mjs'
+import {
+    createKnowledgeSession,
+    createKnowledgeState
+} from '../src/renderer/utils/knowledge-assistant-session.mjs'
+import { createReadingAssistantSession } from '../src/renderer/utils/reading-assistant-session.mjs'
+import {
+    createAssistantSession,
+    createAssistantState
+} from '../src/renderer/utils/assistant-session.mjs'
+
+// Execute the real SFC event handlers and lifecycle, without model credentials
+// or network access. Ant's visual internals are covered by the production build.
+async function mountAssistant(name, props = {}, imports = {}) {
+    const context = createContext({ console })
+    const filename = new URL(`../src/renderer/components/assistant/${name}.vue`, import.meta.url)
+    const { descriptor } = parse(await readFile(filename, 'utf8'), { filename: filename.pathname })
+    const { content } = compileScript(descriptor, { id: name })
+    const antNames = [
+        'Alert',
+        'Button',
+        'Card',
+        'Checkbox',
+        'Drawer',
+        'Empty',
+        'Form',
+        'FormItem',
+        'Input',
+        'InputPassword',
+        'InputNumber',
+        'Select',
+        'Modal',
+        'Popconfirm',
+        'Spin',
+        'Tag',
+        'Textarea'
+    ]
+    const iconNames = [
+        'ArrowLeftOutlined',
+        'ArrowRightOutlined',
+        'ArrowUpOutlined',
+        'BookOutlined',
+        'DatabaseOutlined',
+        'DeleteOutlined',
+        'FileSearchOutlined',
+        'FileTextOutlined',
+        'KeyOutlined',
+        'LinkOutlined',
+        'LoadingOutlined',
+        'LockOutlined',
+        'PlusOutlined',
+        'ReloadOutlined',
+        'RobotOutlined',
+        'SafetyCertificateOutlined',
+        'SearchOutlined',
+        'SettingOutlined',
+        'StopOutlined'
+    ]
+    const exports = {
+        vue: Vue,
+        'ant-design-vue': Object.fromEntries(antNames.map((name) => [name, {}])),
+        '@ant-design/icons-vue': Object.fromEntries(iconNames.map((name) => [name, {}])),
+        './AssistantSettings.vue': { default: {} },
+        './AssistantTheme.vue': { default: {} },
+        '@/utils/assistant-session.mjs': { createAssistantSession, createAssistantState },
+        '@/utils/upload-assistant-session.mjs': {
+            createUploadAssistantSession,
+            createUploadAssistantState
+        },
+        '../../../shared/upload-assistant.mjs': uploadContracts,
+        '../../../shared/reading-assistant.mjs': readingContracts,
+        '../../../shared/knowledge-assistant.mjs': knowledgeContracts,
+        '@/utils/knowledge-assistant-session.mjs': { createKnowledgeSession, createKnowledgeState },
+        '@/utils/auth': { getToken: () => 'synthetic-session' },
+        ...imports
+    }
+    const module = new SourceTextModule(content, {
+        context,
+        initializeImportMeta: (meta) => {
+            meta.env = { VITE_APP_TARGET_URL: 'https://pezmax.example' }
+        }
+    })
+    await module.link((specifier) => {
+        const values = exports[specifier]
+        assert.ok(values, `Unexpected import ${specifier}`)
+        return new SyntheticModule(
+            Object.keys(values),
+            function () {
+                for (const [key, value] of Object.entries(values)) this.setExport(key, value)
+            },
+            { context }
+        )
+    })
+    await module.evaluate()
+    let bindings
+    const emitted = []
+    const renderer = Vue.createRenderer({
+        createComment: () => ({}),
+        insert() {},
+        remove() {},
+        parentNode: () => null,
+        nextSibling: () => null
+    })
+    const app = renderer.createApp({
+        setup(_props, ctx) {
+            bindings = module.namespace.default.setup(props, {
+                ...ctx,
+                emit: (...args) => emitted.push(args)
+            })
+            return () => null
+        }
+    })
+    app.mount({})
+    const flush = async () => {
+        for (let index = 0; index < 12; index++) {
+            await Promise.resolve()
+            await Vue.nextTick()
+        }
+    }
+    await flush()
+    return { bindings, emitted, flush, dispose: () => app.unmount() }
+}
+
+const config = {
+    baseUrl: 'https://model.example/v1',
+    model: 'tool-model',
+    hasApiKey: false,
+    remember: false,
+    canRemember: true
+}
+
+test('knowledge UI imports only on confirmation, preserves question for BYOK setup, and clears evidence on logout', async () => {
+    const calls = [],
+        user = Vue.reactive({ token: 'session', id: '7' })
+    const documentId = 'b'.repeat(32),
+        chunkId = 'c'.repeat(32)
+    const chunk = {
+        documentId,
+        chunkId,
+        location: 2,
+        title: 'Synthetic queue',
+        format: 'pdf',
+        text: 'A queue uses first in first out ordering.'
+    }
+    const doc = {
+        documentId,
+        title: chunk.title,
+        format: 'pdf',
+        characters: 40,
+        chunks: 1,
+        dimension: 0,
+        created: '2026-10-26'
+    }
+    const source = {
+        kind: 'file',
+        id: '7',
+        title: chunk.title,
+        format: 'pdf',
+        subject: 'Software',
+        school: 'Synthetic campus',
+        year: 2026,
+        revision: 'a'.repeat(64)
+    }
+    const coverage = { available: 1, total: 1, partial: false }
+    const retrieval = {
+        chunks: [chunk],
+        mode: 'keyword',
+        scannedChunks: 1,
+        vectorChunks: 0,
+        fusion: 'bm25'
+    }
+    const page = await mountAssistant(
+        'KnowledgeWorkspace',
+        {},
+        {
+            '@/store/modules/user': { default: () => user },
+            '@/api/assistant': {
+                assistantCall: async (method, scope, input) => {
+                    calls.push({ method, scope, input })
+                    if (method === 'getConfig') return { ...config, embedding: { ...config } }
+                    if (method === 'save')
+                        return { ...config, hasApiKey: true, embedding: { ...config } }
+                    const action = input?.knowledge?.action
+                    const knowledge =
+                        action === 'sync'
+                            ? {
+                                  documents: [{ ...doc, source }],
+                                  coverage,
+                                  sync: { indexed: 1, unchanged: 0, failures: [] }
+                              }
+                            : action === 'open'
+                              ? { chunk: { ...chunk, source }, coverage }
+                              : action === 'list'
+                                ? { documents: [doc] }
+                                : action === 'import'
+                                  ? { document: { ...doc, inserted: false } }
+                                  : action === 'read'
+                                    ? { chunk }
+                                    : action === 'ask'
+                                      ? {
+                                            retrieval,
+                                            content: 'FIFO',
+                                            answers: [
+                                                {
+                                                    text: 'FIFO',
+                                                    citations: [
+                                                        {
+                                                            documentId,
+                                                            chunkId,
+                                                            location: 2,
+                                                            quote: 'first in first out'
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                      : { retrieval }
+                    return { knowledge }
+                },
+                onAssistantProgress: () => () => {}
+            }
+        }
+    )
+    const ui = page.bindings
+    try {
+        assert.deepEqual(
+            calls.filter((c) => c.method === 'run').map((c) => c.input.knowledge.action),
+            ['sync']
+        )
+        assert.equal(ui.state.library, 'platform')
+        await ui.session.openEvidence(chunk)
+        assert.equal(page.emitted.at(-1)[0], 'open-resource')
+        assert.equal(page.emitted.at(-1)[1].knowledgeLocation, 2)
+        assert.ok(
+            page.emitted.at(-1)[1].url.startsWith('https://pezmax.example/datum/knowledge/content?')
+        )
+        await ui.session.switchLibrary('local')
+        ui.importHybrid.value = true
+        ui.openImport()
+        assert.equal(ui.importHybrid.value, false)
+        assert.equal(calls.filter((c) => c.method === 'run').length, 3)
+        ui.chooseAndImport()
+        await page.flush()
+        assert.equal(calls.at(-1).input.knowledge.mode, 'keyword')
+        ui.question.value = 'queue'
+        ui.submit(false)
+        await page.flush()
+        assert.equal(ui.state.result.action, 'search')
+        ui.submit(true)
+        assert.equal(ui.settingsOpen.value, true)
+        assert.equal(ui.question.value, 'queue')
+        assert.equal(calls.at(-1).input.knowledge.action, 'search')
+        await ui.saveSettings({ ...config, apiKey: 'synthetic-key' })
+        ui.settingsOpen.value = false
+        ui.submit(true)
+        await page.flush()
+        await ui.session.readEvidence(ui.state.result.answers[0].citations[0])
+        assert.equal(ui.sourceParts.value.quote, 'first in first out')
+        user.token = ''
+        await page.flush()
+        assert.equal(ui.question.value, '')
+        assert.equal(ui.state.evidence, null)
+        assert.equal(ui.state.documents.length, 0)
+        assert.equal(ui.importOpen.value, false)
+        assert.equal(ui.settingsOpen.value, false)
+    } finally {
+        page.dispose()
+    }
+})
+
+test('reading UI requires explicit extraction and send, emits verified page jumps, and clears on file/account/close', async () => {
+    const calls = [],
+        user = Vue.reactive({ token: 'session', id: '7' })
+    const props = Vue.reactive({
+        documentId: 'pdf-1',
+        source: 'blob:fixture-one',
+        title: 'Synthetic PDF'
+    })
+    const pages = [{ page: 2, text: 'The derivative measures the rate of change.' }]
+    const page = await mountAssistant('ReadingAssistant', props, {
+        '@/store/modules/user': { default: () => user },
+        '@/api/assistant': {
+            assistantCall: async (method, scope, input) => {
+                calls.push({ method, scope, input })
+                if (method === 'getConfig') return { ...config, hasApiKey: true }
+                if (method === 'run')
+                    return {
+                        answers: [
+                            {
+                                text: 'Rate of change.',
+                                citations: [{ page: 2, quote: 'rate of change' }]
+                            }
+                        ],
+                        contextPages: [2],
+                        partial: false
+                    }
+            },
+            onAssistantProgress: () => () => {}
+        },
+        '@/utils/reading-assistant-session.mjs': {
+            createReadingAssistantState: (
+                await import('../src/renderer/utils/reading-assistant-session.mjs')
+            ).createReadingAssistantState,
+            createReadingAssistantSession: (options) =>
+                createReadingAssistantSession({
+                    ...options,
+                    loadPdf: async () => ({
+                        numPages: 3,
+                        pages: async () => pages,
+                        destroy: async () => {}
+                    })
+                })
+        }
+    })
+    const ui = page.bindings
+    try {
+        ui.open.value = true
+        await page.flush()
+        assert.equal(
+            calls.some((call) => call.method === 'run'),
+            false
+        )
+        ui.draft.value = 'What does the derivative measure?'
+        await ui.submit()
+        assert.equal(
+            calls.some((call) => call.method === 'run'),
+            false
+        )
+        ui.session.setRange(2, 2)
+        await ui.session.extract()
+        await ui.submit()
+        ui.jump(9)
+        assert.equal(
+            page.emitted.some((event) => event[0] === 'jump-page'),
+            false
+        )
+        ui.jump(2)
+        const jump = page.emitted.find((event) => event[0] === 'jump-page')
+        assert.deepEqual(JSON.parse(JSON.stringify(jump[1])), {
+            documentId: 'pdf-1',
+            source: 'blob:fixture-one',
+            page: 2
+        })
+        props.source = 'blob:fixture-two'
+        await page.flush()
+        assert.equal(ui.open.value, false)
+        assert.equal(ui.state.result, null)
+        assert.equal(ui.state.pages.length, 0)
+        assert.equal(ui.draft.value, '')
+        ui.open.value = true
+        await ui.session.extract()
+        ui.close()
+        assert.equal(ui.state.pages.length, 0)
+        ui.open.value = true
+        ui.draft.value = 'private question'
+        user.token = ''
+        await page.flush()
+        assert.equal(ui.open.value, false)
+        assert.equal(ui.draft.value, '')
+        assert.equal(ui.signedIn.value, false)
+    } finally {
+        page.dispose()
+    }
+})
+
+test('EPUB UI sends fixed overview tasks only after extraction and emits current verified chapter indexes', async () => {
+    const calls = [],
+        user = Vue.reactive({ token: 'session', id: '7' })
+    let extractions = 0
+    const props = Vue.reactive({
+        documentId: 'local-epub',
+        source: '',
+        format: 'epub',
+        title: 'Synthetic EPUB',
+        epubLoader: async () => ({
+            units: [
+                { chapter: 1, label: 'Synthetic first section' },
+                { chapter: 2, label: 'Private label not sent' }
+            ],
+            chapters: async (numbers) => {
+                extractions++
+                return numbers.map((chapter) => ({
+                    chapter,
+                    text: 'The derivative measures the rate of change.'
+                }))
+            },
+            destroy: async () => {}
+        })
+    })
+    const page = await mountAssistant('ReadingAssistant', props, {
+        '@/store/modules/user': { default: () => user },
+        '@/api/assistant': {
+            assistantCall: async (method, scope, input) => {
+                calls.push({ method, scope, input })
+                if (method === 'getConfig') return { ...config, hasApiKey: true }
+                if (method === 'run')
+                    return {
+                        answers: [
+                            {
+                                text: 'A synthetic result.',
+                                citations: [{ chapter: 2, quote: 'rate of change' }]
+                            }
+                        ],
+                        contextChapters: [2]
+                    }
+            },
+            onAssistantProgress: () => () => {}
+        },
+        '@/utils/reading-assistant-session.mjs':
+            await import('../src/renderer/utils/reading-assistant-session.mjs')
+    })
+    const ui = page.bindings
+    try {
+        ui.open.value = true
+        await page.flush()
+        ui.session.setMode('summary')
+        await ui.submit()
+        assert.equal(
+            calls.some((call) => call.method === 'run'),
+            false
+        )
+        await ui.session.loadChapters()
+        assert.equal(extractions, 0)
+        ui.session.setChapters([2])
+        await ui.session.extract()
+        for (const mode of ['summary', 'outline']) {
+            ui.session.setMode(mode)
+            await ui.submit()
+            const payload = calls.filter((call) => call.method === 'run').at(-1).input.reading
+            assert.equal(payload.mode, mode)
+            assert.equal(payload.question, readingContracts.readingModes[mode].prompt)
+            assert.equal(payload.format, 'epub')
+            assert.equal(JSON.stringify(payload).includes('Private label'), false)
+            const previousJumps = page.emitted.filter((event) => event[0] === 'jump-chapter').length
+            ui.jump(1)
+            assert.equal(
+                page.emitted.filter((event) => event[0] === 'jump-chapter').length,
+                previousJumps
+            )
+            ui.jump(2)
+            assert.deepEqual(
+                JSON.parse(
+                    JSON.stringify(
+                        page.emitted.filter((event) => event[0] === 'jump-chapter').at(-1)[1]
+                    )
+                ),
+                { documentId: 'local-epub', source: '', chapter: 2 }
+            )
+        }
+        ui.session.setChapters([1])
+        assert.equal(ui.state.result, null)
+        assert.equal(ui.state.chapters.length, 0)
+        user.token = ''
+        await page.flush()
+        assert.equal(ui.open.value, false)
+    } finally {
+        page.dispose()
+    }
+})
+
+test('upload UI reuses settings and clears suggestions on file changes, upload and logout', async () => {
+    const calls = [],
+        user = Vue.reactive({ token: 'session', id: '7' })
+    const props = Vue.reactive({
+        kind: 'exam',
+        file: { name: '2026高等数学期末.pdf' },
+        form: { fileSubject: '' },
+        locked: false
+    })
+    const page = await mountAssistant('UploadAssistant', props, {
+        '@/store/modules/user': { default: () => user },
+        '@/api/assistant': {
+            assistantCall: async (method, scope, input) => {
+                calls.push({ method, scope, input })
+                if (method === 'getConfig') return { ...config, hasApiKey: true }
+                if (method === 'run')
+                    return {
+                        suggestions: [
+                            { field: 'fileSubject', value: '高等数学', evidence: '高等数学' }
+                        ]
+                    }
+            },
+            onAssistantProgress: () => () => {}
+        }
+    })
+    const ui = page.bindings
+    try {
+        await ui.generate()
+        assert.equal(props.form.fileSubject, '')
+        ui.state.suggestions[0].selected = true
+        ui.session.apply(props.form)
+        assert.equal(props.form.fileSubject, '高等数学')
+        // A different local file with the same name must invalidate the result.
+        props.file = { name: props.file.name }
+        await page.flush()
+        assert.equal(ui.state.suggestions.length, 0)
+        props.file = { name: '图书.pdf', isFolder: true, files: Array(21).fill({ name: 'a.pdf' }) }
+        await page.flush()
+        assert.match(ui.inputError.value, /20/)
+        const previousCalls = calls.length
+        await ui.generate()
+        assert.equal(calls.length, previousCalls)
+        props.file = { name: '2026高等数学期末.pdf' }
+        await ui.generate()
+        props.locked = true
+        await page.flush()
+        assert.equal(ui.state.suggestions.length, 0)
+        user.token = ''
+        await page.flush()
+        assert.equal(ui.signedIn.value, false)
+        assert.equal(ui.state.config.hasApiKey, false)
+        assert.ok(calls.some((item) => item.method === 'release'))
+    } finally {
+        page.dispose()
+    }
+})
+
+test('welcome prompts keep the question while opening settings, and IME Enter never sends', async () => {
+    const calls = []
+    const user = Vue.reactive({ token: 'session', id: '7' })
+    const page = await mountAssistant(
+        'AssistantWorkspace',
+        { active: true },
+        {
+            '@/store/modules/user': { default: () => user },
+            '@/api/assistant': {
+                assistantCall: async (method, _scope, input) => {
+                    calls.push(method)
+                    if (method === 'getConfig') return { ...config }
+                    if (method === 'save') return { ...config, hasApiKey: true }
+                    if (method === 'run')
+                        return { content: input.question, messages: [], resources: [], reports: [] }
+                },
+                onAssistantProgress: () => () => {}
+            }
+        }
+    )
+    const { bindings: ui } = page
+    try {
+        ui.chooseSuggestion('高等数学试卷')
+        assert.equal(ui.draft.value, '高等数学试卷')
+        assert.equal(ui.settingsOpen.value, true)
+        await ui.submit()
+        assert.equal(ui.draft.value, '高等数学试卷')
+        assert.equal(calls.includes('run'), false)
+        await ui.session.saveSettings({ ...config, apiKey: 'local-fixture' })
+        ui.settingsOpen.value = false
+        let prevented = false
+        ui.handleComposerKey({
+            key: 'Enter',
+            isComposing: true,
+            preventDefault() {
+                prevented = true
+            }
+        })
+        await page.flush()
+        assert.equal(prevented, false)
+        assert.equal(calls.includes('run'), false)
+        ui.handleComposerKey({
+            key: 'Enter',
+            shiftKey: false,
+            isComposing: false,
+            keyCode: 13,
+            preventDefault() {
+                prevented = true
+            }
+        })
+        await page.flush()
+        assert.equal(prevented, true)
+        assert.equal(ui.state.turns[0].content, '高等数学试卷')
+        assert.equal(ui.draft.value, '')
+        ui.draft.value = '旧账号未发送的内容'
+        ui.settingsOpen.value = true
+        user.token = ''
+        await page.flush()
+        assert.equal(ui.draft.value, '')
+        assert.equal(ui.settingsOpen.value, false)
+        assert.equal(ui.state.turns.length, 0)
+    } finally {
+        page.dispose()
+    }
+})
+
+test('settings submit credentials only to the local save boundary and clear the field after saving or closing', async () => {
+    const localConfig = Vue.reactive({ ...config })
+    const saved = []
+    const props = Vue.reactive({
+        open: true,
+        config: localConfig,
+        busy: false,
+        saveSettings: async (input) => {
+            saved.push({ ...input })
+            localConfig.hasApiKey = true
+            return '已保存'
+        },
+        clearKey: async () => {
+            localConfig.hasApiKey = false
+        }
+    })
+    const page = await mountAssistant('AssistantSettings', props)
+    try {
+        page.bindings.form.apiKey = 'fixture-secret'
+        await page.bindings.save(false)
+        assert.equal(saved[0].apiKey, 'fixture-secret')
+        assert.equal(page.bindings.form.apiKey, '')
+        assert.equal(
+            page.emitted.some(([name, value]) => name === 'update:open' && value === false),
+            true
+        )
+        page.bindings.form.apiKey = 'unsaved-fixture'
+        props.open = false
+        await page.flush()
+        assert.equal(page.bindings.form.apiKey, '')
+        props.open = true
+        await page.flush()
+        await page.bindings.clear()
+        assert.equal(localConfig.hasApiKey, false)
+        assert.equal(page.bindings.form.remember, false)
+    } finally {
+        page.dispose()
+    }
+})
