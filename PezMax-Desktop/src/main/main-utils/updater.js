@@ -5,27 +5,15 @@ import { autoUpdater } from 'electron-updater'
 
 const PLACEHOLDER_MARKERS = ['example.com', 'your-owner', 'your-repo']
 
-// 内置预设更新源
+const FIXED_UPDATE_URL = 'https://gh-proxy.com/https://github.com/PezMax/PezMax-Go/releases/latest/download'
+
 const PRESET_UPDATE_SOURCES = [
   {
-    key: 'gh-proxy-latest',
-    label: 'GitHub',
+    key: 'pezmax-releases',
+    label: 'PezMax-Go GitHub Releases',
     provider: 'generic',
-    // 通过 GH 代理访问 GitHub Releases 的最新版本下载目录
-    url: 'https://gh-proxy.com/https://github.com/Torchman005/PezMax-Desktop/releases/latest/download'
-  },
-  {
-    key: 'gh-proxy-v1',
-    label: 'GitHub (v1.0.0)',
-    provider: 'generic',
-    url: 'https://gh-proxy.com/https://github.com/Torchman005/PezMax-Desktop/releases/download/v1.0.0'
-  },
-  {
-    key: 'github-direct',
-    label: 'GitHub 直连',
-    provider: 'github',
-    owner: 'Torchman005',
-    repo: 'PezMax-Desktop'
+    url: FIXED_UPDATE_URL,
+    pageUrl: 'https://gh-proxy.com/https://github.com/PezMax/PezMax-Go/releases'
   }
 ]
 
@@ -115,53 +103,13 @@ const resolveFileBasedFeedConfig = () => {
   return null
 }
 
-const resolveFeedConfig = () => {
-  // 1. 用户手动配置的更新源 (最高优先级)
-  if (userOverrideConfig) {
-    return userOverrideConfig
-  }
-
-  // 2. 环境变量配置
-  const envProvider = normalizeValue(process.env.PTMJ_UPDATE_PROVIDER)
-  const envUrl = normalizeValue(process.env.PTMJ_UPDATE_URL)
-  const envOwner = normalizeValue(process.env.PTMJ_UPDATE_GH_OWNER)
-  const envRepo = normalizeValue(process.env.PTMJ_UPDATE_GH_REPO)
-
-  if (envProvider === 'generic' && !isPlaceholderValue(envUrl)) {
-    return {
-      configured: true,
-      provider: 'generic',
-      url: envUrl,
-      feedTarget: envUrl
-    }
-  }
-
-  if (envProvider === 'github' && !isPlaceholderValue(envOwner) && !isPlaceholderValue(envRepo)) {
-    return {
-      configured: true,
-      provider: 'github',
-      owner: envOwner,
-      repo: envRepo,
-      feedTarget: `${envOwner}/${envRepo}`
-    }
-  }
-
-  // 3. 文件配置 (electron-builder.yml 等)
-  const fileConfig = resolveFileBasedFeedConfig()
-  if (fileConfig) {
-    return fileConfig
-  }
-
-  // 4. 未配置
-  return {
-    configured: false,
-    provider: envProvider || '',
-    url: envUrl,
-    owner: envOwner,
-    repo: envRepo,
-    feedTarget: ''
-  }
-}
+const resolveFeedConfig = () => ({
+  // 更新源固定为 PezMax-Go Releases，忽略旧版本保存的用户覆盖配置。
+  configured: true,
+  provider: 'generic',
+  url: FIXED_UPDATE_URL,
+  feedTarget: FIXED_UPDATE_URL
+})
 
 const emitUpdateStatus = () => {
   if (!currentWindow || currentWindow.isDestroyed()) return

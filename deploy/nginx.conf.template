@@ -18,8 +18,16 @@
 # 无需有人抓取 /stub_status 端点）。在线用户少时单个下载自动提到独占档，
 # 并发上来后整体回落到预算档：
 #   独占(0–1)×FAST → 2–3×MID → 4+×LOW（总并发被 MAXCONN 兜住）。
-# 分档与 limit_conn 只控制单请求速率和并发数；总带宽由独立的 tc 单桶封顶，
-# 不依赖连接数采样是否及时。单连接空闲后的有限突发也计入同一个桶。
+# 档位总额约 FAST 的 1–2 倍（如 FAST=1m → 总额 ≈ 1–2MB/s）。
+#
+# 诚实的边界：nginx 只有“每连接速率整形”，没有跨连接的全局令牌桶，上述
+# 总额是档位乘法下的软约束（并发采样滞后时可能短暂越界）。分档与 limit_conn
+# 只控制单请求速率和并发数；总带宽由独立的 tc 单桶封顶，不依赖连接数采样
+# 是否及时，单连接空闲后的有限突发也计入同一个桶。
+# Go 侧出站 QoS 令牌桶承担业务侧权威上限（KADMIN_QOS_UPLINK_MBPS，bulk
+# 共享 80% 上行，见 k_admin/internal/kadmin/qos.go），两层叠加：有效速率
+# = min(档位, 桶余量)。需要在网卡层硬性总上限时（示例：按 2.2Mbps 上行预算）：
+#   tc qdisc replace dev eth0 root cake bandwidth 2200kbit besteffort
 
 # 文本类响应出站压缩：JSON 列表、后台控制台 HTML/CSS/JS 通常压掉 70%–90%。
 # 图片/PDF/压缩包不在此列（压不动），由后端已按 Content-Type 跳过。

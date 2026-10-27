@@ -45,11 +45,8 @@ const isDark = computed(() => {
 
 <style scoped lang="scss">
 .global-loader-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
+  position: absolute;
+  inset: 0;
   z-index: 9999;
   display: flex;
   align-items: center;

@@ -461,33 +461,15 @@
                         <div class="setting-info" style="width: 100%;">
                           <span class="setting-label">更新源</span>
                           <span class="setting-desc">当前使用 GitHub Releases 作为更新源，支持差分增量更新 (.blockmap)</span>
-                          <span class="setting-desc">校园网环境可能会出现下载卡顿，请切换网络后重试</span>
                         </div>
 
-                        <div class="update-source-list">
-                          <div
-                            v-for="preset in presetUpdateSources"
-                            :key="preset.key"
-                            class="update-source-card"
-                            :class="{
-                              active: updateSourceConfig.presetKey === preset.key,
-                              disabled: isApplyingUpdateSource
-                            }"
-                            @click="selectPresetUpdateSource(preset)"
-                          >
-                            <div class="usc-header">
-                              <div class="usc-radio">
-                                <span class="radio-dot" v-if="updateSourceConfig.presetKey === preset.key"></span>
-                              </div>
-                              <span class="usc-label">{{ preset.label }}</span>
-                            </div>
-                            <div class="usc-url" :title="preset.url || `${preset.owner}/${preset.repo}`">
-                              <el-icon><Link /></el-icon>
-                              <span>{{ preset.url || `${preset.owner}/${preset.repo}` }}</span>
-                            </div>
-                            <div class="usc-features">
-                              <span class="feature-badge diff-badge">差分更新就绪</span>
-                            </div>
+                        <div class="update-source-card active">
+                          <div class="usc-header">
+                            <span class="usc-label">PezMax-Go GitHub Releases</span>
+                          </div>
+                          <div class="usc-url">
+                            <el-icon><Link /></el-icon>
+                            <span>https://gh-proxy.com/https://github.com/PezMax/PezMax-Go/releases</span>
                           </div>
                         </div>
                       </div>

@@ -73,8 +73,12 @@ func run() error {
 	log.SetOutput(ginDebugErrorWriter{destination: os.Stderr})
 
 	r := gin.New()
-	// 出站压缩必须最先挂载（位于所有写响应的中间件之外），go-admin 控制台
-	// 资源、Swagger 与 JSON API 一并生效；详见 internal/kadmin/gzip.go。
+	// 出站 QoS 最外层：bulk（试卷/电子书下载、头像/封面）共享 80% 上行桶，
+	// 其余小响应直通；计量压缩后的线上字节，详见 internal/kadmin/qos.go。
+	qosEnabled, qosDesc := kadmin.SetupEgressQoS(debug)
+	r.Use(kadmin.EgressQoSMiddleware())
+	// 出站压缩在 QoS 之内挂载，go-admin 控制台资源、Swagger 与 JSON API 一并
+	// 生效；详见 internal/kadmin/gzip.go。
 	r.Use(kadmin.GzipMiddleware())
 	e := engine.Default()
 	addr := net.JoinHostPort(getenv("KADMIN_APP_HOST", "127.0.0.1"), getenv("KADMIN_APP_PORT", "9033"))
@@ -149,6 +153,11 @@ func run() error {
 	}
 	log.Printf("KAdmin 后端服务启动成功（模式：%s）", mode)
 	log.Printf("HTTP 监听地址：%s", listener.Addr())
+	if qosEnabled {
+		log.Printf("出站 QoS 已启用：%s", qosDesc)
+	} else {
+		log.Printf("出站 QoS 未启用：%s", qosDesc)
+	}
 	log.Print("KAdmin API 前缀：/api；前端项目：admin-web（独立运行）")
 	if swaggerEnabled {
 		log.Print("Swagger API 文档：/swagger/index.html")

@@ -1,7 +1,5 @@
 import router from './router'
 import { ElMessage } from 'element-plus'
-import NProgress from 'nprogress'
-import 'nprogress/nprogress.css'
 
 import { isPathMatch } from '@/utils/validate'
 import { isRelogin } from '@/utils/request'
@@ -12,7 +10,6 @@ import { ElMessageBox } from 'element-plus'
 import { getToken, removeToken } from '@/utils/auth'
 
 
-NProgress.configure({ showSpinner: false })
 
 const whiteList = PTMJ_AUTH_ROUTE_LIST
 
@@ -32,13 +29,11 @@ const syncWindowModeByRoute = (path) => {
 
 router.beforeEach((to, from, next) => {
   syncWindowModeByRoute(to.path)//LYZ四次修改：同步主窗口和认证窗口的显示模式
-  NProgress.start()
   if (getToken()) {
     to.meta.title && useSettingsStore().setTitle(to.meta.title)
     /* has token*/
     if (to.path === PTMJ_AUTH_ROUTES.login) {
       next({ path: '/' })
-      NProgress.done()
     } else if (isWhiteList(to.path)) {
       next()
     } else {
@@ -55,7 +50,6 @@ router.beforeEach((to, from, next) => {
             useUserStore().logOut()
             ElMessageBox.alert('账号已被封禁，无法登录', '提示', { type: 'warning' })
             next({ path: PTMJ_AUTH_ROUTES.login, replace: true })
-            NProgress.done()
             return
           }
           isRelogin.show = false
@@ -70,7 +64,6 @@ router.beforeEach((to, from, next) => {
             removeToken()//LYZ四次修改：被封号直接删除token
             ElMessage.error(err?.message || '登录状态已过期，请重新登录')
             next({ path: PTMJ_AUTH_ROUTES.login, replace: true, query: { redirect: to.fullPath } })
-            NProgress.done()
           })
         })
       } else {
@@ -84,11 +77,7 @@ router.beforeEach((to, from, next) => {
       next()
     } else {
       next(`${PTMJ_AUTH_ROUTES.login}?redirect=${to.fullPath}`) // 否则全部重定向到登录页
-      NProgress.done()
     }
   }
 })
 
-router.afterEach(() => {
-  NProgress.done()
-})
