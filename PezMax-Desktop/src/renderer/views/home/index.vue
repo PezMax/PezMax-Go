@@ -22,8 +22,7 @@
 
         <template v-else>
           <!-- 包装一个容器让 transition 能正确处理平级组件 -->
-          <div ref="rootRef" v-show="activeView !== 'assistant'" class="ide-main-content-wrapper">
-          <div ref="rootRef" class="ide-main-content-wrapper loading-region">
+          <div ref="rootRef" v-show="activeView !== 'assistant'" class="ide-main-content-wrapper loading-region">
             <SidePanel
               :active-view="activeView"
               :width="panelWidth"
@@ -762,43 +761,16 @@ const fetchTreeData = async () => {
 // 本地搜索同时匹配文件和文件夹，保留路径，不发起后端请求。
 let searchTimer = null
 
-// lxq 在树中递归筛选文件夹：命中的目录保留完整子树；未命中的祖先只保留命中分支。
-// 结果始终从原始一级目录（科目）开始，同一节点只挂在原父级下一次，避免重复。
-const filterFolders = (nodes, kw) => {
-  if (!Array.isArray(nodes) || !kw) return []
-
-  const prune = (list) => {
-    const result = []
-    list.forEach(node => {
-      const isFolder = node.type === 'folder' || (Array.isArray(node.children) && node.children.length > 0)
-      if (!isFolder) return // 跳过文件节点
-
-      if (String(node.label || '').toLowerCase().includes(kw)) {
-        // 目录本身命中：保留完整子树，展开后能看到该目录下的全部内容
-        result.push(node)
-        return
-      }
-
-      const matchedChildren = prune(node.children || [])
-      if (matchedChildren.length > 0) {
-        // 子孙命中：保留祖先路径，只挂载命中的分支，并标记为搜索路径供界面展开
-        result.push({ ...node, children: matchedChildren, _searchPath: true })
-      }
-    })
-    return result
-  }
-
-  return prune(nodes)
-}
-
 // lxq 将当前搜索词应用到最新文件树；空关键字时恢复全量树。
 // 树首次加载或刷新完成后也会调用，保证搜索结果不被全量数据覆盖。
 const applyFileTreeFilter = (keyword) => {
-  if (!keyword) {
+  const trimmed = (keyword || '').trim()
+  if (!trimmed) {
     fileTreeData.value = allFileTreeData.value
     return
   }
-  fileTreeData.value = filterFolders(allFileTreeData.value, keyword.toLowerCase())
+  // 文件名命中保留所属科目/学校路径；目录命中保留完整子树。
+  fileTreeData.value = searchFileTree(allFileTreeData.value, trimmed)
 }
 
 // lxq 搜索防抖处理：用户停止输入 300ms 后在本地文件树中筛选
@@ -810,15 +782,6 @@ const handleLocalSearch = (query) => {
   }
 
   searchTimer = setTimeout(() => {
-    // 清空搜索时恢复原始文件树
-    if (!keyword) {
-      fileTreeData.value = allFileTreeData.value
-      return
-    }
-
-    // 保留文件名匹配项及其父级路径；文件夹匹配时保留整个子树。
-    const matchedList = searchFileTree(allFileTreeData.value, keyword)
-    fileTreeData.value = matchedList
     activeSearchKeyword.value = keyword
     applyFileTreeFilter(keyword)
   }, 300)
