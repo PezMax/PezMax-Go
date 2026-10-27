@@ -1056,6 +1056,14 @@ const openFileInfo = (node, data, event) => {
 const openAssistantResource = (node) => {
   if (!node || !['file', 'ebook', 'bookmark'].includes(node.type)) return
   handleNodeClick(node)
+  if (Number.isInteger(node.knowledgeLocation) && node.knowledgeLocation > 0) {
+    const tab = openTabs.value.find(item => item.id === node.id)
+    if (tab) {
+      // A revision-checked citation also refreshes an already open stale tab.
+      tab.url = node.url
+      tab.knowledgeCitation = { location: node.knowledgeLocation, revision: node.knowledgeRevision, nonce: Date.now() }
+    }
+  }
   forceChangeView(node.type === 'file' ? 'explorer' : node.type)
 }
 
@@ -1072,7 +1080,7 @@ const handleNodeClick = (data) => {
       openTabs.value.push({
         id: data.id,
         title: data.label,
-        url: ebookPreviewUrl(ebookId),
+        url: data.knowledgeRevision ? data.url : ebookPreviewUrl(ebookId),
         fileExt: String(data.fileExt || data.originalData?.ebookFormat || '').toLowerCase(),
         type: 'ebook',
         cover: data.cover,

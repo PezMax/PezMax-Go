@@ -1,6 +1,10 @@
 <template>
     <AssistantTheme>
-        <KnowledgeWorkspace v-if="knowledgeOpen" @back="closeKnowledge" />
+        <KnowledgeWorkspace
+            v-if="knowledgeOpen"
+            @back="closeKnowledge"
+            @open-resource="emit('open-resource', $event)"
+        />
         <section v-else class="assistant-workspace" aria-label="找资料助手">
             <header class="assistant-header">
                 <div class="assistant-heading">

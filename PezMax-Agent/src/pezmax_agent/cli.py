@@ -26,6 +26,8 @@ async def execute(payload, emit):
     if payload.get('task') == 'knowledge':
         secrets = [value.get('apiKey', '') for name in ('provider', 'embedding')
                    if isinstance(value := payload.get(name), dict) and isinstance(value.get('apiKey'), str)]
+        if isinstance(payload.get('catalog'), dict):
+            secrets.append(payload['catalog'].get('token', ''))
         result = await run_desktop_knowledge(payload, lambda data: emit('progress', data=redact(data, secrets)))
         emit('result', data=redact(result, secrets))
         return

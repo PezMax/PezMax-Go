@@ -68,7 +68,7 @@ class KnowledgeStore:
                     owner TEXT NOT NULL, id TEXT NOT NULL, digest TEXT NOT NULL,
                     title TEXT NOT NULL, format TEXT NOT NULL, characters INTEGER NOT NULL,
                     profile TEXT NOT NULL, dimension INTEGER NOT NULL,
-                    created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                    created TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')), source TEXT,
                     PRIMARY KEY(owner,id));
                 CREATE TABLE IF NOT EXISTS chunks (
                     owner TEXT NOT NULL, document_id TEXT NOT NULL, id TEXT NOT NULL,
@@ -77,6 +77,8 @@ class KnowledgeStore:
                     FOREIGN KEY(owner,document_id) REFERENCES documents(owner,id) ON DELETE CASCADE);
                 CREATE INDEX IF NOT EXISTS chunks_owner ON chunks(owner,document_id);
             """)
+            if 'source' not in {row['name'] for row in db.execute('PRAGMA table_info(documents)')}:
+                db.execute('ALTER TABLE documents ADD COLUMN source TEXT')
 
     @contextmanager
     def connect(self):
@@ -92,15 +94,22 @@ class KnowledgeStore:
     def list_documents(self, owner):
         with self.connect() as db:
             rows = db.execute("""SELECT d.id AS documentId,d.title,d.format,d.characters,d.profile,
-                d.dimension,d.created,COUNT(c.id) AS chunks FROM documents d
+                d.dimension,d.created,d.source,COUNT(c.id) AS chunks FROM documents d
                 LEFT JOIN chunks c ON c.owner=d.owner AND c.document_id=d.id
                 WHERE d.owner=? GROUP BY d.owner,d.id ORDER BY d.created,d.id""", (owner,)).fetchall()
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            item = dict(row)
+            source = item.pop('source')
+            if source:
+                item['source'] = json.loads(source)
+            result.append(item)
+        return result
 
     def existing(self, owner, document_id):
         return next((d for d in self.list_documents(owner) if d["documentId"] == document_id), None)
 
-    def put(self, owner, document, *, vectors=None, profile=""):
+    def put(self, owner, document, *, vectors=None, profile="", source=None):
         chunks = document["chunks"]
         if vectors is not None:
             if not profile or len(vectors) != len(chunks):
@@ -115,17 +124,21 @@ class KnowledgeStore:
             db.execute("BEGIN IMMEDIATE")
             current = db.execute("SELECT profile,dimension FROM documents WHERE owner=? AND id=?",
                                  (owner, document["documentId"])).fetchone()
-            if current:
+            if current and source is None:
                 if current["profile"] != profile or current["dimension"] != dimension:
                     raise AgentError("同一文档已使用其他索引配置；请显式删除后重新导入", "index_conflict")
                 return {**self.existing(owner, document["documentId"]), "inserted": False}
+            if current:
+                # Source replacements and their chunks commit atomically; a
+                # failed embedding/extraction never publishes a half index.
+                db.execute('DELETE FROM documents WHERE owner=? AND id=?', (owner, document['documentId']))
             count, chars = db.execute("SELECT COUNT(*),COALESCE(SUM(characters),0) FROM documents WHERE owner=?", (owner,)).fetchone()
             chunk_count = db.execute("SELECT COUNT(*) FROM chunks WHERE owner=?", (owner,)).fetchone()[0]
             if count >= 200 or chars + document["characters"] > 10_000_000 or chunk_count + len(chunks) > 10000:
                 raise AgentError("本地知识库容量已达上限，请删除不再需要的文档", "capacity")
-            db.execute("INSERT INTO documents(owner,id,digest,title,format,characters,profile,dimension) VALUES(?,?,?,?,?,?,?,?)",
+            db.execute("INSERT INTO documents(owner,id,digest,title,format,characters,profile,dimension,source) VALUES(?,?,?,?,?,?,?,?,?)",
                        (owner, document["documentId"], document["digest"], document["title"], document["format"],
-                        document["characters"], profile, dimension))
+                        document["characters"], profile, dimension, json_text(source) if source else None))
             db.executemany("INSERT INTO chunks(owner,document_id,id,location,text,vector) VALUES(?,?,?,?,?,?)", [
                 (owner, document["documentId"], c["chunkId"], c["location"], c["text"], json_text(vectors[i]) if vectors else None)
                 for i, c in enumerate(chunks)])

@@ -83,6 +83,7 @@ async function mountAssistant(name, props = {}, imports = {}) {
         '../../../shared/reading-assistant.mjs': readingContracts,
         '../../../shared/knowledge-assistant.mjs': knowledgeContracts,
         '@/utils/knowledge-assistant-session.mjs': { createKnowledgeSession, createKnowledgeState },
+        '@/utils/auth': { getToken: () => 'synthetic-session' },
         ...imports
     }
     const module = new SourceTextModule(content, {
@@ -162,6 +163,17 @@ test('knowledge UI imports only on confirmation, preserves question for BYOK set
         dimension: 0,
         created: '2026-10-26'
     }
+    const source = {
+        kind: 'file',
+        id: '7',
+        title: chunk.title,
+        format: 'pdf',
+        subject: 'Software',
+        school: 'Synthetic campus',
+        year: 2026,
+        revision: 'a'.repeat(64)
+    }
+    const coverage = { available: 1, total: 1, partial: false }
     const retrieval = {
         chunks: [chunk],
         mode: 'keyword',
@@ -182,31 +194,39 @@ test('knowledge UI imports only on confirmation, preserves question for BYOK set
                         return { ...config, hasApiKey: true, embedding: { ...config } }
                     const action = input?.knowledge?.action
                     const knowledge =
-                        action === 'list'
-                            ? { documents: [doc] }
-                            : action === 'import'
-                              ? { document: { ...doc, inserted: false } }
-                              : action === 'read'
-                                ? { chunk }
-                                : action === 'ask'
-                                  ? {
-                                        retrieval,
-                                        content: 'FIFO',
-                                        answers: [
-                                            {
-                                                text: 'FIFO',
-                                                citations: [
-                                                    {
-                                                        documentId,
-                                                        chunkId,
-                                                        location: 2,
-                                                        quote: 'first in first out'
-                                                    }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                  : { retrieval }
+                        action === 'sync'
+                            ? {
+                                  documents: [{ ...doc, source }],
+                                  coverage,
+                                  sync: { indexed: 1, unchanged: 0, failures: [] }
+                              }
+                            : action === 'open'
+                              ? { chunk: { ...chunk, source }, coverage }
+                              : action === 'list'
+                                ? { documents: [doc] }
+                                : action === 'import'
+                                  ? { document: { ...doc, inserted: false } }
+                                  : action === 'read'
+                                    ? { chunk }
+                                    : action === 'ask'
+                                      ? {
+                                            retrieval,
+                                            content: 'FIFO',
+                                            answers: [
+                                                {
+                                                    text: 'FIFO',
+                                                    citations: [
+                                                        {
+                                                            documentId,
+                                                            chunkId,
+                                                            location: 2,
+                                                            quote: 'first in first out'
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                      : { retrieval }
                     return { knowledge }
                 },
                 onAssistantProgress: () => () => {}
@@ -217,12 +237,20 @@ test('knowledge UI imports only on confirmation, preserves question for BYOK set
     try {
         assert.deepEqual(
             calls.filter((c) => c.method === 'run').map((c) => c.input.knowledge.action),
-            ['list']
+            ['sync']
         )
+        assert.equal(ui.state.library, 'platform')
+        await ui.session.openEvidence(chunk)
+        assert.equal(page.emitted.at(-1)[0], 'open-resource')
+        assert.equal(page.emitted.at(-1)[1].knowledgeLocation, 2)
+        assert.ok(
+            page.emitted.at(-1)[1].url.startsWith('https://pezmax.example/datum/knowledge/content?')
+        )
+        await ui.session.switchLibrary('local')
         ui.importHybrid.value = true
         ui.openImport()
         assert.equal(ui.importHybrid.value, false)
-        assert.equal(calls.filter((c) => c.method === 'run').length, 1)
+        assert.equal(calls.filter((c) => c.method === 'run').length, 3)
         ui.chooseAndImport()
         await page.flush()
         assert.equal(calls.at(-1).input.knowledge.mode, 'keyword')

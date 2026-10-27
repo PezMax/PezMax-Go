@@ -94,14 +94,17 @@ export function createAssistantService({ readConfig, writeConfig, encryption, ru
     if (requests.has(requestId) || [...requests.values()].some(item => item.owner === owner)) throw new Error('请等待当前请求结束，或先停止生成')
     const current = profile(scope)
     const vector = profile(`${scope}_embedding`)
-    const useEmbedding = request.mode === 'hybrid' && ['import', 'search', 'ask'].includes(request.action)
+    const useEmbedding = request.mode === 'hybrid' && ['import', 'sync', 'search', 'ask'].includes(request.action)
+    const platformToken = request.library === 'platform' ? input.platformToken : ''
+    if (request.library === 'platform' && (!catalogBaseUrl || typeof platformToken !== 'string' ||
+      !platformToken || platformToken.length > 8192 || /[\r\n\x00]/.test(platformToken))) throw new Error('请先登录再检索平台资料')
     if (request.action === 'ask' && !current.apiKey) throw new Error('请先在模型设置中填写 API Key')
     if (useEmbedding && !vector.apiKey) throw new Error('请先配置 Embedding 接口与 API Key')
     const controller = new AbortController()
     let timedOut = false
     const timer = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
     requests.set(requestId, { controller, owner, scope })
-    const secrets = [current.apiKey, vector.apiKey]
+    const secrets = [current.apiKey, vector.apiKey, platformToken]
     try {
       // A renderer may request a picker, but cannot supply a local path or owner.
       const localDocument = request.action === 'import' ? await selectKnowledgeFile?.() : undefined
@@ -109,6 +112,7 @@ export function createAssistantService({ readConfig, writeConfig, encryption, ru
       if (request.action === 'import' && !localDocument) return { knowledge: { cancelled: true } }
       const result = await runAgent({ version: 1, requestId, task: 'knowledge', knowledge: request,
         storage: { path: knowledgeDatabase, owner: scope },
+        ...(request.library === 'platform' ? { catalog: { baseUrl: catalogBaseUrl, token: platformToken } } : {}),
         ...(localDocument ? { localDocument } : {}),
         ...(request.action === 'ask' ? { provider: normalizeProviderConfig(current) } : {}),
         ...(useEmbedding ? { embedding: normalizeProviderConfig(vector) } : {})
@@ -122,8 +126,10 @@ export function createAssistantService({ readConfig, writeConfig, encryption, ru
     } catch (error) {
       if (controller.signal.aborted) throw new Error(timedOut ? '助手处理超时，请缩小文档后重试' : '已停止处理；若正在导入或删除，请刷新列表确认结果')
       const message = error?.message || ''
-      throw new Error(/^(请|接口|模型|API Key|请求|无法|助手|文档|本地|所选|同一|向量|混合|待向量|Embedding|导入)/.test(message)
+      const safe = new Error(/^(请|接口|模型|API Key|请求|无法|助手|文档|平台|资源|本地|所选|同一|向量|混合|待向量|Embedding|导入)/.test(message)
         ? redact(message, secrets) : '助手知识库操作失败，请检查文档与设置后重试')
+      if (error?.code === 'catalog_auth_expired') safe.code = error.code
+      throw safe
     } finally {
       clearTimeout(timer)
       requests.delete(requestId)

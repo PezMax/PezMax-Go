@@ -427,6 +427,32 @@ test('assistant cards open all resource kinds in the existing editor and preserv
     assert.equal(workspace.calls.editorUnmounts, 0)
 })
 
+test('platform knowledge citations retain the versioned URL and position when opening or revisiting a tab', async (t) => {
+    const workspace = await createWorkspace()
+    t.after(workspace.dispose)
+    for (const kind of ['file', 'ebook']) {
+        const id = kind === 'file' ? '9007199254740993' : '72'
+        await workspace.navigate('/index?view=assistant')
+        const assistant = workspace.instances.get('AssistantWorkspace')
+        const node = { type: kind, id: `${kind}-${id}`, rawId: id, label: 'Synthetic reference',
+            fileExt: kind === 'file' ? 'pdf' : 'epub', url: `https://catalog.example/datum/knowledge/content?kind=${kind}&id=${id}&revision=v1`,
+            knowledgeLocation: 2, knowledgeRevision: 'v1', fileInfo: { fileId: id }, originalData: { ebookId: id } }
+        assistant.emit('open-resource', node)
+        await workspace.flush()
+        const editor = workspace.instances.get('MainEditor')
+        const tab = editor.props.openTabs.find(item => item.id === node.id)
+        assert.equal(tab.url, node.url)
+        assert.equal(tab.knowledgeCitation.location, 2)
+        await workspace.navigate('/index?view=assistant')
+        assistant.emit('open-resource', { ...node, url: node.url.replace('v1', 'v2'), knowledgeLocation: 3, knowledgeRevision: 'v2' })
+        await workspace.flush()
+        assert.equal(editor.props.openTabs.filter(item => item.id === node.id).length, 1)
+        assert.equal(tab.url, node.url.replace('v1', 'v2'))
+        assert.equal(tab.knowledgeCitation.location, 3)
+        assert.equal(tab.knowledgeCitation.revision, 'v2')
+    }
+})
+
 test('tree filename search keeps the folder path and clearing it restores the local tree without requests', async (t) => {
     const workspace = await createWorkspace({ treeResponses: [{ code: 0, data: [{ id: 'school', type: 'folder', label: '示例大学', children: [paperInfo, { ...paperInfo, fileId: 43, fileName: '大学物理.pdf' }] }] }] })
     t.after(workspace.dispose)

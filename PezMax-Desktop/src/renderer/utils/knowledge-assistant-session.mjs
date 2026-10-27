@@ -19,6 +19,9 @@ export function createKnowledgeState() {
         busy: false,
         stopping: false,
         documents: [],
+        library: 'local',
+        coverage: null,
+        sync: null,
         documentIds: [],
         mode: 'keyword',
         result: null,
@@ -31,6 +34,9 @@ export function createKnowledgeState() {
 
 export function createKnowledgeSession({
     call,
+    library = 'local',
+    platformToken = () => '',
+    openResource = () => {},
     subscribe = () => () => {},
     state = createKnowledgeState()
 }) {
@@ -62,11 +68,11 @@ export function createKnowledgeSession({
         epoch++
         context = next ? { server: next.server, userId: next.userId } : null
         pending = null
-        Object.assign(state, createKnowledgeState())
+        Object.assign(state, createKnowledgeState(), { library })
         const version = epoch
         if (!context) return
         await refreshConfig()
-        if (version === epoch) await refresh()
+        if (version === epoch) await refresh(library === 'platform')
     }
     async function execute(value, apply) {
         if (!context || state.busy || state.settingsBusy || state.configLoading) return
@@ -75,7 +81,10 @@ export function createKnowledgeSession({
         state.busy = true
         state.error = state.notice = ''
         try {
-            const request = normalizeKnowledgeInput(value)
+            const request = normalizeKnowledgeInput({
+                ...value,
+                ...(state.library === 'platform' ? { library: 'platform' } : {})
+            })
             if (draining) await draining
             if (version !== epoch) return
             const operation = { id: requestId(), context: scope, cancelled: false }
@@ -93,6 +102,7 @@ export function createKnowledgeSession({
                 const promise = call('run', scope, {
                     requestId: operation.id,
                     task: 'knowledge',
+                    ...(state.library === 'platform' ? { platformToken: platformToken() } : {}),
                     knowledge: request
                 })
                 const barrier = promise
@@ -104,12 +114,17 @@ export function createKnowledgeSession({
                 const result = await promise
                 if (version !== epoch) return
                 if (operation.cancelled) throw new Error('已停止；导入或删除结果请刷新列表确认')
-                apply(normalizeKnowledgeResult(result.knowledge, request))
+                const normalized = normalizeKnowledgeResult(result.knowledge, request)
+                state.coverage = normalized.coverage || null
+                apply(normalized)
             } finally {
                 unsubscribe()
             }
         } catch (error) {
-            if (version === epoch) state.error = error.message || '知识库操作失败，请重试'
+            if (version === epoch) {
+                state.error = error.message || '知识库操作失败，请重试'
+                if (state.library === 'platform') state.result = state.evidence = null
+            }
         } finally {
             if (version === epoch) {
                 pending = null
@@ -118,13 +133,31 @@ export function createKnowledgeSession({
             }
         }
     }
-    function refresh() {
-        return execute({ action: 'list' }, (result) => {
-            state.documents = result.documents
-            state.documentIds = state.documentIds.filter((id) =>
-                result.documents.some((doc) => doc.documentId === id)
-            )
-        })
+    function refresh(sync = false, hybrid = false) {
+        return execute(
+            {
+                action: state.library === 'platform' && sync ? 'sync' : 'list',
+                mode: hybrid ? 'hybrid' : 'keyword'
+            },
+            (result) => {
+                state.documents = result.documents
+                if (result.sync) {
+                    state.sync = result.sync
+                    state.result = state.evidence = null
+                    state.notice = `平台同步完成：更新 ${result.sync.indexed} 篇，复用 ${result.sync.unchanged} 篇，失败 ${result.sync.failures.length} 篇`
+                }
+                state.documentIds = state.documentIds.filter((id) =>
+                    result.documents.some((doc) => doc.documentId === id)
+                )
+            }
+        )
+    }
+    async function switchLibrary(next) {
+        if (state.busy || state.settingsBusy || !['local', 'platform'].includes(next)) return
+        state.library = next
+        state.documents = state.documentIds = []
+        state.result = state.evidence = state.coverage = state.sync = null
+        await refresh(next === 'platform')
     }
     async function importDocument(hybrid = false) {
         await execute({ action: 'import', mode: hybrid ? 'hybrid' : 'keyword' }, (result) => {
@@ -178,6 +211,19 @@ export function createKnowledgeSession({
             }
         )
     }
+    function openEvidence(citation) {
+        return execute(
+            { action: 'open', documentId: citation.documentId, chunkId: citation.chunkId },
+            (result) => {
+                if (
+                    citation.location !== result.chunk.location ||
+                    (citation.quote && !result.chunk.text.includes(citation.quote))
+                )
+                    throw new Error('文档引用已变化，请重新检索')
+                openResource(result.chunk)
+            }
+        )
+    }
     function clearResults() {
         if (!state.busy) state.result = state.evidence = null
     }
@@ -222,10 +268,12 @@ export function createKnowledgeSession({
         setIdentity,
         refreshConfig,
         refresh,
+        switchLibrary,
         importDocument,
         deleteDocument,
         query,
         readEvidence,
+        openEvidence,
         clearResults,
         saveSettings,
         clearKey,

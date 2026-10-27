@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pezmax-agent"
-version = "0.3.0"
+version = "0.4.0"
 description = "Local LangGraph resource assistant for PezMax"
 requires-python = ">=3.11"
 dependencies = ["langgraph==1.2.17", "httpx==0.28.1", "pydantic==2.14.1", "pypdf==6.21.2"]

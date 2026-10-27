@@ -7,7 +7,7 @@
                 /></AButton>
                 <div>
                     <h1>我的知识库</h1>
-                    <p>从你的文档里寻找答案，逐条核对依据</p>
+                    <p>从平台已有资料寻找答案，点击引用回到原文</p>
                 </div>
             </div>
             <div class="header-actions">
@@ -21,8 +21,20 @@
         </header>
         <div class="knowledge-layout">
             <aside class="document-pane" aria-label="已导入文档">
+                <ASelect
+                    :value="state.library"
+                    aria-label="知识来源"
+                    :disabled="locked"
+                    :options="[
+                        { value: 'platform', label: '平台资料与电子书' },
+                        { value: 'local', label: '个人本机文档' }
+                    ]"
+                    style="width: 100%; margin-bottom: 12px"
+                    @change="session.switchLibrary($event)"
+                />
                 <div class="pane-heading">
-                    <strong>本机文档</strong><ATag>{{ state.documents.length }} / 200</ATag>
+                    <strong>{{ isPlatform ? '平台正文索引' : '本机文档' }}</strong
+                    ><ATag>{{ state.documents.length }} / 200</ATag>
                     <AButton
                         type="text"
                         size="small"
@@ -33,12 +45,21 @@
                     /></AButton>
                 </div>
                 <AButton type="primary" block :disabled="locked || !signedIn" @click="openImport"
-                    ><PlusOutlined />导入文档</AButton
+                    ><PlusOutlined />{{ isPlatform ? '同步平台资料' : '导入文档' }}</AButton
                 >
+                <p v-if="isPlatform && state.coverage" class="evidence-note">
+                    可索引 {{ state.coverage.total }} 篇，当前范围
+                    {{ state.coverage.available }} 篇。
+                    {{
+                        state.coverage.partial
+                            ? '当前仅覆盖最近更新的200篇，未检索平台全部资料。'
+                            : '仅含已上架、16 MiB以内的受支持文件。'
+                    }}
+                </p>
                 <div class="document-list">
                     <AEmpty
                         v-if="!state.documents.length && !state.busy"
-                        description="还没有导入文档"
+                        :description="isPlatform ? '暂无已建立索引的平台资料' : '还没有导入文档'"
                         :image="AEmpty.PRESENTED_IMAGE_SIMPLE"
                     />
                     <article
@@ -56,8 +77,16 @@
                             <ATag>{{
                                 doc.dimension ? `向量 ${doc.dimension} 维` : '关键词索引'
                             }}</ATag>
+                            <p v-if="doc.source">
+                                {{
+                                    [doc.source.subject, doc.source.school, doc.source.year || '']
+                                        .filter(Boolean)
+                                        .join(' · ')
+                                }}
+                            </p>
                         </div>
                         <APopconfirm
+                            v-if="!isPlatform"
                             title="移除此文档和索引？原文件会保留。"
                             ok-text="移除"
                             cancel-text="取消"
@@ -76,7 +105,11 @@
                     </article>
                 </div>
                 <p class="storage-note">
-                    <LockOutlined />按平台与账号隔离，保存在本机。正文与索引为明文；移除为逻辑删除。
+                    <LockOutlined />{{
+                        isPlatform
+                            ? '从平台自动获取正文，索引缓存在本机；检索前核对上架状态与版本。'
+                            : '按平台与账号隔离，正文与索引以明文保存在本机。'
+                    }}
                 </p>
             </aside>
             <main class="query-pane">
@@ -95,16 +128,28 @@
                         show-icon
                         role="status"
                     />
+                    <AAlert
+                        v-if="state.sync?.failures.length"
+                        type="warning"
+                        show-icon
+                        message="部分资料未能建立索引"
+                        :description="state.sync.failures.map((item) => item.title).join('、')"
+                    />
                     <div v-if="!state.result" class="knowledge-welcome">
                         <DatabaseOutlined class="welcome-icon" /><span class="eyebrow"
                             >你的资料，成为可查的知识</span
                         >
                         <h2>先找证据，再给答案</h2>
                         <p>
-                            导入 PDF、EPUB 或学习笔记，跨文档查找原文；<br />需要解释时，再用你配置的模型生成带引用的回答。
+                            {{
+                                isPlatform
+                                    ? '直接检索平台已有资料与电子书，无需下载后重新导入。'
+                                    : '导入 PDF、EPUB 或学习笔记，跨文档查找原文。'
+                            }}<br />需要解释时，用你配置的模型生成带引用的回答。
                         </p>
                         <div class="welcome-steps">
-                            <span>01 导入文档</span><span>02 检索片段</span><span>03 核对引用</span>
+                            <span>01 {{ isPlatform ? '同步平台' : '导入文档' }}</span
+                            ><span>02 检索片段</span><span>03 核对引用</span>
                         </div>
                     </div>
                     <template v-else>
@@ -181,6 +226,14 @@
                                     @click="session.readEvidence(chunk)"
                                     >查看索引原文<ArrowRightOutlined
                                 /></AButton>
+                                <AButton
+                                    v-if="chunk.source"
+                                    type="link"
+                                    size="small"
+                                    :disabled="locked"
+                                    @click="session.openEvidence(chunk)"
+                                    >打开应用内原文<ArrowRightOutlined
+                                /></AButton>
                             </ACard>
                         </div>
                         <p class="evidence-note">
@@ -195,6 +248,7 @@
                             mode="multiple"
                             placeholder="全部文档（可筛选，最多50篇）"
                             aria-label="选择检索文档"
+                            option-filter-prop="label"
                             :options="documentOptions"
                             :max-tag-count="1"
                             :disabled="locked"
@@ -250,13 +304,16 @@
         </div>
         <AModal
             v-model:open="importOpen"
-            title="导入到本机知识库"
+            :title="isPlatform ? '同步平台资料索引' : '导入到本机知识库'"
             :footer="null"
             :mask-closable="false"
         >
             <p class="import-description">
-                选择本机 PDF、EPUB、TXT 或 Markdown，提取文字并保留页码或分节位置。单文件不超过 16
-                MiB、1000 个位置、200 万字符，暂不支持 OCR。
+                {{
+                    isPlatform
+                        ? '自动读取平台已上架的资料和电子书。支持 PDF、EPUB、TXT、Markdown，保留原文件关联。'
+                        : '选择本机 PDF、EPUB、TXT 或 Markdown，提取文字并保留页码或分节位置。'
+                }}单文件不超过 16 MiB、1000 个位置、200 万字符，暂不支持 OCR。
             </p>
             <AAlert
                 type="info"
@@ -274,7 +331,9 @@
             </p>
             <div class="modal-actions">
                 <AButton @click="importOpen = false">取消</AButton
-                ><AButton type="primary" @click="chooseAndImport">选择文件并导入</AButton>
+                ><AButton type="primary" @click="chooseAndImport">{{
+                    isPlatform ? '开始同步' : '选择文件并导入'
+                }}</AButton>
             </div>
         </AModal>
         <AssistantSettings
@@ -303,6 +362,13 @@
                     }}<mark v-if="sourceParts.quote">{{ sourceParts.quote }}</mark
                     >{{ sourceParts.after }}
                 </p>
+                <AButton
+                    v-if="state.evidence.source"
+                    type="primary"
+                    :disabled="locked"
+                    @click="session.openEvidence(state.evidence)"
+                    >打开应用内原文<ArrowRightOutlined
+                /></AButton>
                 <p class="evidence-note">
                     显示导入时保存的文字片段；PDF 为物理页码，EPUB
                     为书脊分节序号，文本为导入分段序号。
@@ -343,19 +409,33 @@ import {
     StopOutlined
 } from '@ant-design/icons-vue'
 import useUserStore from '@/store/modules/user'
+import { getToken } from '@/utils/auth'
 import { assistantCall, onAssistantProgress } from '@/api/assistant'
 import {
     createKnowledgeSession,
     createKnowledgeState
 } from '@/utils/knowledge-assistant-session.mjs'
-import { knowledgeLocation } from '../../../shared/knowledge-assistant.mjs'
+import { knowledgeLocation, platformKnowledgeNode } from '../../../shared/knowledge-assistant.mjs'
 import AssistantSettings from './AssistantSettings.vue'
 
-const emit = defineEmits(['back'])
+const emit = defineEmits(['back', 'open-resource'])
 const userStore = useUserStore()
 const state = reactive(createKnowledgeState())
 const session = createKnowledgeSession({
     call: assistantCall,
+    library: 'platform',
+    platformToken: getToken,
+    openResource: (chunk) =>
+        emit(
+            'open-resource',
+            platformKnowledgeNode(
+                chunk.source,
+                /^https?:\/\//i.test(import.meta.env.VITE_APP_BASE_API || '')
+                    ? import.meta.env.VITE_APP_BASE_API
+                    : import.meta.env.VITE_APP_TARGET_URL || 'http://127.0.0.1:9033',
+                chunk.location
+            )
+        ),
     subscribe: onAssistantProgress,
     state
 })
@@ -365,6 +445,7 @@ const question = ref(''),
     settingsOpen = ref(false),
     embeddingSettings = ref(false)
 const signedIn = computed(() => !!userStore.token && !!userStore.id)
+const isPlatform = computed(() => state.library === 'platform')
 const locked = computed(() => state.busy || state.settingsBusy || state.configLoading)
 const canQuery = computed(
     () =>
@@ -380,7 +461,11 @@ const settingsConfig = computed(() =>
 const documentOptions = computed(() =>
     state.documents.map((doc) => ({
         value: doc.documentId,
-        label: doc.title,
+        label: doc.source
+            ? [doc.title, doc.source.subject, doc.source.school, doc.source.year || '']
+                  .filter(Boolean)
+                  .join(' · ')
+            : doc.title,
         disabled: state.documentIds.length >= 50 && !state.documentIds.includes(doc.documentId)
     }))
 )
@@ -412,7 +497,8 @@ function openImport() {
 }
 function chooseAndImport() {
     importOpen.value = false
-    void session.importDocument(importHybrid.value)
+    if (isPlatform.value) void session.refresh(true, importHybrid.value)
+    else void session.importDocument(importHybrid.value)
 }
 function submit(answer) {
     if (!canQuery.value) return

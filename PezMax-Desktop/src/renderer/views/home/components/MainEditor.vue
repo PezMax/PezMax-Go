@@ -25,7 +25,7 @@
     <!-- 预览区 -->
     <div class="editor-content" v-if="openTabs.length > 0">
       <ReadingAssistant
-        v-if="currentFileObj && ((currentFileObj.fileExt === 'pdf' && currentFileObj.url) || (currentFileObj.fileExt === 'epub' && ['ebook', 'local'].includes(currentFileObj.type)))"
+        v-if="currentFileObj && ((currentFileObj.fileExt === 'pdf' && currentFileObj.url) || currentFileObj.fileExt === 'epub')"
         :document-id="String(currentFileObj.id)"
         :source="currentFileObj.url || ''"
         :format="currentFileObj.fileExt"
@@ -298,7 +298,7 @@
           
           <!-- 电子书 EPUB 预览：连续滚动阅读 + 顶部工具栏（目录/章节翻页/进度条） -->
           <div
-            v-else-if="['ebook', 'local'].includes(currentFileObj.type) && currentFileObj.fileExt === 'epub'"
+            v-else-if="currentFileObj.fileExt === 'epub'"
             class="epub-preview-container"
           >
             <!-- 工具栏：紧贴标签页下方（章节名 + 固定长度进度条 + 目录抽屉按钮） -->
@@ -634,6 +634,14 @@ const jumpToPdfPage = ({ documentId, source, page }) => {
   } catch { /* Reject stale or invalid citation navigation. */ }
 }
 
+watch(() => [currentFileObj.value?.id, currentFileObj.value?.knowledgeCitation], () => {
+  const file = currentFileObj.value
+  const location = file?.knowledgeCitation?.location
+  if (file?.fileExt === 'pdf' && Number.isInteger(location)) {
+    jumpToPdfPage({ documentId: String(file.id), source: file.url, page: location })
+  }
+}, { flush: 'post' })
+
 const currentIsBookmark = computed(() => currentFileObj.value?.type === 'bookmark')
 const currentIsEbook = computed(() => currentFileObj.value?.type === 'ebook')
 
@@ -947,7 +955,7 @@ const unmountEpubRendition = () => {
 
 const loadEpub = async () => {
   const tab = currentFileObj.value
-  if (!tab || !['ebook', 'local'].includes(tab.type) || tab.fileExt !== 'epub') return
+  if (!tab || tab.fileExt !== 'epub') return
   const seq = ++epubLoadSeq
   await nextTick()
   if (seq !== epubLoadSeq || !epubContainer.value) return
@@ -980,6 +988,11 @@ const loadEpub = async () => {
     }
 
     await mountEpubRendition(epubContainer.value)
+    const citationLocation = tab.knowledgeCitation?.location
+    if (seq === epubLoadSeq && Number.isInteger(citationLocation) && citationLocation > 0) {
+      const section = book.spine?.get(citationLocation - 1)
+      if (section?.href) await epubDisplayAt(section.href)
+    }
     // 快速切书时丢弃过期渲染
     if (seq !== epubLoadSeq) {
       teardownEpub()
@@ -1332,8 +1345,15 @@ const jumpToEpubChapter = async ({ documentId, source, chapter }) => {
   await epubDisplayAt(section.href)
 }
 
+watch(() => currentFileObj.value?.knowledgeCitation, async () => {
+  const file = currentFileObj.value
+  if (file?.fileExt === 'epub' && epubRenditionReady && !isLoadingEpub.value) {
+    await jumpToEpubChapter({ documentId: String(file.id), source: file.url || '', chapter: file.knowledgeCitation?.location })
+  }
+}, { flush: 'post' })
+
 watch(
-  () => [currentFileObj.value?.id, currentFileObj.value?.type, currentFileObj.value?.fileExt],
+  () => [currentFileObj.value?.id, currentFileObj.value?.type, currentFileObj.value?.fileExt, currentFileObj.value?.url],
   () => {
     epubContainer.value?.removeEventListener?.('scroll', epubOnContainerScroll, true)
     teardownEpub()
@@ -1432,9 +1452,11 @@ const loadTextFile = async (tab) => {
     const fileId = file.fileId ?? file.fileInfo?.fileId ?? file.ptmjFile?.fileId ?? tab.id
     if (!/^\d+$/.test(String(fileId))) throw new Error('文件 ID 无效')
     const blob = await request({
-      url: '/datum/file/content',
+      url: tab.knowledgeCitation ? '/datum/knowledge/content' : '/datum/file/content',
       method: 'get',
-      params: { fileId },
+      params: tab.knowledgeCitation
+        ? { kind: 'file', id: String(fileId), revision: tab.knowledgeCitation.revision }
+        : { fileId },
       responseType: 'blob',
       skipErrorMsg: true,
       timeout: 30000
