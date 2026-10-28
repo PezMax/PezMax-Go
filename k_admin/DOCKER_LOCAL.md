@@ -24,6 +24,33 @@ Go 服务默认使用以下配置：
 
 首次启动时，Docker 会把 `tests/data/admin_pg.sql` 导入到 `kadmin` 数据库中。该导入只会在数据库 volume 为空时执行。
 
+## pgvector
+
+本地 PostgreSQL 使用 `pgvector/pgvector:pg16`（可用 `KADMIN_DB_IMAGE` 覆盖），镜像内置 `vector` 与 `pg_trgm`。空数据卷首次启动会执行 `sql/extensions.sql`，自动创建两个扩展。
+
+已有 `kadmin-go-admin-postgres-data` 卷不会重跑初始化脚本。若容器仍是旧镜像（`docker inspect` 显示 `postgres:16-alpine`），先拉取并重建数据库容器；16 主版本共用同一数据目录，卷不需要重建：
+
+```powershell
+docker compose pull postgres
+docker compose up -d --no-deps postgres
+```
+
+再手动补一次扩展：
+
+```powershell
+docker compose exec postgres psql -U postgres -d kadmin `
+  -c "CREATE EXTENSION IF NOT EXISTS vector" `
+  -c "CREATE EXTENSION IF NOT EXISTS pg_trgm"
+docker compose exec postgres psql -U postgres -d kadmin -tAc "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
+```
+
+验证向量运算与 HNSW 索引：
+
+```powershell
+docker compose exec postgres psql -U postgres -d kadmin -c "SELECT '[1,2,3]'::vector <-> '[4,5,6]'::vector"
+docker compose exec postgres psql -U postgres -d kadmin -c "CREATE TEMP TABLE v (e vector(3)); CREATE INDEX ON v USING hnsw (e vector_cosine_ops);"
+```
+
 ## 可选 MinIO 对象存储
 
 MinIO 默认不启动，也不会影响 PostgreSQL、Redis 和 Go 服务启动。需要本地对象存储时再开启 `storage` profile：

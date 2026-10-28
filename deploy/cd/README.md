@@ -22,6 +22,42 @@ checks the backend, both Nginx health checks, and the admin site's API proxy.
 If an update fails, it restores the previously running application images.
 Schema migrations and desktop installers are not automated by this workflow.
 
+## PostgreSQL pgvector (one-time)
+
+Compose pins PostgreSQL to `pgvector/pgvector:pg16` (same 16 major version as
+before, same data directory). New volumes create `vector` and `pg_trgm`
+automatically through `k_admin/sql/extensions.sql`. An existing volume does not
+re-run init scripts, so enable the extension once:
+
+```sh
+cd /home/Luminous/PezMax-Go
+sudo install -m 755 deploy/cd/enable-pgvector.sh /usr/local/sbin/pezmax-pgvector
+sudo /usr/local/sbin/pezmax-pgvector --dry-run
+sudo /usr/local/sbin/pezmax-pgvector
+```
+
+The script resolves the Compose project from the `pezmax-go-postgres` container
+labels, dumps the application database to `/var/backups/pezmax`, pulls the
+pgvector image, recreates only the `postgres` service, runs
+`CREATE EXTENSION vector/pg_trgm`, verifies HNSW index creation, and restores
+the previous image if any step fails. The data volume is never deleted. Expect
+a few seconds of database downtime; run it in a maintenance window.
+
+Useful flags: `--check` exits non-zero when the extension is missing,
+`--skip-backup` skips the dump (not recommended), and
+`PEZMAX_DB_BACKUP_DIR` / `PEZMAX_DB_IMAGE` / `PEZMAX_DB_CONTAINER` override
+defaults. Docker image pulls go through the Docker daemon, not the server's
+Clash HTTP proxy; if the registry is unreachable, configure the daemon proxy
+first. The poller only warns when the extension is missing and does not
+recreate the database automatically.
+
+Verify:
+
+```sh
+docker exec pezmax-go-postgres sh -c \
+  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT extversion FROM pg_extension WHERE extname = '"'"'vector'"'"'"'
+```
+
 ## Server setup
 
 Run once on the server after the workflow has been pushed and passed:

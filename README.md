@@ -66,7 +66,7 @@ Vue Web 管理后台 ────── /api/* ───────────
 | 本地持久化 | sql.js / SQLite 保存下载记录和通知已读状态，JSON 保存客户端设置 |
 | Web 后台 | Vben Admin、Vue 3、TypeScript、Ant Design Vue、Vite、pnpm workspace |
 | 服务端 | Go、Gin、GoAdmin 公共组件 |
-| 数据库 | PostgreSQL 16 |
+| 数据库 | PostgreSQL 16 + pgvector（`vector`、`pg_trgm` 扩展） |
 | 会话与缓存 | Redis 7 |
 | 对象存储 | MinIO |
 | 文档转换 | LibreOffice Writer / Impress |
@@ -581,6 +581,23 @@ npm run build
 
 1. `k_admin/tests/data/admin_pg.sql`：管理后台表结构与账号、权限等种子。
 2. `k_admin/sql/ptmj_schema.sql`：桌面业务表结构。
+3. `k_admin/sql/extensions.sql`：启用 `vector`（pgvector）与 `pg_trgm` 扩展；镜像缺失扩展时初始化直接失败，不会静默跳过。
+
+PostgreSQL 镜像使用 `pgvector/pgvector:pg16`（`PEZMAX_DB_IMAGE` 可覆盖），与 `postgres:16-alpine` 同为 16 主版本、共用同一数据目录。扩展初始化脚本只在空数据卷执行；已有数据卷先确认镜像，再手动建扩展：
+
+```powershell
+# 容器仍显示 postgres:16-alpine 时，先换镜像（卷和数据不变）
+docker compose pull postgres
+docker compose up -d --no-deps postgres
+
+# 再创建扩展
+docker compose exec postgres psql -U postgres -d pezmax `
+  -c "CREATE EXTENSION IF NOT EXISTS vector" `
+  -c "CREATE EXTENSION IF NOT EXISTS pg_trgm"
+docker compose exec postgres psql -U postgres -d pezmax -tAc "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
+```
+
+生产服务器的一次性升级、备份与回滚见 [enable-pgvector.sh](./deploy/cd/enable-pgvector.sh) 和 [CI/CD 说明](./deploy/cd/README.md)。
 
 后端启动还会执行各模块的幂等建表 / 补齐及权限菜单同步。初始化 SQL 仅在空数据目录执行；已有卷不会因重新启动 Compose 而重新导入。更改 `.env` 中的数据库密码也不会自动改变已有 PostgreSQL 用户密码。初始化种子含 `postgres` 角色归属，若更改 `PEZMAX_DB_USER`，需同步处理种子 SQL 的角色和权限。
 

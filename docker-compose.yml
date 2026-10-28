@@ -2,7 +2,9 @@ name: pezmax-go
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector 官方镜像基于同主版本 PostgreSQL 16，pgvector/pg_trgm 扩展已内置；
+    # 与 postgres:16-alpine 共享同一数据目录，迁移只换镜像、不换卷。
+    image: ${PEZMAX_DB_IMAGE:-pgvector/pgvector:pg16}
     container_name: pezmax-go-postgres
     restart: unless-stopped
     environment:
@@ -17,6 +19,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./k_admin/tests/data/admin_pg.sql:/docker-entrypoint-initdb.d/10-admin_pg.sql:ro
       - ./k_admin/sql/ptmj_schema.sql:/docker-entrypoint-initdb.d/20-ptmj_schema.sql:ro
+      - ./k_admin/sql/extensions.sql:/docker-entrypoint-initdb.d/30-extensions.sql:ro
     networks:
       - backend
     healthcheck:

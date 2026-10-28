@@ -2,7 +2,7 @@ name: kadmin-go-admin
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ${KADMIN_DB_IMAGE:-pgvector/pgvector:pg16}
     container_name: kadmin-go-admin-postgres
     restart: unless-stopped
     environment:
@@ -16,6 +16,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./tests/data/admin_pg.sql:/docker-entrypoint-initdb.d/10-admin_pg.sql:ro
+      - ./sql/extensions.sql:/docker-entrypoint-initdb.d/20-extensions.sql:ro
     networks:
       - backend
     healthcheck:
