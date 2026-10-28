@@ -120,7 +120,7 @@ npm run agent:build
 npm run test:agent-integration
 ```
 
-`agent:setup` 创建相邻 `PezMax-Agent/.venv` 并安装锁定依赖。开发时默认使用该解释器，也可用绝对路径环境变量 `PEZMAX_AGENT_PYTHON` 指定已安装模块的解释器；安装版只运行随应用附带的模块。
+`agent:setup` 创建相邻 `PezMax-Agent/.venv` 并安装锁定依赖。开发时默认使用该解释器，也可用绝对路径环境变量 `PEZMAX_AGENT_PYTHON` 指定已安装模块的解释器；安装版只运行随应用附带的模块。系统 Python 缺少标准库 `venv` 模块时，`agent:setup` 会改用 `virtualenv` 包创建环境，两者都不可用则直接报错提示，不会静默失败。
 
 `agent:build` 使用 PyInstaller 生成当前系统、当前架构的独立程序，先执行离线启动自检，再生成平台清单。`test:agent-integration` 同时验证源码解释器与独立程序的完整“模型 → 真实模拟目录 → 模型”链路和取消行为，无需真实 Key。
 

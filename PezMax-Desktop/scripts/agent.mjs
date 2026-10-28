@@ -21,12 +21,37 @@ function run(file, args) {
     if (result.status !== 0) process.exit(result.status || 1)
 }
 const action = process.argv[2]
+// Some Windows installs ship without the stdlib `venv` module; fail loudly
+// instead of silently exiting 1, and fall back to the virtualenv package.
+function createEnvironment(bootstrap) {
+    const target = join(root, '.venv')
+    const created = spawnSync(bootstrap, ['-m', 'venv', target], {
+        cwd: root,
+        stdio: 'inherit',
+        windowsHide: true,
+        shell: false
+    })
+    if (created.error)
+        throw new Error(
+            `Cannot start ${bootstrap}; install Python 3.11+ or run npm run agent:setup.`
+        )
+    if (created.status === 0) return
+    const fallback = spawnSync(bootstrap, ['-m', 'virtualenv', '--version'], {
+        cwd: root,
+        stdio: 'ignore',
+        windowsHide: true,
+        shell: false
+    })
+    if (fallback.status !== 0)
+        throw new Error(
+            `${bootstrap} 缺少 venv 模块，且未安装 virtualenv。请安装完整 Python 3.11+，或执行 ${bootstrap} -m pip install virtualenv 后重试。`
+        )
+    run(bootstrap, ['-m', 'virtualenv', target])
+}
 if (action === 'setup') {
     if (!existsSync(python))
-        run(
-            process.env.PEZMAX_AGENT_PYTHON ||
-                (process.platform === 'win32' ? 'python' : 'python3'),
-            ['-m', 'venv', join(root, '.venv')]
+        createEnvironment(
+            process.env.PEZMAX_AGENT_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
         )
     run(python, ['-m', 'pip', 'install', '-r', 'requirements.lock', '-e', '.[build]'])
 } else {
