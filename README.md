@@ -466,7 +466,7 @@ VITE_APP_BASE_API=https://api.example.com
 VITE_APP_TARGET_URL=https://api.example.com
 ```
 
-这里填写后端或 edge 的**站点根地址**，不要追加 `/api`，桌面接口自行拼接 `/datum/*` 等路径。当前生产模板指向 `http://82.156.245.102:9033`，即打包后的安装包默认连接该后端。
+这里填写后端或 edge 的**站点根地址**，不要追加 `/api`，桌面接口自行拼接 `/datum/*` 等路径。当前模板指向 `http://127.0.0.1:9033`，供本地测试打包直接连本机后端；正式发布前改回部署后端地址。
 
 Windows 构建：
 
