@@ -159,6 +159,22 @@ func run() error {
 		log.Printf("出站 QoS 未启用：%s", qosDesc)
 	}
 	log.Print("KAdmin API 前缀：/api；前端项目：admin-web（独立运行）")
+	ragStatus := appRuntime.RAGStatus()
+	if ragStatus.Enabled {
+		modelLabel := func(model string) string {
+			if model == "" {
+				return "未配置"
+			}
+			return model
+		}
+		log.Printf("Eino RAG 模型层已启用：chat=%s / embedding=%s（%d 维）/ vision=%s",
+			modelLabel(ragStatus.Chat.Model),
+			modelLabel(ragStatus.Embedding.Model),
+			ragStatus.Embedding.Dimensions,
+			modelLabel(ragStatus.Vision.Model))
+	} else {
+		log.Print("Eino RAG 模型层未启用（设置 KADMIN_RAG_ENABLED=true 开启）")
+	}
 	if swaggerEnabled {
 		log.Print("Swagger API 文档：/swagger/index.html")
 	} else {

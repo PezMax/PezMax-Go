@@ -28,6 +28,7 @@ func TestRegisterApplicationRoutesIncludesEveryModule(t *testing.T) {
 		"POST /api/users/avatar":                 false,
 		"GET /api/system/config/login":           false,
 		"GET /api/logs":                          false,
+		"GET /api/rag/status":                    false,
 		"GET /api/login-audits":                  false,
 		"PATCH /api/login-audits/retention":      false,
 		"GET /api/jobs":                          false,

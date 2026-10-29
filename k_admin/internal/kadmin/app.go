@@ -1,8 +1,11 @@
 package kadmin
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated"
@@ -15,6 +18,7 @@ import (
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/monitor"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/notifications"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/convert"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/rag/llm"
 	"github.com/GoAdminGroup/go-admin/modules/db"
 	"github.com/gin-gonic/gin"
 )
@@ -38,6 +42,7 @@ type Store struct {
 	loadRank       *loadrank.Sampler
 	datumConverter *convert.Converter
 	converterOnce  sync.Once
+	ragModels      *llm.Runtime
 }
 
 type Runtime struct {
@@ -47,6 +52,7 @@ type Runtime struct {
 	monitor     *monitor.Manager
 	loadRank    *loadrank.Sampler
 	datumStates *datumStateWarmer
+	ragModels   *llm.Runtime
 }
 
 func (r *Runtime) Close() {
@@ -71,6 +77,9 @@ func (r *Runtime) Close() {
 	if r.loginLogs != nil {
 		r.loginLogs.Close()
 	}
+	if r.ragModels != nil {
+		r.ragModels.Close()
+	}
 }
 
 // LoadRankSampler exposes the HTTP metric sampler for wiring the request log
@@ -82,10 +91,38 @@ func (r *Runtime) LoadRankSampler() *loadrank.Sampler {
 	return r.loadRank
 }
 
+// RAGStatus exposes the redacted Eino model configuration for startup logs.
+func (r *Runtime) RAGStatus() llm.Status {
+	if r == nil || r.ragModels == nil {
+		return llm.Status{Framework: "eino"}
+	}
+	return r.ragModels.Status()
+}
+
 func Register(r *gin.Engine, conn db.Connection) (*Runtime, error) {
+	// Eino model clients are constructed eagerly so a bad KADMIN_RAG_* value
+	// fails startup instead of the first request. Disabled configuration is a
+	// no-op and keeps the previous backend behaviour unchanged.
+	ragModels, err := llm.NewFromEnv(context.Background(), func(key, fallback string) string {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+		return fallback
+	})
+	if err != nil {
+		return nil, fmt.Errorf("初始化 RAG 模型层失败: %w", err)
+	}
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			ragModels.Close()
+		}
+	}()
+
 	s := &Store{
-		conn: conn,
-		auth: newAuthServiceFromEnv(),
+		conn:      conn,
+		auth:      newAuthServiceFromEnv(),
+		ragModels: ragModels,
 	}
 	s.security = newSecurityService(s.auth)
 	s.datum = newDatumIdentity(s.auth.keyPrefix+":datum", s.auth.redis, datumSessionTTL())
@@ -170,10 +207,13 @@ func Register(r *gin.Engine, conn db.Connection) (*Runtime, error) {
 	// Prime the desktop caches before Register returns and main starts serving
 	// HTTP. Runtime owns the maintenance loop so it stops before the DB closes.
 	datumStates := startDatumStateWarmer(s.warmDatumStates, datumStateWarmInterval)
-	return &Runtime{
+	runtime := &Runtime{
 		audit: s.audit, jobs: manager, loginLogs: loginLogManager,
 		monitor: monitorManager, loadRank: loadRankSampler, datumStates: datumStates,
-	}, nil
+		ragModels: ragModels,
+	}
+	handedOff = true
+	return runtime, nil
 }
 
 func registerApplicationRoutes(api *gin.RouterGroup, s *Store) error {
@@ -192,6 +232,7 @@ func registerApplicationRoutes(api *gin.RouterGroup, s *Store) error {
 	})
 	registerSystemConfigRoutes(api, s)
 	registerLogRoutes(api, s)
+	registerRAGRoutes(api, s)
 	if err := codegen.Register(api, codegen.Dependencies{
 		Connection:        s.conn,
 		RequireAuth:       s.requireAuth(),

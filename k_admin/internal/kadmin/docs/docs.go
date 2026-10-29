@@ -9755,6 +9755,39 @@ const docTemplate = `{
                 }
             }
         },
+        "/rag/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "RAG"
+                ],
+                "summary": "Eino 模型层状态",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/rbac/departments": {
             "get": {
                 "security": [

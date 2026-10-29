@@ -1076,3 +1076,13 @@ func swaggerMarkAllNotificationsRead() {}
 // @Failure 403 {object} SwaggerErrorResponse
 // @Router /notification-batch/read [delete]
 func swaggerClearReadNotifications() {}
+
+// swaggerRAGStatus documents GET /rag/status.
+// @Summary Eino 模型层状态
+// @Tags RAG
+// @Security BearerAuth
+// @Success 200 {object} SwaggerResponse
+// @Failure 401 {object} SwaggerErrorResponse
+// @Failure 403 {object} SwaggerErrorResponse
+// @Router /rag/status [get]
+func swaggerRAGStatus() {}

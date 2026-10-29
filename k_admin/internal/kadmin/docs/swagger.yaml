@@ -6826,6 +6826,26 @@ paths:
       summary: 修改通知
       tags:
       - 生成业务
+  /rag/status:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Eino 模型层状态
+      tags:
+      - RAG
   /rbac/departments:
     get:
       responses:

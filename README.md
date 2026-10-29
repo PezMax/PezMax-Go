@@ -66,6 +66,7 @@ Vue Web 管理后台 ────── /api/* ───────────
 | 本地持久化 | sql.js / SQLite 保存下载记录和通知已读状态，JSON 保存客户端设置 |
 | Web 后台 | Vben Admin、Vue 3、TypeScript、Ant Design Vue、Vite、pnpm workspace |
 | 服务端 | Go、Gin、GoAdmin 公共组件 |
+| AI 模型层 | Eino（`eino` + `eino-ext` ChatModel）、OpenAI-compatible 网关、Eino Embedding 接口 |
 | 数据库 | PostgreSQL 16 + pgvector（`vector`、`pg_trgm` 扩展） |
 | 会话与缓存 | Redis 7 |
 | 对象存储 | MinIO |
@@ -324,8 +325,32 @@ Compose 的 app 服务**不读取宿主机的 `k_admin/.env`**，而是使用根
 | `KADMIN_SOFFICE_BIN` | LibreOffice 可执行文件路径，默认 `soffice` |
 | `KADMIN_CONVERT_TIMEOUT` | 单次转档超时，默认 `2m` |
 | `KADMIN_CONVERT_CONCURRENCY` | 转档最大并发，默认 `2` |
+| `KADMIN_RAG_ENABLED` | 启用 Eino RAG 模型层，默认 `false`；关闭时不创建任何模型客户端 |
+| `KADMIN_RAG_CHAT_BASE_URL/API_KEY/MODEL/TIMEOUT` | Chat 模型网关；BaseURL 需包含 `/v1` 等版本段，超时默认 `60s` |
+| `KADMIN_RAG_EMBEDDING_BASE_URL/API_KEY/MODEL/TIMEOUT` | Embedding 模型网关；超时默认 `30s` |
+| `KADMIN_RAG_EMBEDDING_DIM` | 固定向量维度，默认 `1024`，上限 `2000`（pgvector HNSW 限制） |
+| `KADMIN_RAG_VISION_MODEL/BASE_URL/API_KEY/TIMEOUT` | 可选 Vision 模型；模型为空即关闭，连接信息留空时复用 Chat |
 
 后端更多配置见 [k_admin/.env.example](./k_admin/.env.example)。端口、MinIO 凭据和 JWT 密钥应在所选运行方式中保持一致。
+
+### Eino 模型层（RAG）
+
+后端通过 Eino（`github.com/cloudwego/eino`）统一 ChatModel 与 Embedding 接口，模型供应商使用 OpenAI-compatible HTTP 网关，不在业务代码中绑定厂商 SDK：
+
+- Chat / Vision 使用 `eino-ext/components/model/openai`；Embedding 使用 Eino `embedding.Embedder` 接口的本地适配器，响应会按 `KADMIN_RAG_EMBEDDING_DIM` 强校验维度。
+- `KADMIN_RAG_ENABLED=false` 时不发任何模型请求，上传、审核、搜索等现有链路完全不变。
+- 启用后配置错误会在启动阶段直接失败，不会拖到首个请求；启动日志只输出模型名和维度，不输出 API Key 或请求内容。
+- `GET /api/rag/status` 供 admin / 超级管理员查看脱敏后的模型配置（不返回 API Key，BaseURL 去除 userinfo 与 query）。
+- 关闭 RAG 或只配置 Chat/Embedding 之一是允许的，调用方通过 `Runtime.ChatModel()` / `Embedder()` 判断能力后再使用。
+
+```dotenv
+KADMIN_RAG_ENABLED=true
+KADMIN_RAG_CHAT_BASE_URL=http://llm-gateway:8000/v1
+KADMIN_RAG_CHAT_MODEL=your-chat-model
+KADMIN_RAG_EMBEDDING_BASE_URL=http://llm-gateway:8000/v1
+KADMIN_RAG_EMBEDDING_MODEL=bge-m3
+KADMIN_RAG_EMBEDDING_DIM=1024
+```
 
 ## Docker 部署
 
