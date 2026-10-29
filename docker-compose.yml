@@ -20,6 +20,7 @@ services:
       - ./k_admin/tests/data/admin_pg.sql:/docker-entrypoint-initdb.d/10-admin_pg.sql:ro
       - ./k_admin/sql/ptmj_schema.sql:/docker-entrypoint-initdb.d/20-ptmj_schema.sql:ro
       - ./k_admin/sql/extensions.sql:/docker-entrypoint-initdb.d/30-extensions.sql:ro
+      - ./k_admin/internal/kadmin/rag/rag_schema.sql:/docker-entrypoint-initdb.d/40-rag_schema.sql:ro
     networks:
       - backend
     healthcheck:
@@ -82,12 +83,14 @@ services:
       MINIO_ROOT_USER: ${PEZMAX_MINIO_ACCESS_KEY:?Set PEZMAX_MINIO_ACCESS_KEY in .env}
       MINIO_ROOT_PASSWORD: ${PEZMAX_MINIO_SECRET_KEY:?Set PEZMAX_MINIO_SECRET_KEY in .env}
       MINIO_BUCKET: ${PEZMAX_MINIO_BUCKET:-ptmj}
+      MINIO_RAG_BUCKET: ${PEZMAX_MINIO_RAG_BUCKET:-ptmj-rag}
     entrypoint:
       - /bin/sh
       - -c
       - |
         until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do sleep 2; done
         mc mb --ignore-existing "local/$$MINIO_BUCKET"
+        mc mb --ignore-existing "local/$$MINIO_RAG_BUCKET"
     networks:
       - backend
     depends_on:
@@ -137,6 +140,7 @@ services:
       KADMIN_MINIO_ACCESS_KEY: ${PEZMAX_MINIO_ACCESS_KEY:?Set PEZMAX_MINIO_ACCESS_KEY in .env}
       KADMIN_MINIO_SECRET_KEY: ${PEZMAX_MINIO_SECRET_KEY:?Set PEZMAX_MINIO_SECRET_KEY in .env}
       KADMIN_MINIO_BUCKET: ${PEZMAX_MINIO_BUCKET:-ptmj}
+      KADMIN_MINIO_RAG_BUCKET: ${PEZMAX_MINIO_RAG_BUCKET:-ptmj-rag}
       KADMIN_DATUM_SESSION_TTL: 120h
       # Eino RAG 模型层：默认关闭；密钥只通过部署环境注入，不写入镜像。
       KADMIN_RAG_ENABLED: ${KADMIN_RAG_ENABLED:-false}

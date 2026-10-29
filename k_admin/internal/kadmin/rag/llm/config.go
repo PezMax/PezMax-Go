@@ -118,6 +118,9 @@ func embeddingFromEnv(getenv func(string, string) string) (EmbeddingConfig, erro
 	if dim > maxEmbeddingDim {
 		return EmbeddingConfig{}, fmt.Errorf("KADMIN_RAG_EMBEDDING_DIM 必须不超过 %d（pgvector HNSW 限制）", maxEmbeddingDim)
 	}
+	if provider.Model != "" && dim != DefaultEmbeddingDim {
+		return EmbeddingConfig{}, fmt.Errorf("KADMIN_RAG_EMBEDDING_DIM 当前必须为 %d（rag_chunk.embedding 固定维度）", DefaultEmbeddingDim)
+	}
 	return EmbeddingConfig{ProviderConfig: provider, Dimensions: dim}, nil
 }
 

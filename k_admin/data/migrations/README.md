@@ -14,3 +14,5 @@
 
 后续数据库结构变更请同步更新：模块 `schema.go`（启动迁移）与
 `tests/data/admin_pg.sql`（全新安装快照）。
+
+RAG schema 由 `internal/kadmin/rag/rag_schema.sql` 维护，并由 `internal/kadmin/rag/schema.go` 在 pgvector 可用时幂等补齐；根 Compose 和 KAdmin 本地 Compose 会在新数据卷初始化时挂载该文件。RAG 开启但 pgvector 缺失会阻止后端启动，RAG 关闭且扩展缺失则跳过。

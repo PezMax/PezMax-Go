@@ -187,6 +187,7 @@ KADMIN_MINIO_PUBLIC_BASE=http://127.0.0.1:29000
 KADMIN_MINIO_ACCESS_KEY=<与 PEZMAX_MINIO_ACCESS_KEY 相同>
 KADMIN_MINIO_SECRET_KEY=<与 PEZMAX_MINIO_SECRET_KEY 相同>
 KADMIN_MINIO_BUCKET=ptmj
+KADMIN_MINIO_RAG_BUCKET=ptmj-rag
 KADMIN_MINIO_USE_SSL=false
 ```
 
@@ -328,7 +329,7 @@ Compose 的 app 服务**不读取宿主机的 `k_admin/.env`**，而是使用根
 | `KADMIN_RAG_ENABLED` | 启用 Eino RAG 模型层，默认 `false`；关闭时不创建任何模型客户端 |
 | `KADMIN_RAG_CHAT_BASE_URL/API_KEY/MODEL/TIMEOUT` | Chat 模型网关；BaseURL 需包含 `/v1` 等版本段，超时默认 `60s` |
 | `KADMIN_RAG_EMBEDDING_BASE_URL/API_KEY/MODEL/TIMEOUT` | Embedding 模型网关；超时默认 `30s` |
-| `KADMIN_RAG_EMBEDDING_DIM` | 固定向量维度，默认 `1024`，上限 `2000`（pgvector HNSW 限制） |
+| `KADMIN_RAG_EMBEDDING_DIM` | 当前固定为 `1024`，必须与 `rag_chunk.embedding vector(1024)` 一致；切换模型维度需先迁移索引 |
 | `KADMIN_RAG_VISION_MODEL/BASE_URL/API_KEY/TIMEOUT` | 可选 Vision 模型；模型为空即关闭，连接信息留空时复用 Chat |
 
 后端更多配置见 [k_admin/.env.example](./k_admin/.env.example)。端口、MinIO 凭据和 JWT 密钥应在所选运行方式中保持一致。
@@ -340,6 +341,7 @@ Compose 的 app 服务**不读取宿主机的 `k_admin/.env`**，而是使用根
 - Chat / Vision 使用 `eino-ext/components/model/openai`；Embedding 使用 Eino `embedding.Embedder` 接口的本地适配器，响应会按 `KADMIN_RAG_EMBEDDING_DIM` 强校验维度。
 - `KADMIN_RAG_ENABLED=false` 时不发任何模型请求，上传、审核、搜索等现有链路完全不变。
 - 启用后配置错误会在启动阶段直接失败，不会拖到首个请求；启动日志只输出模型名和维度，不输出 API Key 或请求内容。
+- 启用 RAG 时后台幂等创建 `rag_index_version`、`rag_document`、`rag_job`、`rag_chunk`、`rag_review`、`rag_query_log` 及词法 / HNSW 索引；新 Docker 数据卷通过 `internal/kadmin/rag/rag_schema.sql` 初始化。
 - `GET /api/rag/status` 供 admin / 超级管理员查看脱敏后的模型配置（不返回 API Key，BaseURL 去除 userinfo 与 query）。
 - 关闭 RAG 或只配置 Chat/Embedding 之一是允许的，调用方通过 `Runtime.ChatModel()` / `Embedder()` 判断能力后再使用。
 
@@ -371,6 +373,7 @@ docker compose logs --tail 100 kadmin
 ```
 
 应用镜像使用 `k_admin/Dockerfile.app`，包含 LibreOffice、中文字体和 Go 可执行文件。容器内使用 `postgres:5432`、`redis:6379`、`minio:9000`；宿主机连接则使用映射后的 25432、26379、29000，二者不要混用。
+`minio-init` 会幂等创建文件业务桶 `ptmj` 和独立 RAG 桶 `ptmj-rag`；后者用于页图、缩略图、OCR JSON 与抽取缓存。可分别通过根目录 `.env` 中的 `PEZMAX_MINIO_BUCKET`、`PEZMAX_MINIO_RAG_BUCKET` 覆盖名称。独立运行 `k_admin/docker-compose.yml` 时，对应变量为 `KADMIN_MINIO_BUCKET` 和 `KADMIN_MINIO_RAG_BUCKET`。
 
 默认对外应用端口为 9033，可通过 `PEZMAX_APP_PORT` 修改。`PEZMAX_MINIO_PUBLIC_BASE` 必须设置为**客户端机器也能访问**的地址；跨机器部署时不能保留 `127.0.0.1`。
 
@@ -606,8 +609,8 @@ npm run build
 
 1. `k_admin/tests/data/admin_pg.sql`：管理后台表结构与账号、权限等种子。
 2. `k_admin/sql/ptmj_schema.sql`：桌面业务表结构。
-3. `k_admin/sql/extensions.sql`：启用 `vector`（pgvector）与 `pg_trgm` 扩展；镜像缺失扩展时初始化直接失败，不会静默跳过。
-
+3. `k_admin/sql/extensions.sql`：启用 `vector`（pgvector）与 `pg_trgm` 扩展；镜像缺失扩展时初始化直接失败。
+4. `k_admin/internal/kadmin/rag/rag_schema.sql`：RAG 索引版本、文档、任务、chunk、审核记录、查询日志及索引。
 PostgreSQL 镜像使用 `pgvector/pgvector:pg16`（`PEZMAX_DB_IMAGE` 可覆盖），与 `postgres:16-alpine` 同为 16 主版本、共用同一数据目录。扩展初始化脚本只在空数据卷执行；已有数据卷先确认镜像，再手动建扩展：
 
 ```powershell
@@ -622,9 +625,13 @@ docker compose exec postgres psql -U postgres -d pezmax `
 docker compose exec postgres psql -U postgres -d pezmax -tAc "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
 ```
 
-生产服务器的一次性升级、备份与回滚见 [enable-pgvector.sh](./deploy/cd/enable-pgvector.sh) 和 [CI/CD 说明](./deploy/cd/README.md)。
+后端启动会在 pgvector 扩展已安装时幂等补齐 RAG schema；RAG 开启但扩展缺失时会明确报错，RAG 关闭且旧数据库无扩展时不影响旧服务。初始化 SQL 只在空数据卷执行，已有数据卷不会自动重跑。已经安装 pgvector 的现有库也可手动应用 schema：
 
-后端启动还会执行各模块的幂等建表 / 补齐及权限菜单同步。初始化 SQL 仅在空数据目录执行；已有卷不会因重新启动 Compose 而重新导入。更改 `.env` 中的数据库密码也不会自动改变已有 PostgreSQL 用户密码。初始化种子含 `postgres` 角色归属，若更改 `PEZMAX_DB_USER`，需同步处理种子 SQL 的角色和权限。
+```powershell
+docker compose exec postgres psql -U postgres -d pezmax -f /docker-entrypoint-initdb.d/40-rag_schema.sql
+```
+
+embedding 目前固定为 `vector(1024)`；配置其他维度会在启动校验阶段报错，不能直接混写。切换维度需单独设计索引迁移。更改 `.env` 数据库密码不会自动改变已有 PostgreSQL 用户密码。
 
 当前已有以下旧版 MySQL → PostgreSQL 脚本：
 

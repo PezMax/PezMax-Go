@@ -92,6 +92,15 @@ func TestConfigFromEnvValidation(t *testing.T) {
 			want: "KADMIN_RAG_EMBEDDING_DIM",
 		},
 		{
+			name: "embedding dimension differs from initial RAG schema",
+			values: map[string]string{
+				"KADMIN_RAG_ENABLED":         "true",
+				"KADMIN_RAG_EMBEDDING_MODEL": "embedding-model",
+				"KADMIN_RAG_EMBEDDING_DIM":   "1536",
+			},
+			want: "rag_chunk.embedding 固定维度",
+		},
+		{
 			name: "invalid base url",
 			values: map[string]string{
 				"KADMIN_RAG_ENABLED":       "true",

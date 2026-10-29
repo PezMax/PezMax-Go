@@ -26,7 +26,7 @@ Go 服务默认使用以下配置：
 
 ## pgvector
 
-本地 PostgreSQL 使用 `pgvector/pgvector:pg16`（可用 `KADMIN_DB_IMAGE` 覆盖），镜像内置 `vector` 与 `pg_trgm`。空数据卷首次启动会执行 `sql/extensions.sql`，自动创建两个扩展。
+本地 PostgreSQL 使用 `pgvector/pgvector:pg16`（可用 `KADMIN_DB_IMAGE` 覆盖），镜像内置 `vector` 与 `pg_trgm`。空数据卷首次启动按序执行 `sql/extensions.sql` 和 `internal/kadmin/rag/rag_schema.sql`，自动创建扩展及 RAG 检索表。
 
 已有 `kadmin-go-admin-postgres-data` 卷不会重跑初始化脚本。若容器仍是旧镜像（`docker inspect` 显示 `postgres:16-alpine`），先拉取并重建数据库容器；16 主版本共用同一数据目录，卷不需要重建：
 
@@ -43,6 +43,16 @@ docker compose exec postgres psql -U postgres -d kadmin `
   -c "CREATE EXTENSION IF NOT EXISTS pg_trgm"
 docker compose exec postgres psql -U postgres -d kadmin -tAc "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
 ```
+
+扩展安装后，Go 后端启动会幂等补齐 RAG schema。也可手动执行并核验：
+
+```powershell
+Get-Content .\internal\kadmin\rag\rag_schema.sql -Raw |
+  docker compose exec -T postgres psql -U postgres -d kadmin
+docker compose exec postgres psql -U postgres -d kadmin -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'rag_%' ORDER BY table_name"
+```
+
+检索向量当前固定为 `vector(1024)`；更换维度需先迁移索引，不可直接调整配置混用。
 
 验证向量运算与 HNSW 索引：
 

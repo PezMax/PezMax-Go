@@ -18,6 +18,7 @@ import (
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/monitor"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/notifications"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/convert"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/rag"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/rag/llm"
 	"github.com/GoAdminGroup/go-admin/modules/db"
 	"github.com/gin-gonic/gin"
@@ -130,6 +131,9 @@ func Register(r *gin.Engine, conn db.Connection) (*Runtime, error) {
 	// migrated database) always find the fourteen ptmj_* tables ready.
 	if err := datum.EnsureSchema(s.conn); err != nil {
 		return nil, fmt.Errorf("初始化 datum 业务表失败: %w", err)
+	}
+	if _, err := rag.EnsureSchema(s.conn, ragModels.Enabled()); err != nil {
+		return nil, fmt.Errorf("初始化 RAG 数据库失败: %w", err)
 	}
 	if err := s.syncDefaultPermissions(); err != nil {
 		return nil, fmt.Errorf("同步默认权限失败: %w", err)
