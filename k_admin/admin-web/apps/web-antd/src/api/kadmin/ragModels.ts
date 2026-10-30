@@ -1,36 +1,41 @@
 import { request } from './client';
 
-export interface RagProviderConfig {
+export type RagModelKind = 'chat' | 'embedding' | 'ocr' | 'rerank' | 'vision';
+
+export interface RagModelItem {
+  id: string;
+  kind: RagModelKind;
+  name: string;
   model: string;
   baseUrl: string;
   apiKeySet: boolean;
   timeoutSeconds: number;
+  active: boolean;
 }
 
 export interface RagModelConfig {
   enabled: boolean;
-  chat: RagProviderConfig;
-  embedding: RagProviderConfig;
-  vision: RagProviderConfig;
-  ocr: RagProviderConfig;
-  rerank: RagProviderConfig;
   dimensions: number;
+  models: RagModelItem[];
   encryptedStore: boolean;
 }
 
-export interface RagProviderInput extends Omit<RagProviderConfig, 'apiKeySet'> {
+export interface RagModelInput {
+  id: string;
+  kind: RagModelKind;
+  name: string;
+  model: string;
+  baseUrl: string;
   apiKey: string;
   clearApiKey: boolean;
+  timeoutSeconds: number;
+  active: boolean;
 }
 
 export interface RagModelConfigInput {
   enabled: boolean;
-  chat: RagProviderInput;
-  embedding: RagProviderInput;
-  vision: RagProviderInput;
-  ocr: RagProviderInput;
-  rerank: RagProviderInput;
   dimensions: number;
+  models: RagModelInput[];
 }
 
 export function getRagModelConfig() {

@@ -27,11 +27,11 @@ KAdmin 是一个前后端分离的后台管理项目。后端复用 [GoAdmin](ht
 
 ### RAG 模型配置
 
-管理员可在 `/kadmin/rag-models` 即时配置 Chat、Embedding、Vision、OCR 和可选 Rerank 模型。接口执行 JWT 鉴权和管理员身份检查；API Key 不会出现在响应或审计日志中。
+管理员可在 `/kadmin/rag-models` 即时配置 Chat、Embedding、Vision、OCR 和可选 Rerank 模型。页面采用左侧模型清单、右侧详情的形式：每种分工可同时保存多个模型（例如主用与备用），同一分工同一时刻只有一个模型标记为启用，只有启用的模型进入在线 Eino runtime，其余仅保存备用。接口执行 JWT 鉴权和管理员身份检查；API Key 不会出现在响应或审计日志中。
 
-配置写入 `KADMIN_RAG_MODEL_CONFIG_PATH` 指定的数据文档，默认 `data/rag_models.enc`。文档使用 AES-256-GCM 加密；生产环境必须从 Secret 注入 `KADMIN_RAG_CONFIG_ENCRYPTION_KEY`（64 位十六进制、32 字节），不得提交 `.env` 或密钥。Docker Compose 使用独立持久化卷保存密文，密钥不进入该卷。保存前校验并构建新 Eino runtime，再原子替换在线 runtime；失败时旧配置继续生效。
+配置写入 `KADMIN_RAG_MODEL_CONFIG_PATH` 指定的数据文档，默认 `data/rag_models.enc`。文档使用 AES-256-GCM 加密；生产环境必须从 Secret 注入 `KADMIN_RAG_CONFIG_ENCRYPTION_KEY`（64 位十六进制、32 字节），不得提交 `.env` 或密钥。Docker Compose 使用独立持久化卷保存密文，密钥不进入该卷。保存前校验并构建新 Eino runtime，再原子替换在线 runtime；失败时旧配置继续生效。旧版单模型文档会在读取时自动转换为多模型文档，下次保存后写入新格式。
 
-首次启用前生成密钥：
+密钥为单向写入：响应只返回 `apiKeySet` 布尔值；编辑时留空表示保留已保存的密钥，勾选“清除”才会删除。首次启用前生成密钥：
 
 ```bash
 openssl rand -hex 32

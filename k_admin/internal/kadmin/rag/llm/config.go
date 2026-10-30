@@ -126,6 +126,12 @@ func embeddingFromEnv(getenv func(string, string) string) (EmbeddingConfig, erro
 	return EmbeddingConfig{ProviderConfig: provider, Dimensions: dim}, nil
 }
 
+// ValidateBaseURL reports whether raw is an absolute http(s) URL with a host.
+// It backs both environment parsing and the admin model configuration API.
+func ValidateBaseURL(key, raw string) error {
+	return validateBaseURL(key, raw)
+}
+
 func validateBaseURL(key, raw string) error {
 	parsed, err := url.Parse(raw)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {

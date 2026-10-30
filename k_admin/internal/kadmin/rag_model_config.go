@@ -25,46 +25,81 @@ const ragModelConfigPathEnv = "KADMIN_RAG_MODEL_CONFIG_PATH"
 const ragModelConfigKeyEnv = "KADMIN_RAG_CONFIG_ENCRYPTION_KEY"
 const ragModelConfigAAD = "pezmax-go/rag-model-config/v1"
 
+// storedModelConfigVersion marks the multi-model document layout. Documents
+// without a version are the legacy single-model-per-role layout and are
+// converted on read.
+const storedModelConfigVersion = 2
+
+// ragModelKinds lists the model roles the RAG runtime consumes together with
+// the default request timeout applied when an entry omits one.
+var ragModelKinds = map[string]time.Duration{
+	"chat":      llm.DefaultChatTimeout,
+	"embedding": llm.DefaultEmbeddingTimeout,
+	"vision":    llm.DefaultChatTimeout,
+	"ocr":       llm.DefaultChatTimeout,
+	"rerank":    llm.DefaultChatTimeout,
+}
+
 type encryptedModelDocument struct {
 	Version    int    `json:"version"`
 	Nonce      string `json:"nonce"`
 	Ciphertext string `json:"ciphertext"`
 }
 
-type modelProviderInput struct {
-	Model         string `json:"model"`
-	BaseURL       string `json:"baseUrl"`
-	APIKey        string `json:"apiKey"`
-	ClearAPIKey   bool   `json:"clearApiKey"`
-	TimeoutSecond int    `json:"timeoutSeconds"`
+// modelEntry is one saved model endpoint. Several entries may share a kind;
+// exactly one of them is active per kind and feeds the online runtime.
+type modelEntry struct {
+	ID             string `json:"id"`
+	Kind           string `json:"kind"`
+	Name           string `json:"name"`
+	Model          string `json:"model"`
+	BaseURL        string `json:"baseUrl"`
+	APIKey         string `json:"apiKey"`
+	TimeoutSeconds int    `json:"timeoutSeconds"`
+}
+
+type storedModelConfig struct {
+	Version    int               `json:"version"`
+	Enabled    bool              `json:"enabled"`
+	Dimensions int               `json:"dimensions"`
+	Models     []modelEntry      `json:"models"`
+	Active     map[string]string `json:"active"`
+}
+
+type modelInput struct {
+	ID             string `json:"id"`
+	Kind           string `json:"kind"`
+	Name           string `json:"name"`
+	Model          string `json:"model"`
+	BaseURL        string `json:"baseUrl"`
+	APIKey         string `json:"apiKey"`
+	ClearAPIKey    bool   `json:"clearApiKey"`
+	TimeoutSeconds int    `json:"timeoutSeconds"`
+	Active         bool   `json:"active"`
 }
 
 type modelConfigInput struct {
-	Enabled    bool               `json:"enabled"`
-	Chat       modelProviderInput `json:"chat"`
-	Embedding  modelProviderInput `json:"embedding"`
-	Vision     modelProviderInput `json:"vision"`
-	OCR        modelProviderInput `json:"ocr"`
-	Rerank     modelProviderInput `json:"rerank"`
-	Dimensions int                `json:"dimensions"`
+	Enabled    bool         `json:"enabled"`
+	Dimensions int          `json:"dimensions"`
+	Models     []modelInput `json:"models"`
 }
 
-type modelProviderView struct {
-	Model         string `json:"model"`
-	BaseURL       string `json:"baseUrl"`
-	APIKeySet     bool   `json:"apiKeySet"`
-	TimeoutSecond int    `json:"timeoutSeconds"`
+type modelView struct {
+	ID             string `json:"id"`
+	Kind           string `json:"kind"`
+	Name           string `json:"name"`
+	Model          string `json:"model"`
+	BaseURL        string `json:"baseUrl"`
+	APIKeySet      bool   `json:"apiKeySet"`
+	TimeoutSeconds int    `json:"timeoutSeconds"`
+	Active         bool   `json:"active"`
 }
 
 type modelConfigView struct {
-	Enabled        bool              `json:"enabled"`
-	Chat           modelProviderView `json:"chat"`
-	Embedding      modelProviderView `json:"embedding"`
-	Vision         modelProviderView `json:"vision"`
-	OCR            modelProviderView `json:"ocr"`
-	Rerank         modelProviderView `json:"rerank"`
-	Dimensions     int               `json:"dimensions"`
-	EncryptedStore bool              `json:"encryptedStore"`
+	Enabled        bool        `json:"enabled"`
+	Dimensions     int         `json:"dimensions"`
+	Models         []modelView `json:"models"`
+	EncryptedStore bool        `json:"encryptedStore"`
 }
 
 func registerRAGModelConfigRoutes(api *gin.RouterGroup, s *Store) {
@@ -78,8 +113,16 @@ func (s *Store) getRAGModelConfig(c *gin.Context) {
 		fail(c, http.StatusServiceUnavailable, "RAG 模型运行时不可用")
 		return
 	}
-	view := modelConfigToView(s.ragModels.Config())
-	view.EncryptedStore = fileExists(ragModelConfigPath())
+	stored, persisted, err := loadStoredRAGModelConfig()
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !persisted {
+		stored = storedFromLLMConfig(s.ragModels.Config())
+	}
+	view := stored.toView()
+	view.EncryptedStore = persisted
 	success(c, view)
 }
 
@@ -96,90 +139,212 @@ func (s *Store) updateRAGModelConfig(c *gin.Context) {
 	}
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
-	current := s.ragModels.Config()
-	config, err := input.toConfig(current)
+	current, persisted, err := loadStoredRAGModelConfig()
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !persisted {
+		current = storedFromLLMConfig(s.ragModels.Config())
+	}
+	stored, err := input.toStored(current)
 	if err != nil {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	candidate, err := llm.New(c.Request.Context(), config)
+	candidate, err := llm.New(c.Request.Context(), stored.toLLMConfig())
 	if err != nil {
 		fail(c, http.StatusBadRequest, "模型配置无法初始化")
 		return
 	}
-	if err := saveRAGModelConfig(config); err != nil {
+	if err := saveRAGModelConfig(stored); err != nil {
 		candidate.Close()
 		fail(c, http.StatusInternalServerError, "加密模型配置保存失败；当前在线配置未改变")
 		return
 	}
 	s.ragModels.Publish(candidate)
-	view := modelConfigToView(config)
+	view := stored.toView()
 	view.EncryptedStore = true
 	success(c, view)
 }
-func (input modelConfigInput) toConfig(current llm.Config) (llm.Config, error) {
-	config := llm.Config{Enabled: input.Enabled}
-	var err error
-	config.Chat, err = input.Chat.toProvider(current.Chat, llm.DefaultChatTimeout)
-	if err != nil {
-		return llm.Config{}, fmt.Errorf("chat: %w", err)
+
+// toStored merges the submitted model list into the persisted document. Blank
+// API keys keep the previously stored key for the same model id; clearApiKey
+// removes it. Every kind keeps at most one active entry.
+func (input modelConfigInput) toStored(current storedModelConfig) (storedModelConfig, error) {
+	stored := storedModelConfig{
+		Version:    storedModelConfigVersion,
+		Enabled:    input.Enabled,
+		Dimensions: input.Dimensions,
+		Models:     make([]modelEntry, 0, len(input.Models)),
+		Active:     make(map[string]string, len(ragModelKinds)),
 	}
-	config.Embedding.ProviderConfig, err = input.Embedding.toProvider(current.Embedding.ProviderConfig, llm.DefaultEmbeddingTimeout)
-	if err != nil {
-		return llm.Config{}, fmt.Errorf("embedding: %w", err)
+	if stored.Dimensions == 0 {
+		stored.Dimensions = current.Dimensions
 	}
-	config.Vision, err = input.Vision.toProvider(current.Vision, llm.DefaultChatTimeout)
-	if err != nil {
-		return llm.Config{}, fmt.Errorf("vision: %w", err)
+	if stored.Dimensions == 0 {
+		stored.Dimensions = llm.DefaultEmbeddingDim
 	}
-	config.OCR, err = input.OCR.toProvider(current.OCR, llm.DefaultChatTimeout)
-	if err != nil {
-		return llm.Config{}, fmt.Errorf("ocr: %w", err)
+	if stored.Dimensions != llm.DefaultEmbeddingDim {
+		return storedModelConfig{}, fmt.Errorf("embedding dimensions 当前必须为 %d（rag_chunk.embedding 固定维度）", llm.DefaultEmbeddingDim)
 	}
-	config.Rerank, err = input.Rerank.toProvider(current.Rerank, llm.DefaultChatTimeout)
-	if err != nil {
-		return llm.Config{}, fmt.Errorf("rerank: %w", err)
+	keys := make(map[string]string, len(current.Models))
+	for _, entry := range current.Models {
+		keys[entry.ID] = entry.APIKey
 	}
-	config.Embedding.Dimensions = input.Dimensions
+	seen := make(map[string]struct{}, len(input.Models))
+	for index, item := range input.Models {
+		kind := strings.ToLower(strings.TrimSpace(item.Kind))
+		timeoutDefault, ok := ragModelKinds[kind]
+		if !ok {
+			return storedModelConfig{}, fmt.Errorf("第 %d 个模型的类型 %q 不受支持；可选值：chat、embedding、vision、ocr、rerank", index+1, strings.TrimSpace(item.Kind))
+		}
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = newRAGModelID()
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return storedModelConfig{}, fmt.Errorf("模型 id %q 重复", id)
+		}
+		seen[id] = struct{}{}
+		model := strings.TrimSpace(item.Model)
+		if model == "" {
+			return storedModelConfig{}, fmt.Errorf("第 %d 个模型的模型名称不能为空", index+1)
+		}
+		baseURL := strings.TrimSpace(item.BaseURL)
+		if err := llm.ValidateBaseURL(kind+" baseUrl", baseURL); err != nil {
+			return storedModelConfig{}, fmt.Errorf("第 %d 个模型：%w", index+1, err)
+		}
+		seconds := item.TimeoutSeconds
+		if seconds == 0 {
+			seconds = int(timeoutDefault / time.Second)
+		}
+		if seconds < 1 || seconds > 600 {
+			return storedModelConfig{}, fmt.Errorf("%s：timeoutSeconds 必须在 1 到 600 秒之间", kind)
+		}
+		key := keys[id]
+		if item.ClearAPIKey {
+			key = ""
+		} else if trimmed := strings.TrimSpace(item.APIKey); trimmed != "" {
+			key = trimmed
+		}
+		stored.Models = append(stored.Models, modelEntry{
+			ID:             id,
+			Kind:           kind,
+			Name:           strings.TrimSpace(item.Name),
+			Model:          model,
+			BaseURL:        baseURL,
+			APIKey:         key,
+			TimeoutSeconds: seconds,
+		})
+		if !item.Active {
+			continue
+		}
+		if existing, active := stored.Active[kind]; active && existing != id {
+			return storedModelConfig{}, fmt.Errorf("%s 分工只能启用一个模型", kind)
+		}
+		stored.Active[kind] = id
+	}
+	if stored.Enabled && len(stored.Active) == 0 {
+		return storedModelConfig{}, fmt.Errorf("启用 RAG 模型层前需要至少启用一个模型")
+	}
+	return stored, nil
+}
+
+func (stored storedModelConfig) toView() modelConfigView {
+	models := make([]modelView, 0, len(stored.Models))
+	for _, entry := range stored.Models {
+		models = append(models, modelView{
+			ID:             entry.ID,
+			Kind:           entry.Kind,
+			Name:           entry.Name,
+			Model:          entry.Model,
+			BaseURL:        safeModelBaseURL(entry.BaseURL),
+			APIKeySet:      entry.APIKey != "",
+			TimeoutSeconds: entry.TimeoutSeconds,
+			Active:         stored.Active[entry.Kind] == entry.ID,
+		})
+	}
+	return modelConfigView{Enabled: stored.Enabled, Dimensions: stored.Dimensions, Models: models}
+}
+
+// toLLMConfig resolves the active entry per kind into the runtime config.
+func (stored storedModelConfig) toLLMConfig() llm.Config {
+	config := llm.Config{Enabled: stored.Enabled, Embedding: llm.EmbeddingConfig{Dimensions: stored.Dimensions}}
+	for _, entry := range stored.Models {
+		if stored.Active[entry.Kind] != entry.ID {
+			continue
+		}
+		provider := llm.ProviderConfig{
+			Model:   entry.Model,
+			BaseURL: entry.BaseURL,
+			APIKey:  entry.APIKey,
+			Timeout: time.Duration(entry.TimeoutSeconds) * time.Second,
+		}
+		switch entry.Kind {
+		case "chat":
+			config.Chat = provider
+		case "embedding":
+			config.Embedding.ProviderConfig = provider
+		case "vision":
+			config.Vision = provider
+		case "ocr":
+			config.OCR = provider
+		case "rerank":
+			config.Rerank = provider
+		}
+	}
 	if config.Embedding.Dimensions == 0 {
 		config.Embedding.Dimensions = llm.DefaultEmbeddingDim
 	}
-	if config.Embedding.Dimensions != llm.DefaultEmbeddingDim {
-		return llm.Config{}, fmt.Errorf("embedding dimensions 当前必须为 %d（rag_chunk.embedding 固定维度）", llm.DefaultEmbeddingDim)
-	}
-	if err := config.Validate(); err != nil {
-		return llm.Config{}, err
-	}
-	return config, nil
+	return config
 }
 
-func (input modelProviderInput) toProvider(current llm.ProviderConfig, timeoutDefault time.Duration) (llm.ProviderConfig, error) {
-	model := strings.TrimSpace(input.Model)
-	baseURL := strings.TrimSpace(input.BaseURL)
-	if model == "" && baseURL == "" && input.APIKey == "" && !input.ClearAPIKey {
-		return llm.ProviderConfig{}, nil
+// storedFromLLMConfig converts a resolved config (environment bootstrap or the
+// legacy single-model document) into one entry per configured kind.
+func storedFromLLMConfig(config llm.Config) storedModelConfig {
+	stored := storedModelConfig{
+		Version:    storedModelConfigVersion,
+		Enabled:    config.Enabled,
+		Dimensions: config.Embedding.Dimensions,
+		Active:     make(map[string]string, len(ragModelKinds)),
 	}
-	key := strings.TrimSpace(input.APIKey)
-	if input.ClearAPIKey {
-		key = ""
-	} else if key == "" {
-		key = current.APIKey
+	if stored.Dimensions == 0 {
+		stored.Dimensions = llm.DefaultEmbeddingDim
 	}
-	seconds := input.TimeoutSecond
-	if seconds == 0 {
-		seconds = int(timeoutDefault.Seconds())
+	add := func(kind string, provider llm.ProviderConfig) {
+		if provider.Model == "" {
+			return
+		}
+		id := "env-" + kind
+		seconds := int(provider.Timeout / time.Second)
+		if seconds <= 0 {
+			seconds = int(ragModelKinds[kind] / time.Second)
+		}
+		stored.Models = append(stored.Models, modelEntry{
+			ID:             id,
+			Kind:           kind,
+			Model:          provider.Model,
+			BaseURL:        provider.BaseURL,
+			APIKey:         provider.APIKey,
+			TimeoutSeconds: seconds,
+		})
+		stored.Active[kind] = id
 	}
-	if seconds < 1 || seconds > 600 {
-		return llm.ProviderConfig{}, fmt.Errorf("timeoutSeconds 必须在 1 到 600 秒之间")
-	}
-	return llm.ProviderConfig{Model: model, BaseURL: baseURL, APIKey: key, Timeout: time.Duration(seconds) * time.Second}, nil
+	add("chat", config.Chat)
+	add("embedding", config.Embedding.ProviderConfig)
+	add("vision", config.Vision)
+	add("ocr", config.OCR)
+	add("rerank", config.Rerank)
+	return stored
 }
 
-func modelConfigToView(config llm.Config) modelConfigView {
-	provider := func(value llm.ProviderConfig) modelProviderView {
-		return modelProviderView{Model: value.Model, BaseURL: safeModelBaseURL(value.BaseURL), APIKeySet: value.APIKey != "", TimeoutSecond: int(value.Timeout.Seconds())}
+func newRAGModelID() string {
+	buffer := make([]byte, 6)
+	if _, err := io.ReadFull(rand.Reader, buffer); err != nil {
+		return fmt.Sprintf("model-%d", time.Now().UnixNano())
 	}
-	return modelConfigView{Enabled: config.Enabled, Chat: provider(config.Chat), Embedding: provider(config.Embedding.ProviderConfig), Vision: provider(config.Vision), OCR: provider(config.OCR), Rerank: provider(config.Rerank), Dimensions: config.Embedding.Dimensions}
+	return "model-" + hex.EncodeToString(buffer)
 }
 
 func safeModelBaseURL(raw string) string {
@@ -194,52 +359,16 @@ func safeModelBaseURL(raw string) string {
 	return parsed.String()
 }
 
+// loadRAGModelConfig returns the effective runtime configuration: the active
+// entries of the encrypted document, or the environment bootstrap when no
+// document exists yet.
 func loadRAGModelConfig() (llm.Config, error) {
-	path := ragModelConfigPath()
-	content, err := os.ReadFile(path)
-	if err == nil {
-		var document encryptedModelDocument
-		if err := json.Unmarshal(content, &document); err != nil {
-			return llm.Config{}, fmt.Errorf("模型文档格式无效")
-		}
-		if document.Version != 1 {
-			return llm.Config{}, fmt.Errorf("不支持的模型文档版本 %d", document.Version)
-		}
-		key, err := modelConfigEncryptionKey()
-		if err != nil {
-			return llm.Config{}, err
-		}
-		block, err := aes.NewCipher(key)
-		if err != nil {
-			return llm.Config{}, err
-		}
-		gcm, err := cipher.NewGCM(block)
-		if err != nil {
-			return llm.Config{}, err
-		}
-		nonce, err := base64.StdEncoding.DecodeString(document.Nonce)
-		if err != nil {
-			return llm.Config{}, fmt.Errorf("模型文档 nonce 无效")
-		}
-		sealed, err := base64.StdEncoding.DecodeString(document.Ciphertext)
-		if err != nil {
-			return llm.Config{}, fmt.Errorf("模型文档密文无效")
-		}
-		plain, err := gcm.Open(nil, nonce, sealed, []byte(ragModelConfigAAD))
-		if err != nil {
-			return llm.Config{}, fmt.Errorf("模型文档解密失败；请确认加密密钥与该文件匹配")
-		}
-		var config llm.Config
-		if err := json.Unmarshal(plain, &config); err != nil {
-			return llm.Config{}, fmt.Errorf("解密后的模型配置无效")
-		}
-		if err := config.Validate(); err != nil {
-			return llm.Config{}, fmt.Errorf("模型配置校验失败: %w", err)
-		}
-		return config, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
+	stored, persisted, err := loadStoredRAGModelConfig()
+	if err != nil {
 		return llm.Config{}, err
+	}
+	if persisted {
+		return stored.toLLMConfig(), nil
 	}
 	return llm.ConfigFromEnv(func(key, fallback string) string {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
@@ -249,29 +378,66 @@ func loadRAGModelConfig() (llm.Config, error) {
 	})
 }
 
-func saveRAGModelConfig(config llm.Config) error {
-	key, err := modelConfigEncryptionKey()
+func loadStoredRAGModelConfig() (storedModelConfig, bool, error) {
+	content, err := os.ReadFile(ragModelConfigPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return storedModelConfig{}, false, nil
+	}
+	if err != nil {
+		return storedModelConfig{}, false, err
+	}
+	plain, err := decryptRAGModelDocument(content)
+	if err != nil {
+		return storedModelConfig{}, false, err
+	}
+	var header struct {
+		Version int `json:"version"`
+	}
+	if err := json.Unmarshal(plain, &header); err != nil {
+		return storedModelConfig{}, false, fmt.Errorf("解密后的模型配置无效")
+	}
+	switch header.Version {
+	case storedModelConfigVersion:
+		var stored storedModelConfig
+		if err := json.Unmarshal(plain, &stored); err != nil {
+			return storedModelConfig{}, false, fmt.Errorf("解密后的模型配置无效")
+		}
+		for _, entry := range stored.Models {
+			if _, known := ragModelKinds[entry.Kind]; !known {
+				return storedModelConfig{}, false, fmt.Errorf("模型配置包含未知分工 %q", entry.Kind)
+			}
+		}
+		if err := stored.toLLMConfig().Validate(); err != nil {
+			return storedModelConfig{}, false, fmt.Errorf("模型配置校验失败: %w", err)
+		}
+		if stored.Active == nil {
+			stored.Active = map[string]string{}
+		}
+		return stored, true, nil
+	case 0:
+		var legacy llm.Config
+		if err := json.Unmarshal(plain, &legacy); err != nil {
+			return storedModelConfig{}, false, fmt.Errorf("解密后的模型配置无效")
+		}
+		if err := legacy.Validate(); err != nil {
+			return storedModelConfig{}, false, fmt.Errorf("模型配置校验失败: %w", err)
+		}
+		return storedFromLLMConfig(legacy), true, nil
+	default:
+		return storedModelConfig{}, false, fmt.Errorf("不支持的模型文档版本 %d", header.Version)
+	}
+}
+
+func saveRAGModelConfig(stored storedModelConfig) error {
+	stored.Version = storedModelConfigVersion
+	if stored.Active == nil {
+		stored.Active = map[string]string{}
+	}
+	plain, err := json.Marshal(stored)
 	if err != nil {
 		return err
 	}
-	plain, err := json.Marshal(config)
-	if err != nil {
-		return err
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return err
-	}
-	sealed := gcm.Seal(nil, nonce, plain, []byte(ragModelConfigAAD))
-	document, err := json.Marshal(encryptedModelDocument{Version: 1, Nonce: base64.StdEncoding.EncodeToString(nonce), Ciphertext: base64.StdEncoding.EncodeToString(sealed)})
+	document, err := encryptRAGModelDocument(plain)
 	if err != nil {
 		return err
 	}
@@ -303,6 +469,62 @@ func saveRAGModelConfig(config llm.Config) error {
 	return os.Rename(tempPath, path)
 }
 
+func decryptRAGModelDocument(content []byte) ([]byte, error) {
+	var document encryptedModelDocument
+	if err := json.Unmarshal(content, &document); err != nil {
+		return nil, fmt.Errorf("模型文档格式无效")
+	}
+	if document.Version != 1 {
+		return nil, fmt.Errorf("不支持的模型文档版本 %d", document.Version)
+	}
+	key, err := modelConfigEncryptionKey()
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonce, err := base64.StdEncoding.DecodeString(document.Nonce)
+	if err != nil {
+		return nil, fmt.Errorf("模型文档 nonce 无效")
+	}
+	sealed, err := base64.StdEncoding.DecodeString(document.Ciphertext)
+	if err != nil {
+		return nil, fmt.Errorf("模型文档密文无效")
+	}
+	plain, err := gcm.Open(nil, nonce, sealed, []byte(ragModelConfigAAD))
+	if err != nil {
+		return nil, fmt.Errorf("模型文档解密失败；请确认加密密钥与该文件匹配")
+	}
+	return plain, nil
+}
+
+func encryptRAGModelDocument(plain []byte) ([]byte, error) {
+	key, err := modelConfigEncryptionKey()
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+	sealed := gcm.Seal(nil, nonce, plain, []byte(ragModelConfigAAD))
+	return json.Marshal(encryptedModelDocument{Version: 1, Nonce: base64.StdEncoding.EncodeToString(nonce), Ciphertext: base64.StdEncoding.EncodeToString(sealed)})
+}
+
 func modelConfigEncryptionKey() ([]byte, error) {
 	raw := strings.TrimSpace(os.Getenv(ragModelConfigKeyEnv))
 	key, err := hex.DecodeString(raw)
@@ -319,5 +541,3 @@ func ragModelConfigPath() string {
 	}
 	return resolveSystemConfigPath(configured, systemConfigProjectRoot())
 }
-
-func fileExists(path string) bool { _, err := os.Stat(path); return err == nil }

@@ -431,30 +431,32 @@ definitions:
     type: object
   kadmin.modelConfigInput:
     properties:
-      chat:
-        $ref: '#/definitions/kadmin.modelProviderInput'
       dimensions:
         type: integer
-      embedding:
-        $ref: '#/definitions/kadmin.modelProviderInput'
       enabled:
         type: boolean
-      ocr:
-        $ref: '#/definitions/kadmin.modelProviderInput'
-      rerank:
-        $ref: '#/definitions/kadmin.modelProviderInput'
-      vision:
-        $ref: '#/definitions/kadmin.modelProviderInput'
+      models:
+        items:
+          $ref: '#/definitions/kadmin.modelInput'
+        type: array
     type: object
-  kadmin.modelProviderInput:
+  kadmin.modelInput:
     properties:
+      active:
+        type: boolean
       apiKey:
         type: string
       baseUrl:
         type: string
       clearApiKey:
         type: boolean
+      id:
+        type: string
+      kind:
+        type: string
       model:
+        type: string
+      name:
         type: string
       timeoutSeconds:
         type: integer

@@ -12518,32 +12518,26 @@ const docTemplate = `{
         "kadmin.modelConfigInput": {
             "type": "object",
             "properties": {
-                "chat": {
-                    "$ref": "#/definitions/kadmin.modelProviderInput"
-                },
                 "dimensions": {
                     "type": "integer"
-                },
-                "embedding": {
-                    "$ref": "#/definitions/kadmin.modelProviderInput"
                 },
                 "enabled": {
                     "type": "boolean"
                 },
-                "ocr": {
-                    "$ref": "#/definitions/kadmin.modelProviderInput"
-                },
-                "rerank": {
-                    "$ref": "#/definitions/kadmin.modelProviderInput"
-                },
-                "vision": {
-                    "$ref": "#/definitions/kadmin.modelProviderInput"
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/kadmin.modelInput"
+                    }
                 }
             }
         },
-        "kadmin.modelProviderInput": {
+        "kadmin.modelInput": {
             "type": "object",
             "properties": {
+                "active": {
+                    "type": "boolean"
+                },
                 "apiKey": {
                     "type": "string"
                 },
@@ -12553,7 +12547,16 @@ const docTemplate = `{
                 "clearApiKey": {
                     "type": "boolean"
                 },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
                 "model": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 },
                 "timeoutSeconds": {
