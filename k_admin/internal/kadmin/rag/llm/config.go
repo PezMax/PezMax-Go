@@ -37,6 +37,8 @@ type Config struct {
 	Chat      ProviderConfig
 	Embedding EmbeddingConfig
 	Vision    ProviderConfig
+	OCR       ProviderConfig
+	Rerank    ProviderConfig
 }
 
 // ConfigFromEnv loads the server-side model configuration. Disabled RAG keeps
@@ -136,21 +138,24 @@ func (c Config) Validate() error {
 	if !c.Enabled {
 		return nil
 	}
-	if c.Chat.Model == "" && c.Embedding.Model == "" && c.Vision.Model == "" {
-		return fmt.Errorf("至少需要配置一个 Eino 模型：KADMIN_RAG_CHAT_MODEL、KADMIN_RAG_EMBEDDING_MODEL 或 KADMIN_RAG_VISION_MODEL")
+	if c.Chat.Model == "" && c.Embedding.Model == "" && c.Vision.Model == "" && c.OCR.Model == "" && c.Rerank.Model == "" {
+		return fmt.Errorf("至少需要配置一个 RAG 模型")
 	}
-	if err := validateProvider("chat", c.Chat); err != nil {
-		return err
-	}
-	if err := validateProvider("vision", c.Vision); err != nil {
-		return err
+	providers := [...]struct {
+		name     string
+		provider ProviderConfig
+	}{{"chat", c.Chat}, {"vision", c.Vision}, {"ocr", c.OCR}, {"rerank", c.Rerank}}
+	for _, item := range providers {
+		if err := validateProvider(item.name, item.provider); err != nil {
+			return err
+		}
 	}
 	if c.Embedding.Model != "" {
 		if err := validateProvider("embedding", c.Embedding.ProviderConfig); err != nil {
 			return err
 		}
 		if c.Embedding.Dimensions < 1 || c.Embedding.Dimensions > maxEmbeddingDim {
-			return fmt.Errorf("KADMIN_RAG_EMBEDDING_DIM 维度必须在 1 到 %d 之间，当前为 %d", maxEmbeddingDim, c.Embedding.Dimensions)
+			return fmt.Errorf("embedding dimensions 必须在 1 到 %d 之间", maxEmbeddingDim)
 		}
 	}
 	return nil
@@ -217,12 +222,16 @@ func normalizeBaseURL(raw string) string {
 
 // Status is safe to expose to an authenticated administrator: it contains no
 // API key, request content, or authorization header.
+// Status is safe to expose to an authenticated administrator: it contains no
+// API key, request content, or authorization header.
 type Status struct {
 	Framework string          `json:"framework"`
 	Enabled   bool            `json:"enabled"`
 	Chat      ProviderStatus  `json:"chat"`
 	Embedding EmbeddingStatus `json:"embedding"`
 	Vision    ProviderStatus  `json:"vision"`
+	OCR       ProviderStatus  `json:"ocr"`
+	Rerank    ProviderStatus  `json:"rerank"`
 }
 
 type ProviderStatus struct {
@@ -257,7 +266,8 @@ func statusFromConfig(config Config) Status {
 			ProviderStatus: providerStatus(config.Embedding.ProviderConfig),
 			Dimensions:     config.Embedding.Dimensions,
 		},
-		Vision: providerStatus(config.Vision),
+		OCR:    providerStatus(config.OCR),
+		Rerank: providerStatus(config.Rerank),
 	}
 }
 

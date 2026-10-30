@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/bootstrap"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/codegen"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/files"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/jobs"
@@ -23,6 +24,7 @@ var menuPermissionSlugs = map[string][]string{
 	"/kadmin/menus":        {menuManagePermission},
 	"/kadmin/dictionary":   {dictionaryManagePermission},
 	"/kadmin/settings":     {systemConfigManagePermission},
+	"/kadmin/rag-models":   {bootstrap.RAGModelConfigManagePermission},
 	"/kadmin/logs":         {logListPermission},
 	"/kadmin/login-audits": {loginlogs.ListPermission},
 	"/kadmin/jobs":         {jobs.ListPermission},

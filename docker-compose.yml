@@ -142,7 +142,10 @@ services:
       KADMIN_MINIO_BUCKET: ${PEZMAX_MINIO_BUCKET:-ptmj}
       KADMIN_MINIO_RAG_BUCKET: ${PEZMAX_MINIO_RAG_BUCKET:-ptmj-rag}
       KADMIN_DATUM_SESSION_TTL: 120h
-      # Eino RAG 模型层：默认关闭；密钥只通过部署环境注入，不写入镜像。
+      # Encrypted model document and independent encryption key; never store the key in the volume.
+      KADMIN_RAG_CONFIG_ENCRYPTION_KEY: ${KADMIN_RAG_CONFIG_ENCRYPTION_KEY:-}
+      KADMIN_RAG_MODEL_CONFIG_PATH: /app/model-config/rag_models.enc
+      # Eino RAG model layer: environment config is bootstrap-only after document exists.
       KADMIN_RAG_ENABLED: ${KADMIN_RAG_ENABLED:-false}
       KADMIN_RAG_CHAT_BASE_URL: ${KADMIN_RAG_CHAT_BASE_URL:-}
       KADMIN_RAG_CHAT_API_KEY: ${KADMIN_RAG_CHAT_API_KEY:-}
@@ -162,6 +165,7 @@ services:
       - "${PEZMAX_APP_BIND_IP:-127.0.0.1}:${PEZMAX_APP_PORT:-9033}:9033"
     volumes:
       - kadmin_uploads:/app/uploads
+      - kadmin_model_config:/app/model-config
     networks:
       - backend
     depends_on:
@@ -252,3 +256,5 @@ volumes:
     name: pezmax-go-minio-data
   kadmin_uploads:
     name: pezmax-go-kadmin-uploads
+  kadmin_model_config:
+    name: pezmax-go-kadmin-model-config

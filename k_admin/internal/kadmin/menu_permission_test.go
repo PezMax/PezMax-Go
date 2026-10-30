@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/bootstrap"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/codegen"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/files"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/jobs"
@@ -263,6 +264,7 @@ func TestMenuPermissionSlugsCoverPermissionGatedMenus(t *testing.T) {
 		"/kadmin/menus",
 		"/kadmin/dictionary",
 		"/kadmin/settings",
+		"/kadmin/rag-models",
 		"/kadmin/logs",
 		"/kadmin/login-audits",
 		"/kadmin/jobs",
@@ -284,6 +286,7 @@ func TestMenuPermissionSlugsGrantOnlyPagePermissions(t *testing.T) {
 		"/kadmin/menus":        menuManagePermission,
 		"/kadmin/dictionary":   dictionaryManagePermission,
 		"/kadmin/settings":     systemConfigManagePermission,
+		"/kadmin/rag-models":   bootstrap.RAGModelConfigManagePermission,
 		"/kadmin/logs":         logListPermission,
 		"/kadmin/login-audits": loginlogs.ListPermission,
 		"/kadmin/jobs":         jobs.ListPermission,

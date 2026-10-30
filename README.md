@@ -512,6 +512,7 @@ npm run build:win
 | `npm run dev:admin` | 保留的 admin 模式开发入口，Web 后台仍需独立启动 |
 | `npm run build` | 编译主进程、预加载及渲染进程到 `out/` |
 | `npm run agent:setup` / `agent:test` | 初始化 Python 虚拟环境与依赖 / 测试 LangGraph 模块 |
+| `PezMax-Agent\start.ps1 [-Install|-Serve|-Desktop]` | 智能体一键自检 / 初始化 / 启动 API 服务（`127.0.0.1:9044`）/ 启动桌面开发 |
 | `npm run agent:build` | 构建当前平台的独立智能体程序，并校验运行时 |
 | `npm run build:unpack` | 生成未打包的应用目录 |
 | `npm run build:win` | 构建 Windows 安装程序 |

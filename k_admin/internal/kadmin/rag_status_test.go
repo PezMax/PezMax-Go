@@ -27,12 +27,13 @@ func TestRAGStatusHandlerReturnsRedactedConfiguration(t *testing.T) {
 		t.Fatalf("llm.New: %v", err)
 	}
 	defer models.Close()
+	manager := llm.NewManager(models)
 
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
 	context.Request = httptest.NewRequest("GET", "/api/rag/status", nil)
 
-	store := &Store{ragModels: models}
+	store := &Store{ragModels: manager}
 	store.ragStatus(context)
 
 	var envelope struct {

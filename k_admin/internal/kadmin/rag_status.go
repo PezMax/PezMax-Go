@@ -11,6 +11,7 @@ import (
 func registerRAGRoutes(api *gin.RouterGroup, s *Store) {
 	group := api.Group("/rag", s.requireAuth(), s.requireAdmin())
 	group.GET("/status", s.ragStatus)
+	registerRAGModelConfigRoutes(api, s)
 }
 
 func (s *Store) ragStatus(c *gin.Context) {

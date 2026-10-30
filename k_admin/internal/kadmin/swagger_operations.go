@@ -3,6 +3,18 @@ package kadmin
 // This file keeps the generated API contract close to the KAdmin route registry.
 // The functions are documentation anchors consumed by swag and are not handlers.
 
+// swaggerRAGModelConfig documents GET /rag/models and PUT /rag/models.
+// @Summary 获取或更新 RAG 模型配置
+// @Tags RAG
+// @Security BearerAuth
+// @Param payload body modelConfigInput true "加密保存的模型配置"
+// @Success 200 {object} SwaggerResponse
+// @Failure 400 {object} SwaggerErrorResponse
+// @Failure 403 {object} SwaggerErrorResponse
+// @Router /rag/models [get]
+// @Router /rag/models [put]
+func swaggerRAGModelConfig() {}
+
 // swaggerCaptcha documents GET /auth/captcha.
 // @Summary 获取一次性登录验证码
 // @Tags 认证

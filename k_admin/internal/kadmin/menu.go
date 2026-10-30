@@ -101,6 +101,12 @@ var vbenMenuRouteBindings = map[string]menuRouteBinding{
 		Component: "/kadmin/components/SettingsView",
 		Icon:      "lucide:sliders-horizontal",
 	},
+	"/kadmin/rag-models": {
+		Name:      "KAdminRAGModels",
+		Path:      "/kadmin/rag-models",
+		Component: "/kadmin/components/RagModelConfigView",
+		Icon:      "lucide:brain-circuit",
+	},
 	"/kadmin/resources": {
 		Name:      "KAdminResources",
 		Path:      "/kadmin/resources",
@@ -197,8 +203,9 @@ func (s *Store) menus(c *gin.Context) {
 	}
 
 	visibleItems := make([]menuItem, 0, len(items))
+	admin := user.IsSuperAdmin() || isAdminUser(user.UserName)
 	for _, item := range items {
-		if !allowed[item.ID] {
+		if !allowed[item.ID] || (!admin && normalizeMenuURI(item.URI) == "/kadmin/rag-models") {
 			continue
 		}
 		visibleItems = append(visibleItems, item)

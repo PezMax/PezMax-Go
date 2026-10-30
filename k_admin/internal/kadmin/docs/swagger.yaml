@@ -429,6 +429,36 @@ definitions:
       parentId:
         type: integer
     type: object
+  kadmin.modelConfigInput:
+    properties:
+      chat:
+        $ref: '#/definitions/kadmin.modelProviderInput'
+      dimensions:
+        type: integer
+      embedding:
+        $ref: '#/definitions/kadmin.modelProviderInput'
+      enabled:
+        type: boolean
+      ocr:
+        $ref: '#/definitions/kadmin.modelProviderInput'
+      rerank:
+        $ref: '#/definitions/kadmin.modelProviderInput'
+      vision:
+        $ref: '#/definitions/kadmin.modelProviderInput'
+    type: object
+  kadmin.modelProviderInput:
+    properties:
+      apiKey:
+        type: string
+      baseUrl:
+        type: string
+      clearApiKey:
+        type: boolean
+      model:
+        type: string
+      timeoutSeconds:
+        type: integer
+    type: object
   kadmin.refreshTokenRequest:
     properties:
       refreshToken:
@@ -6826,6 +6856,59 @@ paths:
       summary: 修改通知
       tags:
       - 生成业务
+  /rag/models:
+    get:
+      parameters:
+      - description: 加密保存的模型配置
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/kadmin.modelConfigInput'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 获取或更新 RAG 模型配置
+      tags:
+      - RAG
+    put:
+      parameters:
+      - description: 加密保存的模型配置
+        in: body
+        name: payload
+        required: true
+        schema:
+          $ref: '#/definitions/kadmin.modelConfigInput'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/kadmin.SwaggerErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 获取或更新 RAG 模型配置
+      tags:
+      - RAG
   /rag/status:
     get:
       responses:

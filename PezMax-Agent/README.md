@@ -10,7 +10,18 @@
 
 ## 开发
 
-需要 Python 3.11 或以上。在本目录执行：
+需要 Python 3.11 或以上。快捷方式（PowerShell，本目录）：
+
+```powershell
+.\start.ps1            # 自检：虚拟环境、依赖、LangGraph 状态图
+.\start.ps1 -Install   # 初始化 .venv 与 .venv-service 及全部依赖
+.\start.ps1 -Serve     # 启动 API 服务 http://127.0.0.1:9044/docs（首次自动生成 data/service-token.txt）
+.\start.ps1 -Desktop   # 启动桌面端开发模式，由 Electron 经 stdio 拉起智能体
+```
+
+`-Serve` 可加 `-ProviderUrl https://模型服务/v1` 加入模型白名单、`-CatalogUrl http://127.0.0.1:9033` 配置目录接口、`-Port 9045` 换端口。脚本不写死密钥：访问令牌落在 git 忽略的 `data/service-token.txt`，模型 Key 仍由调用方每次请求提供。
+
+等价的手工步骤：
 
 ```powershell
 python -m venv .venv

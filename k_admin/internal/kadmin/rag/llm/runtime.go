@@ -16,6 +16,7 @@ type Runtime struct {
 	config    Config
 	chat      model.ToolCallingChatModel
 	vision    model.ToolCallingChatModel
+	ocr       model.ToolCallingChatModel
 	embedding embedding.Embedder
 	clients   []*http.Client
 }
@@ -53,13 +54,20 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	if config.Embedding.Model != "" {
 		runtime.embedding = newOpenAIEmbedder(config.Embedding)
 	}
-	if config.Vision.Model != "" {
-		vision, client, err := newChatModel(ctx, config.Vision)
+	for name, provider := range map[string]ProviderConfig{"vision": config.Vision, "ocr": config.OCR} {
+		if provider.Model == "" {
+			continue
+		}
+		component, client, err := newChatModel(ctx, provider)
 		if err != nil {
 			runtime.Close()
-			return nil, fmt.Errorf("创建 Eino Vision ChatModel 失败: %w", err)
+			return nil, fmt.Errorf("创建 Eino %s ChatModel 失败: %w", name, err)
 		}
-		runtime.vision = vision
+		if name == "ocr" {
+			runtime.ocr = component
+		} else {
+			runtime.vision = component
+		}
 		runtime.clients = append(runtime.clients, client)
 	}
 	return runtime, nil
@@ -115,6 +123,14 @@ func (r *Runtime) Status() Status {
 		return statusFromConfig(Config{})
 	}
 	return statusFromConfig(r.config)
+}
+
+// Config returns the validated runtime configuration, including server-side secrets.
+func (r *Runtime) Config() Config {
+	if r == nil {
+		return Config{}
+	}
+	return r.config
 }
 
 // Close releases idle HTTP connections owned by the model runtime.

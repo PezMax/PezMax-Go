@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
-	"strings"
 	"sync"
 
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/generated"
@@ -43,7 +41,7 @@ type Store struct {
 	loadRank       *loadrank.Sampler
 	datumConverter *convert.Converter
 	converterOnce  sync.Once
-	ragModels      *llm.Runtime
+	ragModels      *llm.Manager
 }
 
 type Runtime struct {
@@ -53,7 +51,7 @@ type Runtime struct {
 	monitor     *monitor.Manager
 	loadRank    *loadrank.Sampler
 	datumStates *datumStateWarmer
-	ragModels   *llm.Runtime
+	ragModels   *llm.Manager
 }
 
 func (r *Runtime) Close() {
@@ -101,18 +99,16 @@ func (r *Runtime) RAGStatus() llm.Status {
 }
 
 func Register(r *gin.Engine, conn db.Connection) (*Runtime, error) {
-	// Eino model clients are constructed eagerly so a bad KADMIN_RAG_* value
-	// fails startup instead of the first request. Disabled configuration is a
-	// no-op and keeps the previous backend behaviour unchanged.
-	ragModels, err := llm.NewFromEnv(context.Background(), func(key, fallback string) string {
-		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-			return value
-		}
-		return fallback
-	})
+	// Encrypted model documents take precedence over bootstrap environment config.
+	ragConfig, err := loadRAGModelConfig()
+	if err != nil {
+		return nil, fmt.Errorf("加载 RAG 模型配置失败: %w", err)
+	}
+	ragRuntime, err := llm.New(context.Background(), ragConfig)
 	if err != nil {
 		return nil, fmt.Errorf("初始化 RAG 模型层失败: %w", err)
 	}
+	ragModels := llm.NewManager(ragRuntime)
 	handedOff := false
 	defer func() {
 		if !handedOff {

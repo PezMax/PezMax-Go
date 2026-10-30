@@ -20,9 +20,24 @@ KAdmin 是一个前后端分离的后台管理项目。后端复用 [GoAdmin](ht
 - 可启停的接口负载采样，按路由、方法或状态码查看请求量、QPS、错误率及耗时排行
 - 代码生成器：PostgreSQL 表导入、字段识别与类型映射，一键生成前后端分页 CRUD（Model/Repository/Handler/路由、API 客户端、列表与表单页面、权限与菜单），支持预览、ZIP 下载与带冲突保护的落盘写入
 - 自动生成的 Swagger API 文档与在线调试界面
+
 - PostgreSQL 数据存储、Redis 鉴权状态存储
 - 可选的 MinIO 对象存储和 Adminer 数据库管理工具
 - 保留 GoAdmin 原有后台入口，供兼容和公共能力复用
+
+### RAG 模型配置
+
+管理员可在 `/kadmin/rag-models` 即时配置 Chat、Embedding、Vision、OCR 和可选 Rerank 模型。接口执行 JWT 鉴权和管理员身份检查；API Key 不会出现在响应或审计日志中。
+
+配置写入 `KADMIN_RAG_MODEL_CONFIG_PATH` 指定的数据文档，默认 `data/rag_models.enc`。文档使用 AES-256-GCM 加密；生产环境必须从 Secret 注入 `KADMIN_RAG_CONFIG_ENCRYPTION_KEY`（64 位十六进制、32 字节），不得提交 `.env` 或密钥。Docker Compose 使用独立持久化卷保存密文，密钥不进入该卷。保存前校验并构建新 Eino runtime，再原子替换在线 runtime；失败时旧配置继续生效。
+
+首次启用前生成密钥：
+
+```bash
+openssl rand -hex 32
+```
+
+密钥丢失后无法解密模型文档。Embedding 维度必须与 `rag_chunk.embedding vector(1024)` 一致。Rerank 端点现可保存，但实际重排调用尚未接入检索管线。
 
 ## 技术栈
 

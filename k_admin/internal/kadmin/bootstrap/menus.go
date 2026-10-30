@@ -40,6 +40,7 @@ func DefaultMenus() []MenuSeed {
 				{Title: "系统监控", Icon: "lucide:monitor-cog", URI: "/kadmin/monitor", Order: 10},
 				{Title: "接口负载排行", Icon: "lucide:bar-chart-3", URI: "/kadmin/load-ranking", Order: 11},
 				{Title: "代码生成", Icon: "lucide:wand-2", URI: "/kadmin/codegen", Order: 12},
+				{Title: "RAG 模型配置", Icon: "lucide:brain-circuit", URI: "/kadmin/rag-models", Order: 13},
 			},
 		},
 		{

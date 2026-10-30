@@ -50,6 +50,8 @@ const (
 	DictionaryDataDeletePermission = "system:dict:data:delete"
 	SystemConfigManagePermission   = "system:config:manage"
 	SystemConfigUpdatePermission   = "system:config:update"
+	RAGModelConfigManagePermission = "system:rag:model:manage"
+	RAGModelConfigUpdatePermission = "system:rag:model:update"
 )
 
 // datum 管理侧权限：桌面端 datum 契约中的管理操作（平台用户管理、通知管理、
@@ -229,6 +231,15 @@ func DefaultPermissions() []PermissionSeed {
 		{
 			Name: "更新参数配置", Slug: SystemConfigUpdatePermission, HTTPMethod: "PUT", HTTPPath: "/api/system/config",
 			PageURI: "/kadmin/settings", PageTitle: "参数配置", Scope: PermissionScopeButton, Button: "settings.update",
+		},
+		{
+			Name: "查看 RAG 模型配置", Slug: RAGModelConfigManagePermission,
+			HTTPMethod: "GET", HTTPPath: "/api/rag/models",
+			PageURI: "/kadmin/rag-models", PageTitle: "RAG 模型配置", Scope: PermissionScopePage,
+		},
+		{
+			Name: "更新 RAG 模型配置", Slug: RAGModelConfigUpdatePermission, HTTPMethod: "PUT", HTTPPath: "/api/rag/models",
+			PageURI: "/kadmin/rag-models", PageTitle: "RAG 模型配置", Scope: PermissionScopeButton, Button: "rag-models.update",
 		},
 		{
 			Name: "查看请求日志", Slug: LogListPermission, HTTPMethod: "GET", HTTPPath: "/api/logs*",

@@ -29,3 +29,4 @@ admin-web/node_modules/
 admin-web/dist/
 admin-web/vite-dev.err.log
 admin-web/vite-dev.log
+data/rag_models.enc

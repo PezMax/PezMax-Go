@@ -9755,6 +9755,92 @@ const docTemplate = `{
                 }
             }
         },
+        "/rag/models": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "RAG"
+                ],
+                "summary": "获取或更新 RAG 模型配置",
+                "parameters": [
+                    {
+                        "description": "加密保存的模型配置",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.modelConfigInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "RAG"
+                ],
+                "summary": "获取或更新 RAG 模型配置",
+                "parameters": [
+                    {
+                        "description": "加密保存的模型配置",
+                        "name": "payload",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.modelConfigInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/kadmin.SwaggerErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/rag/status": {
             "get": {
                 "security": [
@@ -12425,6 +12511,52 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "parentId": {
+                    "type": "integer"
+                }
+            }
+        },
+        "kadmin.modelConfigInput": {
+            "type": "object",
+            "properties": {
+                "chat": {
+                    "$ref": "#/definitions/kadmin.modelProviderInput"
+                },
+                "dimensions": {
+                    "type": "integer"
+                },
+                "embedding": {
+                    "$ref": "#/definitions/kadmin.modelProviderInput"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "ocr": {
+                    "$ref": "#/definitions/kadmin.modelProviderInput"
+                },
+                "rerank": {
+                    "$ref": "#/definitions/kadmin.modelProviderInput"
+                },
+                "vision": {
+                    "$ref": "#/definitions/kadmin.modelProviderInput"
+                }
+            }
+        },
+        "kadmin.modelProviderInput": {
+            "type": "object",
+            "properties": {
+                "apiKey": {
+                    "type": "string"
+                },
+                "baseUrl": {
+                    "type": "string"
+                },
+                "clearApiKey": {
+                    "type": "boolean"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "timeoutSeconds": {
                     "type": "integer"
                 }
             }
