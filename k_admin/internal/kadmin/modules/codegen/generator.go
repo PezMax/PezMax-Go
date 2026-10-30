@@ -132,6 +132,7 @@ type templateModel struct {
 	RequiredStringColumns []templateColumn
 	HasKeyword            bool
 	HasAvatarColumn       bool
+	HasPreview            bool
 	SelectList            string
 	InsertColumns         string
 	InsertPlaceholders    string
@@ -208,6 +209,8 @@ func buildTemplateModel(config TableConfig, registryModules []registryModule) (t
 	if len(model.ListedColumns) > 0 {
 		model.ListedColumns[0].First = true
 	}
+	// 文件类表（file_name + file_format + file_url 均为 string 列）在操作栏补一个在线预览。
+	model.HasPreview = hasFilePreviewColumns(model.ListedColumns)
 	model.Columns = columns
 	pkColumn, pkJSONName := "id", "id"
 	for _, column := range columns {
@@ -299,6 +302,18 @@ func defaultLiteral(tsType string) string {
 	default:
 		return "''"
 	}
+}
+
+// hasFilePreviewColumns reports whether the listed columns carry everything the
+// shared FilePreviewPager needs (file_name, file_format, file_url).
+func hasFilePreviewColumns(columns []templateColumn) bool {
+	found := map[string]bool{}
+	for _, column := range columns {
+		if column.GoType == "string" {
+			found[column.Name] = true
+		}
+	}
+	return found["file_name"] && found["file_format"] && found["file_url"]
 }
 
 // isAvatarColumn reports whether a column stores a user avatar, so the list

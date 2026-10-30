@@ -263,6 +263,11 @@
           </template>
           <template v-else-if="column.key === 'action'">
             <a-space :size="2">
+              <a-tooltip title="预览">
+                <a-button type="text" shape="circle" @click="openPreview(record)">
+                  <EyeOutlined />
+                </a-button>
+              </a-tooltip>
               <a-tooltip v-if="canUpdate" title="编辑">
                 <a-button type="text" shape="circle" @click="openEdit(record)">
                   <EditOutlined />
@@ -423,6 +428,25 @@
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <a-drawer
+      v-model:open="preview.open"
+      title="文件预览"
+      width="820"
+      :destroy-on-close="true"
+    >
+      <a-spin v-if="preview.file" :spinning="preview.loading">
+        <FilePreviewPager
+          v-if="preview.url"
+          v-model:page="preview.page"
+          :file-name="preview.file.fileName"
+          :file-format="preview.file.fileFormat"
+          :file-url="preview.url"
+          :page-count="preview.pageCount"
+          :height="previewHeight"
+        />
+      </a-spin>
+    </a-drawer>
   </div>
 </template>
 
@@ -431,14 +455,16 @@ import {
   ClearOutlined,
   DeleteOutlined,
   EditOutlined,
+  EyeOutlined,
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
 } from '@ant-design/icons-vue';
 import { useAccess } from '@vben/access';
 import { message, Modal, type FormInstance } from 'ant-design-vue';
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, defineAsyncComponent, onMounted, reactive, ref } from 'vue';
 
+import { previewKindOf, resolvePreview } from '#/api/kadmin/fileAudit';
 import {
   createFile,
   deleteFile,
@@ -495,7 +521,7 @@ const columns = [
   { title: 'Update By', dataIndex: 'updateBy', key: 'updateBy', width: 160, ellipsis: true },
   { title: 'Update Time', dataIndex: 'updateTime', key: 'updateTime', width: 160, ellipsis: true },
   { title: '备注（复用为 MinIO 文件夹相对路径）', dataIndex: 'remark', key: 'remark', width: 160, ellipsis: true },
-  { title: '操作', key: 'action', width: 120, fixed: 'right' },
+  { title: '操作', key: 'action', width: 160, fixed: 'right' },
 ];
 
 const pagination = computed(() => ({
@@ -710,6 +736,43 @@ async function remove(record: File) {
     await fetchList();
   } catch (error) {
     message.error(error instanceof Error ? error.message : '删除失败');
+  }
+}
+
+// 文件在线预览：pdfjs 按需加载，非 PDF/图片格式由预览器降级提示下载。
+const FilePreviewPager = defineAsyncComponent(
+  () => import('#/views/kadmin/components/FilePreviewPager.vue'),
+);
+
+const preview = reactive({
+  open: false,
+  loading: false,
+  file: null as null | File,
+  url: '',
+  pageCount: undefined as number | undefined,
+  page: 1,
+});
+
+const previewHeight = computed(() =>
+  preview.file && previewKindOf(preview.file.fileFormat) === 'unsupported' ? 220 : 540,
+);
+
+async function openPreview(record: File) {
+  preview.file = record;
+  preview.url = '';
+  preview.pageCount = undefined;
+  preview.page = 1;
+  preview.open = true;
+  preview.loading = true;
+  try {
+    const result = await resolvePreview(record);
+    preview.url = result.url;
+    preview.pageCount = result.pageCount;
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '加载文件预览失败');
+    preview.open = false;
+  } finally {
+    preview.loading = false;
   }
 }
 

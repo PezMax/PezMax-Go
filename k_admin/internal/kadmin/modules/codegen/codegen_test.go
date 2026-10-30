@@ -249,6 +249,57 @@ func TestRenderArtifactsNormalizesAvatarColumns(t *testing.T) {
 	}
 }
 
+func TestRenderArtifactsAddsPreviewOnlyForFileTables(t *testing.T) {
+	config := sampleConfig()
+	config.BusinessName = "试卷文件"
+	config.Columns = append(config.Columns,
+		ColumnConfig{Name: "file_name", Label: "文件名", GoType: "string", TSType: "string", Control: "input", Listed: true, Creatable: true, Editable: true},
+		ColumnConfig{Name: "file_url", Label: "文件URL", GoType: "string", TSType: "string", Control: "textarea", Listed: true},
+		ColumnConfig{Name: "file_format", Label: "格式", GoType: "string", TSType: "string", Control: "input", Listed: true, Creatable: true, Editable: true},
+	)
+	artifacts, err := renderArtifacts(config, nil)
+	if err != nil {
+		t.Fatalf("render artifacts: %v", err)
+	}
+	var vue, plain string
+	for _, artifact := range artifacts {
+		switch artifact.Path {
+		case "admin-web/apps/web-antd/src/views/kadmin/generated/product/ProductListView.vue":
+			vue = artifact.Content
+		}
+	}
+	if vue == "" {
+		t.Fatal("list view artifact missing")
+	}
+	for _, expectedSnippet := range []string{
+		"  EyeOutlined,",
+		`import { previewKindOf, resolvePreview } from '#/api/kadmin/fileAudit';`,
+		`() => import('#/views/kadmin/components/FilePreviewPager.vue')`,
+		`@click="openPreview(record)"`,
+		`v-model:open="preview.open"`,
+		`:file-url="preview.url"`,
+	} {
+		if !strings.Contains(vue, expectedSnippet) {
+			t.Fatalf("file table page missing preview: %q", expectedSnippet)
+		}
+	}
+
+	plainArtifacts, err := renderArtifacts(sampleConfig(), nil)
+	if err != nil {
+		t.Fatalf("render artifacts: %v", err)
+	}
+	for _, artifact := range plainArtifacts {
+		if artifact.Path == "admin-web/apps/web-antd/src/views/kadmin/generated/product/ProductListView.vue" {
+			plain = artifact.Content
+		}
+	}
+	for _, unexpected := range []string{"FilePreviewPager", "openPreview", "EyeOutlined"} {
+		if strings.Contains(plain, unexpected) {
+			t.Fatalf("non-file table page must not include preview: %q", unexpected)
+		}
+	}
+}
+
 func TestRenderArtifactsRejectsCompositePrimaryKey(t *testing.T) {
 	config := sampleConfig()
 	config.Columns[1].IsPK = true
