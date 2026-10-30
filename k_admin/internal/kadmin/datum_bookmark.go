@@ -201,6 +201,9 @@ func (s *Store) datumBookmarkCreate(c *gin.Context) {
 		fail(c, http.StatusBadRequest, message)
 		return
 	}
+	if s.rejectSensitiveBookmark(c, &req) {
+		return
+	}
 	bookmarkID, err := datum.NewBookmarkRepo(s.conn).Insert(datum.BookmarkPayload{
 		UserID: userID, URL: req.URL, Title: req.Title, Description: req.Description,
 		CoverImage: req.CoverImage, Subject: req.Subject, ResourceType: req.ResourceType,
@@ -306,6 +309,9 @@ func (s *Store) datumBookmarkUpdate(c *gin.Context) {
 	}
 	if message := validateBookmarkWrite(&merged); message != "" {
 		fail(c, http.StatusBadRequest, message)
+		return
+	}
+	if s.rejectSensitiveBookmark(c, &merged) {
 		return
 	}
 	payload := datum.BookmarkPayload{

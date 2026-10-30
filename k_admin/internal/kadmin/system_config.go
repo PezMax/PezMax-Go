@@ -145,6 +145,22 @@ var systemConfigMetas = []systemConfigMeta{
 		Order:       38,
 	},
 	{
+		Key:         "security.sensitive_words_enabled",
+		Label:       "敏感词拦截",
+		Type:        "boolean",
+		Default:     "true",
+		Description: "文件名、用户名、标题/简介等写入时拦截违禁词；词表缺失时放行",
+		Order:       39,
+	},
+	{
+		Key:         "security.sensitive_words_path",
+		Label:       "敏感词词表路径",
+		Type:        "text",
+		Default:     "data/sensitive_words.txt",
+		Description: "UTF-8 纯文本，一行一个词；相对路径以 kadmin 根目录为基准，改动后热加载",
+		Order:       41,
+	},
+	{
 		Key:         "ui.theme_mode",
 		Label:       "界面模式",
 		Type:        "select",

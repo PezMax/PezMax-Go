@@ -32,6 +32,10 @@ RUN if [ -n "$DEBIAN_MIRROR" ]; then \
 
 WORKDIR /app
 COPY --from=build /out/k_admin ./k_admin
+# 默认敏感词词表随镜像分发（运行时的 data/system_config.json 与它同目录）。
+# 线上要改词表内容：把 security.sensitive_words_path（或 KADMIN_SENSITIVE_WORDS_PATH）
+# 指到挂载卷里的文件，改动热加载，不需要重建镜像。
+COPY --from=build /src/data/sensitive_words.txt ./data/sensitive_words.txt
 
 ENV TZ=Asia/Shanghai \
     KADMIN_APP_PORT=9033 \

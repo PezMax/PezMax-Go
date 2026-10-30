@@ -66,10 +66,12 @@
                   type="text"
                   size="large"
                   auto-complete="off"
-                  placeholder="请输入账号"
+                  maxlength="18"
+                  placeholder="请输入账号（6-18位小写字母或数字）"
                 >
                   <template #prefix><svg-icon icon-class="user" class="el-input__icon input-icon" /></template>
                 </el-input>
+                <p class="username-hint">用户名即为账号，由6位以上18位以下小写英文字母和数字组成。</p>
                 <p class="username-hint">本软件与学校无关，各位同学请勿将学号，手机号等注册为账号</p>
               </el-form-item>
 
@@ -363,10 +365,11 @@ const equalToPassword = (_rule, value, callback) => {
 }
 
 const registerRules = {
-  userName: [
+  username: [
     { required: true, trigger: "blur", message: "请输入您的账号" },
-    { min: 2, max: 20, message: "用户账号长度必须介于 2 和 20 之间", trigger: "blur" }
-  ],//LYZ三次修改：校验字段名改为userName，与注册表单和后端DTO一致
+    // 用户名即为账号：6-18 位小写英文字母和数字，禁止中文名与符号
+    { pattern: /^[a-z0-9]{6,18}$/, trigger: "blur", message: "用户名即为账号，由6位以上18位以下小写英文字母和数字组成" }
+  ],
   password: [
     { required: true, trigger: "blur", message: "请输入您的密码" },
     { min: 5, max: 15, message: "用户密码长度必须介于 5 和 15 之间", trigger: "blur" },

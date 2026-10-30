@@ -16,6 +16,7 @@ import (
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/monitor"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/notifications"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/convert"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/textguard"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/rag"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/rag/llm"
 	"github.com/GoAdminGroup/go-admin/modules/db"
@@ -42,6 +43,10 @@ type Store struct {
 	datumConverter *convert.Converter
 	converterOnce  sync.Once
 	ragModels      *llm.Manager
+	// sensitiveWords is the prohibited-word guard; guardOnce keeps the lazy
+	// creation race-free for stores built outside Register (tests).
+	guardOnce      sync.Once
+	sensitiveWords *textguard.Guard
 }
 
 type Runtime struct {

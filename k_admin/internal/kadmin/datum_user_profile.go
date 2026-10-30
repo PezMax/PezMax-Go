@@ -15,6 +15,7 @@ import (
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/datum"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/fileurl"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/storage"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/textguard"
 	"github.com/gin-gonic/gin"
 )
 
@@ -91,6 +92,9 @@ func (s *Store) datumUpdateUserName(c *gin.Context) {
 	userName := strings.TrimSpace(req.UserName)
 	if userName == "" || len([]rune(userName)) > 64 {
 		fail(c, http.StatusBadRequest, "用户名格式错误：需为 1-64 个字符")
+		return
+	}
+	if s.rejectSensitiveText(c, textguard.Field{Label: "用户名", Value: userName}) {
 		return
 	}
 	repo := &datumUserRepo{conn: s.conn}

@@ -14,6 +14,7 @@ import (
 	"github.com/360EntSecGroup-Skylar/excelize"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/loginlogs"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/notifications"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/textguard"
 	"github.com/GoAdminGroup/go-admin/modules/auth"
 	"github.com/GoAdminGroup/go-admin/modules/db"
 	"github.com/GoAdminGroup/go-admin/modules/db/dialect"
@@ -176,6 +177,12 @@ func (s *Store) createManagedUser(c *gin.Context) {
 	if req.Name == "" {
 		req.Name = req.Username
 	}
+	if s.rejectSensitiveText(c,
+		textguard.Field{Label: "用户名", Value: req.Username},
+		textguard.Field{Label: "姓名", Value: req.Name},
+	) {
+		return
+	}
 
 	id, err := db.WithDriver(s.conn).Table("goadmin_users").Insert(dialect.H{
 		"username": req.Username,
@@ -246,6 +253,12 @@ func (s *Store) updateManagedUser(c *gin.Context) {
 	}
 	if req.Name == "" {
 		req.Name = req.Username
+	}
+	if s.rejectSensitiveText(c,
+		textguard.Field{Label: "用户名", Value: req.Username},
+		textguard.Field{Label: "姓名", Value: req.Name},
+	) {
+		return
 	}
 	if protectedAdminUser(userID) {
 		req.Status = "enable"
@@ -454,10 +467,19 @@ func (s *Store) importManagedUsers(c *gin.Context) {
 	}
 
 	imported := 0
-	for _, payload := range payloads {
+	for index, payload := range payloads {
 		normalizeUserPayload(&payload)
 		if payload.Username == "" {
 			continue
+		}
+		if payload.Name == "" {
+			payload.Name = payload.Username
+		}
+		if s.rejectSensitiveText(c,
+			textguard.Field{Label: fmt.Sprintf("第 %d 条记录的用户名", index+1), Value: payload.Username},
+			textguard.Field{Label: fmt.Sprintf("第 %d 条记录的姓名", index+1), Value: payload.Name},
+		) {
+			return
 		}
 		if payload.Password == "" {
 			payload.Password = "Admin@123456"

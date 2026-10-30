@@ -21,6 +21,7 @@ import (
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/convert"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/fileurl"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/storage"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/textguard"
 	"github.com/gin-gonic/gin"
 )
 
@@ -750,6 +751,14 @@ func (s *Store) datumFileUpload(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "文件名不能为空且不超过 255 个字符")
 		return
 	}
+	if s.rejectSensitiveText(c,
+		textguard.Field{Label: "文件名", Value: fileName},
+		textguard.Field{Label: "科目", Value: strings.TrimSpace(c.PostForm("fileSubject"))},
+		textguard.Field{Label: "学校", Value: strings.TrimSpace(c.PostForm("fileSchool"))},
+		textguard.Field{Label: "备注", Value: strings.TrimSpace(c.PostForm("remark"))},
+	) {
+		return
+	}
 	subject := strings.TrimSpace(c.PostForm("fileSubject"))
 	school := strings.TrimSpace(c.PostForm("fileSchool"))
 	year := toDatumInt64(strings.TrimSpace(c.PostForm("fileYear")))
@@ -893,6 +902,14 @@ func (s *Store) datumFileUpdate(c *gin.Context) {
 	}
 	if _, known := datumFileTypeNames[req.FileType]; !known {
 		fail(c, http.StatusBadRequest, "文件类型不正确")
+		return
+	}
+	if s.rejectSensitiveText(c,
+		textguard.Field{Label: "文件名", Value: strings.TrimSpace(req.FileName)},
+		textguard.Field{Label: "科目", Value: strings.TrimSpace(req.FileSubject)},
+		textguard.Field{Label: "学校", Value: strings.TrimSpace(req.FileSchool)},
+		textguard.Field{Label: "备注", Value: strings.TrimSpace(req.Remark)},
+	) {
 		return
 	}
 	payload := datum.FilePayload{

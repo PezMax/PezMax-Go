@@ -1344,7 +1344,7 @@ func TestDatumRegisterCreatesUserAndSecurity(t *testing.T) {
 	seedDatumCaptcha(t, store, "cap-reg")
 	engine := datumEngine(t, store)
 	payload := map[string]string{
-		"username": "bob", "password": "pass123", "confirmPassword": "pass123",
+		"username": "bob123", "password": "pass123", "confirmPassword": "pass123",
 		"securityQuestionOne": "q1", "securityAnswerOne": "a1",
 		"securityQuestionTwo": "q2", "securityAnswerTwo": "a2",
 		"securityQuestionThree": "q3", "securityAnswerThree": "a3",
@@ -1354,7 +1354,7 @@ func TestDatumRegisterCreatesUserAndSecurity(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d body %s", recorder.Code, recorder.Body.String())
 	}
-	user := db.users["bob"]
+	user := db.users["bob123"]
 	if user == nil {
 		t.Fatal("user was not created")
 	}
@@ -1379,12 +1379,44 @@ func TestDatumRegisterCreatesUserAndSecurity(t *testing.T) {
 	}
 }
 
+func TestDatumRegisterRejectsInvalidUsername(t *testing.T) {
+	store, db := newDatumAuthStore(t, nil)
+	engine := datumEngine(t, store)
+	cases := map[string]string{
+		"中文名":   "张三abc",
+		"符号":    "bob123!",
+		"空格":    "bob 123",
+		"不足6位":  "abc12",
+		"超过18位": "a123456789012345678",
+		"大写字母":  "Bob123",
+	}
+	uuid := 0
+	for name, username := range cases {
+		uuid++
+		captcha := fmt.Sprintf("cap-bad-%d", uuid)
+		seedDatumCaptcha(t, store, captcha)
+		response := datumJSON(t, engine, http.MethodPost, "/datum/user/register", "", map[string]string{
+			"username": username, "password": "pass123", "confirmPassword": "pass123",
+			"securityQuestionOne": "q1", "securityAnswerOne": "a1",
+			"securityQuestionTwo": "q2", "securityAnswerTwo": "a2",
+			"securityQuestionThree": "q3", "securityAnswerThree": "a3",
+			"code": "123456", "uuid": captcha,
+		})
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d body %s", name, response.Code, response.Body.String())
+		}
+		if db.users[username] != nil {
+			t.Fatalf("%s: account %q was created", name, username)
+		}
+	}
+}
+
 func TestDatumRegisterDoesNotLeaveUserWhenSecurityInsertFails(t *testing.T) {
 	store, db := newDatumAuthStore(t, nil)
 	db.securityInsertErr = errors.New("security insert failed")
 	seedDatumCaptcha(t, store, "cap-reg-fail")
 	response := datumJSON(t, datumEngine(t, store), http.MethodPost, "/datum/user/register", "", map[string]string{
-		"username": "bob", "password": "pass123", "confirmPassword": "pass123",
+		"username": "bob123", "password": "pass123", "confirmPassword": "pass123",
 		"securityQuestionOne": "q1", "securityAnswerOne": "a1",
 		"securityQuestionTwo": "q2", "securityAnswerTwo": "a2",
 		"securityQuestionThree": "q3", "securityAnswerThree": "a3",
@@ -1393,7 +1425,7 @@ func TestDatumRegisterDoesNotLeaveUserWhenSecurityInsertFails(t *testing.T) {
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("register status = %d, body = %s", response.Code, response.Body.String())
 	}
-	if db.users["bob"] != nil || len(db.security) != 0 {
+	if db.users["bob123"] != nil || len(db.security) != 0 {
 		t.Fatal("failed registration left account or security data")
 	}
 }

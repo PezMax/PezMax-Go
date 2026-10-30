@@ -15,6 +15,7 @@ import (
 
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/modules/datum"
 	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/fileurl"
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/textguard"
 	"github.com/gin-gonic/gin"
 )
 
@@ -387,6 +388,14 @@ func (s *Store) datumEbookUpload(c *gin.Context) {
 	}
 	if ebookName == "" || len([]rune(ebookName)) > 255 {
 		fail(c, http.StatusBadRequest, "书名不能为空且不超过 255 个字符")
+		return
+	}
+	if s.rejectSensitiveText(c,
+		textguard.Field{Label: "书名", Value: ebookName},
+		textguard.Field{Label: "作者", Value: strings.TrimSpace(c.PostForm("author"))},
+		textguard.Field{Label: "出版社", Value: strings.TrimSpace(c.PostForm("publisher"))},
+		textguard.Field{Label: "学科分类", Value: strings.TrimSpace(c.PostForm("ebookSubject"))},
+	) {
 		return
 	}
 	author := strings.TrimSpace(c.PostForm("author"))

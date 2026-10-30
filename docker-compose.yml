@@ -126,6 +126,8 @@ services:
       KADMIN_REDIS_PORT: "6379"
       KADMIN_REDIS_PASSWORD: ${PEZMAX_REDIS_PASSWORD:?Set PEZMAX_REDIS_PASSWORD in .env}
       KADMIN_JWT_SECRET: ${KADMIN_JWT_SECRET:?Set KADMIN_JWT_SECRET in .env}
+      # 指向挂载卷里的大词表可在线维护；留空用镜像内 /app/data/sensitive_words.txt
+      KADMIN_SENSITIVE_WORDS_PATH: ${KADMIN_SENSITIVE_WORDS_PATH:-}
       KADMIN_APP_HOST: "0.0.0.0"
       KADMIN_APP_PORT: "9033"
       # 生产容器：release 模式 + 出站 QoS 默认开启（bulk=下载/头像/封面 共享 80% 上行桶）

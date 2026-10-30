@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/textguard"
 	"github.com/GoAdminGroup/go-admin/plugins/admin/models"
 	"github.com/gin-gonic/gin"
 )
@@ -150,6 +151,12 @@ func (s *Store) datumUserCreate(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "备注不能超过 500 个字符")
 		return
 	}
+	if s.rejectSensitiveText(c,
+		textguard.Field{Label: "用户名", Value: req.UserName},
+		textguard.Field{Label: "备注", Value: strings.TrimSpace(req.Remark)},
+	) {
+		return
+	}
 	repo := &datumUserRepo{conn: s.conn}
 	if existing, err := repo.findByUserName(req.UserName); err == nil && existing != nil {
 		fail(c, http.StatusConflict, "用户名已存在，请更换后重试")
@@ -211,6 +218,9 @@ func (s *Store) datumUserUpdate(c *gin.Context) {
 			fail(c, http.StatusBadRequest, "用户名格式错误：需为 1-64 个字符")
 			return
 		}
+		if s.rejectSensitiveText(c, textguard.Field{Label: "用户名", Value: userName}) {
+			return
+		}
 		if clash, err := repo.findByUserName(userName); err == nil && clash != nil && clash.UserID != userID {
 			fail(c, http.StatusConflict, "用户名已存在，请更换后重试")
 			return
@@ -262,6 +272,9 @@ func (s *Store) datumUserUpdate(c *gin.Context) {
 			return
 		}
 		remark := strings.TrimSpace(*req.Remark)
+		if s.rejectSensitiveText(c, textguard.Field{Label: "备注", Value: remark}) {
+			return
+		}
 		update.Remark = &remark
 	}
 	// 操作人留痕：管理写走管理端 JWT，优先记录管理员名，无则回退 datum 会话用户

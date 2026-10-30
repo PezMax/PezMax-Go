@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/GoAdminGroup/go-admin/internal/kadmin/platform/textguard"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -29,6 +31,9 @@ const (
 )
 
 var (
+	// 用户名即为账号：6-18 位小写英文字母和数字（注册时校验，历史账号不受影响）。
+	datumUsernamePattern = regexp.MustCompile(`^[a-z0-9]{6,18}$`)
+
 	errDatumSessionInvalid = errors.New("datum session invalid")
 	errDatumUserDisabled   = errors.New("datum user disabled")
 	errDatumUserNotFound   = errors.New("datum user not found")
@@ -593,8 +598,8 @@ func (s *Store) datumRegister(c *gin.Context) {
 	case req.Username == "":
 		fail(c, http.StatusBadRequest, "用户名不能为空")
 		return
-	case len([]rune(req.Username)) > 64:
-		fail(c, http.StatusBadRequest, "用户名格式错误")
+	case !datumUsernamePattern.MatchString(req.Username):
+		fail(c, http.StatusBadRequest, "用户名即为账号，由6位以上18位以下小写英文字母和数字组成")
 		return
 	case len(req.Password) < 5 || len(req.Password) > 64:
 		fail(c, http.StatusBadRequest, "密码格式错误：长度需在 5 到 64 位之间")
@@ -610,6 +615,9 @@ func (s *Store) datumRegister(c *gin.Context) {
 		return
 	case len(req.Avatar) > 255:
 		fail(c, http.StatusBadRequest, "头像地址格式错误")
+		return
+	}
+	if s.rejectSensitiveText(c, textguard.Field{Label: "用户名", Value: req.Username}) {
 		return
 	}
 	if !s.verifyDatumCaptcha(c, req.UUID, req.Code) {
