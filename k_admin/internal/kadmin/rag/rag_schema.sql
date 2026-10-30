@@ -63,6 +63,10 @@ CREATE INDEX IF NOT EXISTS idx_rag_document_source
     ON public.rag_document (source_kind, source_id, source_version DESC);
 CREATE INDEX IF NOT EXISTS idx_rag_document_sha256
     ON public.rag_document (content_sha256);
+-- pg_trgm fuzzy index for title recall: tolerates typos, spacing differences
+-- and inconsistently named uploads that exact/tsvector matching misses.
+CREATE INDEX IF NOT EXISTS idx_rag_document_title_trgm
+    ON public.rag_document USING gin (display_title gin_trgm_ops);
 
 -- Durable DB queue. Workers claim queued jobs with FOR UPDATE SKIP LOCKED.
 CREATE TABLE IF NOT EXISTS public.rag_job (
@@ -126,6 +130,10 @@ CREATE INDEX IF NOT EXISTS idx_rag_chunk_visible_document
     ON public.rag_chunk (visibility, index_version, document_id, page_start);
 CREATE INDEX IF NOT EXISTS idx_rag_chunk_lexical
     ON public.rag_chunk USING gin (to_tsvector('simple', search_text));
+-- pg_trgm fuzzy index for the lexical fallback: CJK bigrams and typos that the
+-- tsvector index above cannot match still return candidates via similarity().
+CREATE INDEX IF NOT EXISTS idx_rag_chunk_trgm
+    ON public.rag_chunk USING gin (search_text gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_rag_chunk_embedding
     ON public.rag_chunk USING hnsw (embedding vector_cosine_ops)
     WHERE visibility AND embedding IS NOT NULL;

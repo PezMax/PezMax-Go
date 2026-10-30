@@ -75,6 +75,10 @@ vector_available() {
   [[ $(db_exec -tAc "SELECT 1 FROM pg_available_extensions WHERE name = 'vector'") == 1 ]]
 }
 
+trgm_installed() {
+  [[ $(db_exec -tAc "SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'") == 1 ]]
+}
+
 enable_extensions() {
   db_exec -c 'CREATE EXTENSION IF NOT EXISTS vector' \
           -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm'
@@ -88,7 +92,21 @@ enable_extensions() {
 installed_version=$(vector_version)
 if [[ -n $installed_version ]]; then
   if vector_available; then
-    echo "pgvector already enabled in $container (version $installed_version)."
+    if trgm_installed; then
+      echo "pgvector $installed_version and pg_trgm are already enabled in $container."
+      exit 0
+    fi
+    # pg_trgm ships with the same image and only needs CREATE EXTENSION.
+    if [[ $check_only == true ]]; then
+      echo "pg_trgm is NOT enabled in $container." >&2
+      exit 1
+    fi
+    if [[ $dry_run == true ]]; then
+      echo "Would create the pg_trgm extension in $container."
+      exit 0
+    fi
+    db_exec -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm'
+    echo "pg_trgm enabled in $container (pgvector $installed_version)."
     exit 0
   fi
   echo "pgvector $installed_version is recorded in the database, but the running image does not provide it." >&2

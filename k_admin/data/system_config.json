@@ -2,7 +2,7 @@
   "auth.default_password": "admin",
   "auth.default_username": "admin",
   "navigation.external_link_target": "new_tab",
-  "security.captcha_enabled": "true",
+  "security.captcha_enabled": "false",
   "security.captcha_ttl_seconds": "120",
   "security.idempotency_ttl_seconds": "300",
   "security.login_failure_threshold": "5",

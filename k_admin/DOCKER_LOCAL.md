@@ -44,12 +44,13 @@ docker compose exec postgres psql -U postgres -d kadmin `
 docker compose exec postgres psql -U postgres -d kadmin -tAc "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
 ```
 
-扩展安装后，Go 后端启动会幂等补齐 RAG schema。也可手动执行并核验：
+扩展安装后，Go 后端启动会在缺少 `pg_trgm` 时自动建扩展，并幂等补齐 RAG schema（含 `idx_rag_document_title_trgm`、`idx_rag_chunk_trgm` 两个 GIN 索引）。也可手动执行并核验：
 
 ```powershell
 Get-Content .\internal\kadmin\rag\rag_schema.sql -Raw |
   docker compose exec -T postgres psql -U postgres -d kadmin
 docker compose exec postgres psql -U postgres -d kadmin -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'rag_%' ORDER BY table_name"
+docker compose exec postgres psql -U postgres -d kadmin -c "SELECT indexname FROM pg_indexes WHERE indexname LIKE '%_trgm'"
 ```
 
 检索向量当前固定为 `vector(1024)`；更换维度需先迁移索引，不可直接调整配置混用。

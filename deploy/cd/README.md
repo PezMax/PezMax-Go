@@ -43,19 +43,22 @@ pgvector image, recreates only the `postgres` service, runs
 the previous image if any step fails. The data volume is never deleted. Expect
 a few seconds of database downtime; run it in a maintenance window.
 
-Useful flags: `--check` exits non-zero when the extension is missing,
+Useful flags: `--check` exits non-zero when either extension is missing,
 `--skip-backup` skips the dump (not recommended), and
 `PEZMAX_DB_BACKUP_DIR` / `PEZMAX_DB_IMAGE` / `PEZMAX_DB_CONTAINER` override
-defaults. Docker image pulls go through the Docker daemon, not the server's
-Clash HTTP proxy; if the registry is unreachable, configure the daemon proxy
-first. The poller only warns when the extension is missing and does not
-recreate the database automatically.
+defaults. When pgvector is already installed but `pg_trgm` is not, the script
+only runs `CREATE EXTENSION pg_trgm` and leaves the container running. Docker
+image pulls go through the Docker daemon, not the server's Clash HTTP proxy; if
+the registry is unreachable, configure the daemon proxy first. The poller warns
+when either extension is missing and does not recreate the database
+automatically.
 
-Verify:
+Verify (both extensions and the trigram indexes):
 
 ```sh
 docker exec pezmax-go-postgres sh -c \
-  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT extversion FROM pg_extension WHERE extname = '"'"'vector'"'"'"'
+  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT extname FROM pg_extension WHERE extname IN ('"'"'vector'"'"', '"'"'pg_trgm'"'"')" \
+   -c "SELECT indexname FROM pg_indexes WHERE indexname IN ('"'"'idx_rag_document_title_trgm'"'"', '"'"'idx_rag_chunk_trgm'"'"')"'
 ```
 
 ## Server setup

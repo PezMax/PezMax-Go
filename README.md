@@ -611,7 +611,7 @@ npm run build
 1. `k_admin/tests/data/admin_pg.sql`：管理后台表结构与账号、权限等种子。
 2. `k_admin/sql/ptmj_schema.sql`：桌面业务表结构。
 3. `k_admin/sql/extensions.sql`：启用 `vector`（pgvector）与 `pg_trgm` 扩展；镜像缺失扩展时初始化直接失败。
-4. `k_admin/internal/kadmin/rag/rag_schema.sql`：RAG 索引版本、文档、任务、chunk、审核记录、查询日志及索引。
+4. `k_admin/internal/kadmin/rag/rag_schema.sql`：RAG 索引版本、文档、任务、chunk、审核记录、查询日志及索引（含 `pg_trgm` 的标题/chunk 模糊检索索引）。
 PostgreSQL 镜像使用 `pgvector/pgvector:pg16`（`PEZMAX_DB_IMAGE` 可覆盖），与 `postgres:16-alpine` 同为 16 主版本、共用同一数据目录。扩展初始化脚本只在空数据卷执行；已有数据卷先确认镜像，再手动建扩展：
 
 ```powershell
@@ -626,7 +626,7 @@ docker compose exec postgres psql -U postgres -d pezmax `
 docker compose exec postgres psql -U postgres -d pezmax -tAc "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
 ```
 
-后端启动会在 pgvector 扩展已安装时幂等补齐 RAG schema；RAG 开启但扩展缺失时会明确报错，RAG 关闭且旧数据库无扩展时不影响旧服务。初始化 SQL 只在空数据卷执行，已有数据卷不会自动重跑。已经安装 pgvector 的现有库也可手动应用 schema：
+后端启动会在 pgvector 扩展已安装时幂等补齐 RAG schema，并在缺少 `pg_trgm` 时自动执行 `CREATE EXTENSION IF NOT EXISTS pg_trgm`（需要建扩展权限），同时创建 `idx_rag_document_title_trgm`、`idx_rag_chunk_trgm` 两个 GIN 索引；RAG 开启但 pgvector 缺失时会明确报错，RAG 关闭且旧数据库无扩展时不影响旧服务。初始化 SQL 只在空数据卷执行，已有数据卷不会自动重跑。已经安装 pgvector 的现有库也可手动应用 schema：
 
 ```powershell
 docker compose exec postgres psql -U postgres -d pezmax -f /docker-entrypoint-initdb.d/40-rag_schema.sql

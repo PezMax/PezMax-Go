@@ -96,17 +96,19 @@ export PEZMAX_RELEASE_SHA=$target
 docker compose --profile app --profile edge config --quiet
 
 # pgvector is required by the RAG service but optional for the current app.
-# Images are already pinned to pgvector/pgvector:pg16; an existing database
-# volume still needs the one-time enable-pgvector.sh migration.
-check_pgvector() {
+# pg_trgm backs the trigram lexical fallback and is created by extensions.sql
+# or EnsureSchema. Images are already pinned to pgvector/pgvector:pg16; an
+# existing database volume still needs the one-time enable-pgvector.sh
+# migration for either extension.
+check_rag_extensions() {
   local db_container=${PEZMAX_DB_CONTAINER:-pezmax-go-postgres}
   docker inspect "$db_container" >/dev/null 2>&1 || return 0
   docker exec "$db_container" sh -c \
-    'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_extension WHERE extname = '\''vector'\''"' \
-    2>/dev/null | grep -qx 1
+    'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT count(*) FROM pg_extension WHERE extname IN ('\''vector'\'', '\''pg_trgm'\'')"' \
+    2>/dev/null | grep -qx 2
 }
-if ! check_pgvector; then
-  echo 'WARNING: pgvector is not enabled in PostgreSQL. Run deploy/cd/enable-pgvector.sh once (see deploy/cd/README.md).' >&2
+if ! check_rag_extensions; then
+  echo 'WARNING: pgvector/pg_trgm is not enabled in PostgreSQL. Run deploy/cd/enable-pgvector.sh once (see deploy/cd/README.md).' >&2
 fi
 
 # Build every application image before changing running containers.
