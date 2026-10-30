@@ -70,7 +70,12 @@
         <template #bodyCell="{ column, record }">
 [[- range .ListedColumns]]
           <template [[if .First]]v-if[[else]]v-else-if[[end]]="column.key === '[[.JSONName]]'">
-[[- if eq .Control "switch"]]
+[[- if .Avatar]]
+            <a-typography-text
+              :content="avatarLabel(record.[[.JSONName]])"
+              :ellipsis="{ tooltip: avatarLabel(record.[[.JSONName]]) }"
+            />
+[[- else if eq .Control "switch"]]
             <a-tag :color="record.[[.JSONName]] ? 'green' : 'default'">{{ record.[[.JSONName]] ? '是' : '否' }}</a-tag>
 [[- else if eq .Control "textarea"]]
             <a-typography-text
@@ -202,6 +207,9 @@ import {
   type [[.Class]],
   type [[.Class]]Payload,
 } from '#/api/kadmin/generated/[[.Module]]';
+[[- if .HasAvatarColumn]]
+import { avatarLabel } from '#/views/kadmin/avatar';
+[[- end]]
 
 type TablePagination = { current?: number; pageSize?: number };
 

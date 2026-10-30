@@ -214,6 +214,41 @@ func TestRenderArtifactsWithoutQueryColumnsOmitsSearchCode(t *testing.T) {
 	}
 }
 
+func TestRenderArtifactsNormalizesAvatarColumns(t *testing.T) {
+	config := sampleConfig()
+	config.Columns = append(config.Columns, ColumnConfig{
+		Name: "avatar", Label: "头像", GoType: "string", TSType: "string",
+		Control: "input", Listed: true, Queryable: true, Creatable: true, Editable: true,
+	})
+	artifacts, err := renderArtifacts(config, nil)
+	if err != nil {
+		t.Fatalf("render artifacts: %v", err)
+	}
+	var vue string
+	for _, artifact := range artifacts {
+		if artifact.Path == "admin-web/apps/web-antd/src/views/kadmin/generated/product/ProductListView.vue" {
+			vue = artifact.Content
+		}
+	}
+	if vue == "" {
+		t.Fatal("list view artifact missing")
+	}
+	for _, expectedSnippet := range []string{
+		`import { avatarLabel } from '#/views/kadmin/avatar';`,
+		`:content="avatarLabel(record.avatar)"`,
+	} {
+		if !strings.Contains(vue, expectedSnippet) {
+			t.Fatalf("avatar column is not normalized: missing %q", expectedSnippet)
+		}
+	}
+	if !strings.Contains(vue, `:content="record.name ?? '-'"`) {
+		t.Fatal("ordinary columns must keep rendering their raw value")
+	}
+	if strings.Contains(vue, "[[") || strings.Contains(vue, "]]") {
+		t.Fatal("generated vue page contains unresolved template delimiters")
+	}
+}
+
 func TestRenderArtifactsRejectsCompositePrimaryKey(t *testing.T) {
 	config := sampleConfig()
 	config.Columns[1].IsPK = true

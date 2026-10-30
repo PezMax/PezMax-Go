@@ -155,8 +155,8 @@
           </template>
           <template v-else-if="column.key === 'avatar'">
             <a-typography-text
-              :content="record.avatar ?? '-'"
-              :ellipsis="{ tooltip: record.avatar ?? '-' }"
+              :content="avatarLabel(record.avatar)"
+              :ellipsis="{ tooltip: avatarLabel(record.avatar) }"
             />
           </template>
           <template v-else-if="column.key === 'count'">
@@ -340,6 +340,7 @@ import {
   type PlatformUser,
   type PlatformUserPayload,
 } from '#/api/kadmin/generated/platform_user';
+import { avatarLabel } from '#/views/kadmin/avatar';
 
 type TablePagination = { current?: number; pageSize?: number };
 

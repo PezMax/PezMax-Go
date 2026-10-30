@@ -111,6 +111,7 @@ type templateColumn struct {
 	Convert   string
 	Default   string
 	First     bool
+	Avatar    bool
 }
 
 type registryModule struct {
@@ -130,6 +131,7 @@ type templateModel struct {
 	RequiredColumns       []templateColumn
 	RequiredStringColumns []templateColumn
 	HasKeyword            bool
+	HasAvatarColumn       bool
 	SelectList            string
 	InsertColumns         string
 	InsertPlaceholders    string
@@ -176,11 +178,14 @@ func buildTemplateModel(config TableConfig, registryModules []registryModule) (t
 			IsPK:      column.IsPK,
 			Convert:   convertFunc(column.Control, column.GoType),
 			Default:   defaultLiteral(column.TSType),
+			// 头像列在列表里走 avatarLabel 归一化（桌面端会写入本机安装路径）。
+			Avatar: isAvatarColumn(column.Name),
 		}
 		columns = append(columns, rendered)
 		if rendered.Listed {
 			listedNames = append(listedNames, rendered.Name)
 			model.ListedColumns = append(model.ListedColumns, rendered)
+			model.HasAvatarColumn = model.HasAvatarColumn || rendered.Avatar
 		}
 		if rendered.Queryable {
 			model.QueryColumns = append(model.QueryColumns, rendered)
@@ -294,6 +299,13 @@ func defaultLiteral(tsType string) string {
 	default:
 		return "''"
 	}
+}
+
+// isAvatarColumn reports whether a column stores a user avatar, so the list
+// view can render it through the shared avatarLabel() normalizer.
+func isAvatarColumn(name string) bool {
+	lowered := strings.ToLower(strings.TrimSpace(name))
+	return lowered == "avatar" || strings.HasSuffix(lowered, "_avatar")
 }
 
 // registryModulesFor returns the union of already generated modules plus the
